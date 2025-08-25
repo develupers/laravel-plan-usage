@@ -2,9 +2,9 @@
 
 namespace Develupers\PlanUsage;
 
+use Develupers\PlanUsage\Commands\PlanUsageCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
-use Develupers\PlanUsage\Commands\PlanUsageCommand;
 
 class PlanUsageServiceProvider extends PackageServiceProvider
 {

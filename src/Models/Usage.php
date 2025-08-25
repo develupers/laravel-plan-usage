@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Models;
 
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Illuminate\Database\Eloquent\Builder;
-use Carbon\Carbon;
 
 class Usage extends Model
 {
@@ -57,7 +57,7 @@ class Usage extends Model
     public function scopeForBillable(Builder $query, Model $billable): Builder
     {
         return $query->where('billable_type', get_class($billable))
-                     ->where('billable_id', $billable->getKey());
+            ->where('billable_id', $billable->getKey());
     }
 
     /**
@@ -104,11 +104,12 @@ class Usage extends Model
     public function scopeCurrentPeriod(Builder $query): Builder
     {
         $now = now();
+
         return $query->where('period_start', '<=', $now)
-                     ->where(function ($q) use ($now) {
-                         $q->where('period_end', '>=', $now)
-                           ->orWhereNull('period_end');
-                     });
+            ->where(function ($q) use ($now) {
+                $q->where('period_end', '>=', $now)
+                    ->orWhereNull('period_end');
+            });
     }
 
     /**
@@ -130,8 +131,8 @@ class Usage extends Model
      */
     public static function record(Model $billable, $feature, float $amount, array $metadata = []): self
     {
-        $featureModel = $feature instanceof Feature 
-            ? $feature 
+        $featureModel = $feature instanceof Feature
+            ? $feature
             : Feature::where('slug', $feature)->firstOrFail();
 
         // Determine period based on feature reset period
@@ -154,8 +155,8 @@ class Usage extends Model
      */
     public static function increment(Model $billable, $feature, float $amount = 1, array $metadata = []): self
     {
-        $featureModel = $feature instanceof Feature 
-            ? $feature 
+        $featureModel = $feature instanceof Feature
+            ? $feature
             : Feature::where('slug', $feature)->firstOrFail();
 
         // Try to find existing usage record for current period
@@ -166,9 +167,10 @@ class Usage extends Model
 
         if ($usage) {
             $usage->increment('used', $amount);
-            if (!empty($metadata)) {
+            if (! empty($metadata)) {
                 $usage->update(['metadata' => array_merge($usage->metadata ?? [], $metadata)]);
             }
+
             return $usage;
         }
 

@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Builder;
 
 class Feature extends Model
 {
@@ -46,7 +46,7 @@ class Feature extends Model
             'feature_id',
             'plan_id'
         )->withPivot('value', 'unit', 'metadata')
-         ->withTimestamps();
+            ->withTimestamps();
     }
 
     /**
@@ -118,7 +118,7 @@ class Feature extends Model
      */
     public function resetsperiodically(): bool
     {
-        return !in_array($this->reset_period, [null, 'never']);
+        return ! in_array($this->reset_period, [null, 'never']);
     }
 
     /**
@@ -126,7 +126,7 @@ class Feature extends Model
      */
     public function getNextResetDate(?\DateTimeInterface $from = null): ?\DateTimeInterface
     {
-        if (!$this->resetsperiodically()) {
+        if (! $this->resetsperiodically()) {
             return null;
         }
 
@@ -154,7 +154,7 @@ class Feature extends Model
      */
     public function getResetPeriodLabel(): string
     {
-        if (!$this->reset_period) {
+        if (! $this->reset_period) {
             return 'Never';
         }
 

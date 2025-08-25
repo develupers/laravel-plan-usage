@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Models;
 
+use Develupers\PlanUsage\Exceptions\QuotaExceededException;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Illuminate\Database\Eloquent\Builder;
-use Develupers\PlanUsage\Exceptions\QuotaExceededException;
 
 class Quota extends Model
 {
@@ -57,7 +57,7 @@ class Quota extends Model
     public function scopeForBillable(Builder $query, Model $billable): Builder
     {
         return $query->where('billable_type', get_class($billable))
-                     ->where('billable_id', $billable->getKey());
+            ->where('billable_id', $billable->getKey());
     }
 
     /**
@@ -139,7 +139,7 @@ class Quota extends Model
      */
     public function needsReset(): bool
     {
-        if (!$this->reset_at) {
+        if (! $this->reset_at) {
             return false;
         }
 
@@ -151,7 +151,7 @@ class Quota extends Model
      */
     public function reset(): self
     {
-        if (!$this->feature || !$this->feature->resetsperiodically()) {
+        if (! $this->feature || ! $this->feature->resetsperiodically()) {
             return $this;
         }
 
@@ -203,15 +203,15 @@ class Quota extends Model
      */
     public static function getOrCreate(Model $billable, $feature, ?float $limit = null): self
     {
-        $featureModel = $feature instanceof Feature 
-            ? $feature 
+        $featureModel = $feature instanceof Feature
+            ? $feature
             : Feature::where('slug', $feature)->firstOrFail();
 
         $quota = static::forBillable($billable)
             ->forFeature($featureModel)
             ->first();
 
-        if (!$quota) {
+        if (! $quota) {
             // If no limit specified, try to get from plan
             if ($limit === null && method_exists($billable, 'plan')) {
                 $plan = $billable->plan;
