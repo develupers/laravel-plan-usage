@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Omarr\PlanFeatureUsage\Models;
+namespace Develupers\PlanUsage\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;

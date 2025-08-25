@@ -1,10 +1,10 @@
 <?php
 
-namespace VendorName\Skeleton\Tests;
+namespace Develupers\PlanUsage\Tests;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Orchestra\Testbench\TestCase as Orchestra;
-use VendorName\Skeleton\SkeletonServiceProvider;
+use Develupers\PlanUsage\PlanUsageServiceProvider;
 
 class TestCase extends Orchestra
 {
@@ -13,14 +13,14 @@ class TestCase extends Orchestra
         parent::setUp();
 
         Factory::guessFactoryNamesUsing(
-            fn (string $modelName) => 'VendorName\\Skeleton\\Database\\Factories\\'.class_basename($modelName).'Factory'
+            fn (string $modelName) => 'Develupers\\PlanUsage\\Database\\Factories\\'.class_basename($modelName).'Factory'
         );
     }
 
     protected function getPackageProviders($app)
     {
         return [
-            SkeletonServiceProvider::class,
+            PlanUsageServiceProvider::class,
         ];
     }
 
@@ -28,10 +28,18 @@ class TestCase extends Orchestra
     {
         config()->set('database.default', 'testing');
 
-        /*
-         foreach (\Illuminate\Support\Facades\File::allFiles(__DIR__ . '/database/migrations') as $migration) {
-            (include $migration->getRealPath())->up();
-         }
-         */
+        // Run migrations
+        $migrations = [
+            'create_plans_table',
+            'create_features_table', 
+            'create_plan_features_table',
+            'create_usage_table',
+            'create_quotas_table',
+        ];
+
+        foreach ($migrations as $migration) {
+            $migrationFile = include __DIR__."/../database/migrations/{$migration}.php.stub";
+            $migrationFile->up();
+        }
     }
 }

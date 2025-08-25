@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Omarr\PlanFeatureUsage\Models;
+namespace Develupers\PlanUsage\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\Builder;
-use Omarr\PlanFeatureUsage\Exceptions\QuotaExceededException;
+use Develupers\PlanUsage\Exceptions\QuotaExceededException;
 
 class Quota extends Model
 {

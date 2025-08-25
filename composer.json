@@ -1,8 +1,8 @@
 {
-    "name": "omarr/laravel-plan-feature-usage",
+    "name": "develupers/laravel-plan-usage",
     "description": "A Laravel package for managing subscription plans, features, quotas, and usage tracking with Laravel Cashier integration",
     "keywords": [
-        "omarr",
+        "develupers",
         "laravel",
         "subscription",
         "plans",
@@ -13,7 +13,7 @@
         "cashier",
         "billing"
     ],
-    "homepage": "https://github.com/omarr/laravel-plan-feature-usage",
+    "homepage": "https://github.com/develupers/laravel-plan-usage",
     "license": "MIT",
     "authors": [
         {
@@ -45,13 +45,13 @@
     },
     "autoload": {
         "psr-4": {
-            "Omarr\\PlanFeatureUsage\\": "src/",
-            "Omarr\\PlanFeatureUsage\\Database\\Factories\\": "database/factories/"
+            "Develupers\\PlanUsage\\": "src/",
+            "Develupers\\PlanUsage\\Database\\Factories\\": "database/factories/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Omarr\\PlanFeatureUsage\\Tests\\": "tests/",
+            "Develupers\\PlanUsage\\Tests\\": "tests/",
             "Workbench\\App\\": "workbench/app/"
         }
     },
@@ -73,12 +73,12 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Omarr\\PlanFeatureUsage\\PlanFeatureUsageServiceProvider"
+                "Develupers\\PlanUsage\\PlanUsageServiceProvider"
             ],
             "aliases": {
-                "PlanFeatureUsage": "Omarr\\PlanFeatureUsage\\Facades\\PlanFeatureUsage",
-                "Usage": "Omarr\\PlanFeatureUsage\\Facades\\Usage",
-                "Quota": "Omarr\\PlanFeatureUsage\\Facades\\Quota"
+                "PlanUsage": "Develupers\\PlanUsage\\Facades\\PlanUsage",
+                "Usage": "Develupers\\PlanUsage\\Facades\\Usage",
+                "Quota": "Develupers\\PlanUsage\\Facades\\Quota"
             }
         }
     },

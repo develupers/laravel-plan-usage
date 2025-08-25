@@ -22,10 +22,10 @@ return [
     |
     */
     'models' => [
-        'plan' => \Omarr\PlanFeatureUsage\Models\Plan::class,
-        'feature' => \Omarr\PlanFeatureUsage\Models\Feature::class,
-        'usage' => \Omarr\PlanFeatureUsage\Models\Usage::class,
-        'quota' => \Omarr\PlanFeatureUsage\Models\Quota::class,
+        'plan' => \Develupers\PlanUsage\Models\Plan::class,
+        'feature' => \Develupers\PlanUsage\Models\Feature::class,
+        'usage' => \Develupers\PlanUsage\Models\Usage::class,
+        'quota' => \Develupers\PlanUsage\Models\Quota::class,
     ],
 
     /*
@@ -183,9 +183,9 @@ return [
     |
     */
     'middleware' => [
-        'check-feature' => \Omarr\PlanFeatureUsage\Http\Middleware\CheckFeature::class,
-        'enforce-quota' => \Omarr\PlanFeatureUsage\Http\Middleware\EnforceQuota::class,
-        'track-usage' => \Omarr\PlanFeatureUsage\Http\Middleware\TrackUsage::class,
+        'check-feature' => \Develupers\PlanUsage\Http\Middleware\CheckFeature::class,
+        'enforce-quota' => \Develupers\PlanUsage\Http\Middleware\EnforceQuota::class,
+        'track-usage' => \Develupers\PlanUsage\Http\Middleware\TrackUsage::class,
     ],
 
     /*
@@ -199,11 +199,11 @@ return [
     'events' => [
         'enabled' => true,
         'listeners' => [
-            \Omarr\PlanFeatureUsage\Events\UsageRecorded::class => [
-                \Omarr\PlanFeatureUsage\Listeners\ReportUsageToStripe::class,
+            \Develupers\PlanUsage\Events\UsageRecorded::class => [
+                \Develupers\PlanUsage\Listeners\ReportUsageToStripe::class,
             ],
-            \Omarr\PlanFeatureUsage\Events\QuotaExceeded::class => [
-                \Omarr\PlanFeatureUsage\Listeners\NotifyQuotaExceeded::class,
+            \Develupers\PlanUsage\Events\QuotaExceeded::class => [
+                \Develupers\PlanUsage\Listeners\NotifyQuotaExceeded::class,
             ],
         ],
     ],

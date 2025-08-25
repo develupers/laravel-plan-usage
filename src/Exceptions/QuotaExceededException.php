@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Omarr\PlanFeatureUsage\Exceptions;
+namespace Develupers\PlanUsage\Exceptions;
 
 use Exception;
 
