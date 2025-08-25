@@ -1,0 +1,35 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create(config('plan-feature-usage.tables.plans', 'plans'), function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('slug')->unique();
+            $table->string('display_name')->nullable();
+            $table->text('description')->nullable();
+            $table->string('stripe_price_id')->nullable()->index();
+            $table->decimal('price', 10, 2)->default(0);
+            $table->string('currency', 3)->default('USD');
+            $table->string('billing_period')->default('monthly'); // monthly, yearly, lifetime
+            $table->integer('trial_days')->default(0);
+            $table->integer('sort_order')->default(0);
+            $table->boolean('is_active')->default(true);
+            $table->json('metadata')->nullable();
+            $table->timestamps();
+            
+            $table->index(['is_active', 'sort_order']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists(config('plan-feature-usage.tables.plans', 'plans'));
+    }
+};

@@ -1,24 +1,34 @@
 {
-    "name": ":vendor_slug/:package_slug",
-    "description": ":package_description",
+    "name": "omarr/laravel-plan-feature-usage",
+    "description": "A Laravel package for managing subscription plans, features, quotas, and usage tracking with Laravel Cashier integration",
     "keywords": [
-        ":vendor_name",
+        "omarr",
         "laravel",
-        ":package_slug"
+        "subscription",
+        "plans",
+        "features",
+        "quotas",
+        "usage",
+        "tracking",
+        "cashier",
+        "billing"
     ],
-    "homepage": "https://github.com/:vendor_slug/:package_slug",
+    "homepage": "https://github.com/omarr/laravel-plan-feature-usage",
     "license": "MIT",
     "authors": [
         {
-            "name": ":author_name",
-            "email": "author@domain.com",
+            "name": "Omar",
+            "email": "omar@example.com",
             "role": "Developer"
         }
     ],
     "require": {
-        "php": "^8.4",
+        "php": "^8.2",
         "spatie/laravel-package-tools": "^1.16",
-        "illuminate/contracts": "^11.0||^12.0"
+        "illuminate/contracts": "^11.0||^12.0",
+        "illuminate/support": "^11.0||^12.0",
+        "illuminate/database": "^11.0||^12.0",
+        "laravel/cashier": "^15.0"
     },
     "require-dev": {
         "laravel/pint": "^1.14",
@@ -35,13 +45,13 @@
     },
     "autoload": {
         "psr-4": {
-            "VendorName\\Skeleton\\": "src/",
-            "VendorName\\Skeleton\\Database\\Factories\\": "database/factories/"
+            "Omarr\\PlanFeatureUsage\\": "src/",
+            "Omarr\\PlanFeatureUsage\\Database\\Factories\\": "database/factories/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "VendorName\\Skeleton\\Tests\\": "tests/",
+            "Omarr\\PlanFeatureUsage\\Tests\\": "tests/",
             "Workbench\\App\\": "workbench/app/"
         }
     },
@@ -63,10 +73,12 @@
     "extra": {
         "laravel": {
             "providers": [
-                "VendorName\\Skeleton\\SkeletonServiceProvider"
+                "Omarr\\PlanFeatureUsage\\PlanFeatureUsageServiceProvider"
             ],
             "aliases": {
-                "Skeleton": "VendorName\\Skeleton\\Facades\\Skeleton"
+                "PlanFeatureUsage": "Omarr\\PlanFeatureUsage\\Facades\\PlanFeatureUsage",
+                "Usage": "Omarr\\PlanFeatureUsage\\Facades\\Usage",
+                "Quota": "Omarr\\PlanFeatureUsage\\Facades\\Quota"
             }
         }
     },

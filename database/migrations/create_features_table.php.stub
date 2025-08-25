@@ -1,0 +1,33 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create(config('plan-feature-usage.tables.features', 'features'), function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('slug')->unique();
+            $table->text('description')->nullable();
+            $table->string('type')->default('boolean'); // boolean, limit, quota
+            $table->string('unit')->nullable(); // e.g., 'words', 'projects', 'api_calls'
+            $table->string('reset_period')->nullable(); // daily, weekly, monthly, yearly, never
+            $table->boolean('is_consumable')->default(false); // Whether usage is consumed (true) or just counted
+            $table->integer('sort_order')->default(0);
+            $table->json('metadata')->nullable();
+            $table->timestamps();
+            
+            $table->index(['type', 'reset_period']);
+            $table->index('sort_order');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists(config('plan-feature-usage.tables.features', 'features'));
+    }
+};

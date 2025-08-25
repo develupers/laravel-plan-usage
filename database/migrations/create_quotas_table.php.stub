@@ -1,0 +1,31 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create(config('plan-feature-usage.tables.quotas', 'quotas'), function (Blueprint $table) {
+            $table->id();
+            $table->morphs('billable'); // Polymorphic relation to any billable model
+            $table->foreignId('feature_id')->constrained(config('plan-feature-usage.tables.features', 'features'))->cascadeOnDelete();
+            $table->decimal('limit', 20, 4)->nullable(); // null = unlimited
+            $table->decimal('used', 20, 4)->default(0); // Current usage
+            $table->timestamp('reset_at')->nullable(); // When the quota will reset
+            $table->json('metadata')->nullable();
+            $table->timestamps();
+            
+            $table->unique(['billable_type', 'billable_id', 'feature_id']);
+            $table->index('feature_id');
+            $table->index('reset_at');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists(config('plan-feature-usage.tables.quotas', 'quotas'));
+    }
+};

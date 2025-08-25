@@ -1,0 +1,31 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create(config('plan-feature-usage.tables.usage', 'usage'), function (Blueprint $table) {
+            $table->id();
+            $table->morphs('billable'); // Polymorphic relation to any billable model (e.g., Account, User, Team)
+            $table->foreignId('feature_id')->constrained(config('plan-feature-usage.tables.features', 'features'))->cascadeOnDelete();
+            $table->decimal('used', 20, 4)->default(0); // Amount used
+            $table->timestamp('period_start')->nullable(); // Start of usage period
+            $table->timestamp('period_end')->nullable(); // End of usage period
+            $table->json('metadata')->nullable(); // Additional data (e.g., IP, user agent, etc.)
+            $table->timestamps();
+            
+            $table->index(['billable_type', 'billable_id', 'feature_id']);
+            $table->index(['period_start', 'period_end']);
+            $table->index('feature_id');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists(config('plan-feature-usage.tables.usage', 'usage'));
+    }
+};
