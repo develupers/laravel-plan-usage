@@ -48,7 +48,7 @@ class PlanFeature extends Model
      */
     public function getTypedValue(): mixed
     {
-        if (!$this->feature) {
+        if (! $this->feature) {
             return $this->value;
         }
 

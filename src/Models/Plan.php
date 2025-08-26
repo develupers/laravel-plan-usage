@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 class Plan extends Model
@@ -52,7 +52,7 @@ class Plan extends Model
             'plan_id',
             'feature_id'
         )->withPivot('value', 'unit', 'metadata')
-         ->withTimestamps();
+            ->withTimestamps();
     }
 
     /**
@@ -94,7 +94,7 @@ class Plan extends Model
     {
         $feature = $this->features()->where('slug', $featureSlug)->first();
 
-        if (!$feature) {
+        if (! $feature) {
             return null;
         }
 
@@ -115,6 +115,7 @@ class Plan extends Model
     {
         return $this->features->mapWithKeys(function ($feature) {
             $value = $this->getFeatureValue($feature->slug);
+
             return [$feature->slug => $value];
         });
     }
@@ -144,10 +145,10 @@ class Plan extends Model
             'USD' => '$',
             'EUR' => '€',
             'GBP' => '£',
-            default => $this->currency . ' ',
+            default => $this->currency.' ',
         };
 
-        return $symbol . number_format($this->price, 2);
+        return $symbol.number_format($this->price, 2);
     }
 
     /**

@@ -2,9 +2,9 @@
 
 namespace Develupers\PlanUsage\Tests;
 
+use Develupers\PlanUsage\PlanUsageServiceProvider;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Orchestra\Testbench\TestCase as Orchestra;
-use Develupers\PlanUsage\PlanUsageServiceProvider;
 
 class TestCase extends Orchestra
 {
@@ -31,7 +31,7 @@ class TestCase extends Orchestra
         // Run migrations
         $migrations = [
             'create_plans_table',
-            'create_features_table', 
+            'create_features_table',
             'create_plan_features_table',
             'create_usage_table',
             'create_quotas_table',

@@ -71,10 +71,10 @@ return [
     'quota' => [
         // Throw exception when quota exceeded
         'throw_exception' => true,
-        
+
         // Grace period percentage (e.g., allow 10% over limit before hard stop)
         'grace_period' => 0,
-        
+
         // Send notifications at these usage percentages
         'warning_thresholds' => [80, 90, 100],
     ],
@@ -90,13 +90,13 @@ return [
     'usage' => [
         // Automatically aggregate usage data
         'auto_aggregate' => true,
-        
+
         // Aggregation periods (daily, weekly, monthly, yearly)
         'aggregation_periods' => ['daily', 'monthly'],
-        
+
         // Keep raw usage records for this many days (null = forever)
         'retention_days' => 90,
-        
+
         // Track usage in real-time or batch
         'mode' => 'real-time', // 'real-time' or 'batch'
     ],
@@ -166,10 +166,10 @@ return [
     'stripe' => [
         // Enable Stripe metered billing integration
         'enabled' => env('PLAN_FEATURE_STRIPE_ENABLED', true),
-        
+
         // Report usage to Stripe for metered billing
         'report_usage' => env('PLAN_FEATURE_STRIPE_REPORT_USAGE', true),
-        
+
         // Sync plans from Stripe
         'sync_plans' => env('PLAN_FEATURE_STRIPE_SYNC_PLANS', false),
     ],

@@ -9,7 +9,9 @@ use Exception;
 class QuotaExceededException extends Exception
 {
     protected string $featureSlug;
+
     protected ?float $limit;
+
     protected float $used;
 
     public function __construct(
@@ -21,7 +23,7 @@ class QuotaExceededException extends Exception
         ?Exception $previous = null
     ) {
         parent::__construct($message, $code, $previous);
-        
+
         $this->featureSlug = $featureSlug;
         $this->limit = $limit;
         $this->used = $used;
