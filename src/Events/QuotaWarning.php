@@ -16,8 +16,11 @@ class QuotaWarning
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public Model $billable;
+
     public Feature $feature;
+
     public int $threshold;
+
     public Quota $quota;
 
     /**

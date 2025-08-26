@@ -16,8 +16,11 @@ class UsageRecorded
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public Model $billable;
+
     public Feature $feature;
+
     public float $amount;
+
     public Usage $usage;
 
     /**

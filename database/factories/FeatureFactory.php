@@ -14,7 +14,7 @@ class FeatureFactory extends Factory
     public function definition(): array
     {
         $slug = $this->faker->unique()->slug(2);
-        
+
         return [
             'name' => ucwords(str_replace('-', ' ', $slug)),
             'slug' => $slug,
@@ -23,7 +23,7 @@ class FeatureFactory extends Factory
             'unit' => $this->faker->randomElement(['requests', 'users', 'projects', 'gb', null]),
             'aggregation_method' => $this->faker->randomElement(['sum', 'count', 'max', 'last']),
             'reset_period' => $this->faker->randomElement(['hourly', 'daily', 'weekly', 'monthly', 'yearly', null]),
-            'stripe_meter_id' => $this->faker->boolean(30) ? 'meter_' . $this->faker->unique()->regexify('[A-Za-z0-9]{24}') : null,
+            'stripe_meter_id' => $this->faker->boolean(30) ? 'meter_'.$this->faker->unique()->regexify('[A-Za-z0-9]{24}') : null,
             'metadata' => [
                 'category' => $this->faker->randomElement(['api', 'storage', 'users', 'features']),
                 'display_order' => $this->faker->numberBetween(1, 100),
@@ -60,7 +60,7 @@ class FeatureFactory extends Factory
     public function metered(): static
     {
         return $this->state(fn (array $attributes) => [
-            'stripe_meter_id' => 'meter_' . $this->faker->unique()->regexify('[A-Za-z0-9]{24}'),
+            'stripe_meter_id' => 'meter_'.$this->faker->unique()->regexify('[A-Za-z0-9]{24}'),
         ]);
     }
 }

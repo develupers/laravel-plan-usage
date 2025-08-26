@@ -4,17 +4,18 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Services;
 
-use Develupers\PlanUsage\Models\Usage;
-use Develupers\PlanUsage\Models\Feature;
+use Carbon\Carbon;
 use Develupers\PlanUsage\Events\UsageRecorded;
+use Develupers\PlanUsage\Models\Feature;
+use Develupers\PlanUsage\Models\Usage;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
-use Carbon\Carbon;
 
 class UsageTracker
 {
     protected string $usageModel;
+
     protected string $featureModel;
 
     public function __construct()
@@ -220,7 +221,7 @@ class UsageTracker
         $connection = DB::connection()->getDriverName();
 
         if ($connection === 'sqlite') {
-            $dateFormat = match($groupBy) {
+            $dateFormat = match ($groupBy) {
                 'hour' => '%Y-%m-%d %H:00:00',
                 'day' => '%Y-%m-%d',
                 'week' => '%Y-%W',
@@ -230,7 +231,7 @@ class UsageTracker
             };
             $dateExpression = "strftime('{$dateFormat}', created_at)";
         } else {
-            $dateFormat = match($groupBy) {
+            $dateFormat = match ($groupBy) {
                 'hour' => '%Y-%m-%d %H:00:00',
                 'day' => '%Y-%m-%d',
                 'week' => '%Y-%u',
@@ -243,11 +244,11 @@ class UsageTracker
 
         return DB::table(config('plan-usage.tables.usages'))
             ->select(DB::raw("{$dateExpression} as period"),
-                     DB::raw('SUM(used) as total_usage'),
-                     DB::raw('COUNT(*) as usage_count'),
-                     DB::raw('AVG(used) as average_usage'),
-                     DB::raw('MAX(used) as max_usage'),
-                     DB::raw('MIN(used) as min_usage'))
+                DB::raw('SUM(used) as total_usage'),
+                DB::raw('COUNT(*) as usage_count'),
+                DB::raw('AVG(used) as average_usage'),
+                DB::raw('MAX(used) as max_usage'),
+                DB::raw('MIN(used) as min_usage'))
             ->where('billable_type', $billable->getMorphClass())
             ->where('billable_id', $billable->getKey())
             ->where('feature_id', $feature->id)
@@ -271,7 +272,7 @@ class UsageTracker
      */
     protected function getPeriodStart(Feature $feature, Carbon $timestamp): Carbon
     {
-        return match($feature->reset_period) {
+        return match ($feature->reset_period) {
             'hourly' => $timestamp->copy()->startOfHour(),
             'daily' => $timestamp->copy()->startOfDay(),
             'weekly' => $timestamp->copy()->startOfWeek(),
@@ -286,7 +287,7 @@ class UsageTracker
      */
     protected function getPeriodEnd(Feature $feature, Carbon $timestamp): Carbon
     {
-        return match($feature->reset_period) {
+        return match ($feature->reset_period) {
             'hourly' => $timestamp->copy()->endOfHour(),
             'daily' => $timestamp->copy()->endOfDay(),
             'weekly' => $timestamp->copy()->endOfWeek(),
@@ -301,7 +302,7 @@ class UsageTracker
      */
     public function reportToStripe(Model $billable, string $featureSlug, float $amount): void
     {
-        if (!method_exists($billable, 'reportUsage')) {
+        if (! method_exists($billable, 'reportUsage')) {
             return;
         }
 

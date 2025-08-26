@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Database\Factories;
 
-use Develupers\PlanUsage\Models\Usage;
-use Develupers\PlanUsage\Models\Feature;
-use Illuminate\Database\Eloquent\Factories\Factory;
 use Carbon\Carbon;
+use Develupers\PlanUsage\Models\Feature;
+use Develupers\PlanUsage\Models\Usage;
+use Illuminate\Database\Eloquent\Factories\Factory;
 
 class UsageFactory extends Factory
 {
@@ -17,7 +17,7 @@ class UsageFactory extends Factory
     {
         $periodStart = $this->faker->dateTimeBetween('-30 days', 'now');
         $periodEnd = Carbon::instance($periodStart)->addDay();
-        
+
         return [
             'billable_type' => 'App\\Models\\Account',
             'billable_id' => $this->faker->numberBetween(1, 100),

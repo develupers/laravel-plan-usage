@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class PlanFeature extends Model
 {
     use HasFactory;
+
     protected $fillable = [
         'plan_id',
         'feature_id',

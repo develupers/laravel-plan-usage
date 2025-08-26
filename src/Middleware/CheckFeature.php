@@ -19,15 +19,15 @@ class CheckFeature
     {
         $billable = $this->getBillable($request);
 
-        if (!$billable) {
+        if (! $billable) {
             abort(403, 'No billable entity found.');
         }
 
-        if (!method_exists($billable, 'hasFeature')) {
+        if (! method_exists($billable, 'hasFeature')) {
             abort(500, 'Billable must use HasPlanFeatures trait.');
         }
 
-        if (!$billable->hasFeature($featureSlug)) {
+        if (! $billable->hasFeature($featureSlug)) {
             abort(403, "Access denied. Your plan doesn't include the '{$featureSlug}' feature.");
         }
 
@@ -45,7 +45,7 @@ class CheckFeature
             if (method_exists($request->user(), 'billable')) {
                 return $request->user()->billable();
             }
-            
+
             // Check if user itself is billable
             if (method_exists($request->user(), 'hasFeature')) {
                 return $request->user();
@@ -53,8 +53,8 @@ class CheckFeature
 
             // Check for account relationship (property or method)
             if (property_exists($request->user(), 'account') || method_exists($request->user(), 'account')) {
-                $account = property_exists($request->user(), 'account') 
-                    ? $request->user()->account 
+                $account = property_exists($request->user(), 'account')
+                    ? $request->user()->account
                     : $request->user()->account();
                 if ($account && method_exists($account, 'hasFeature')) {
                     return $account;
@@ -63,8 +63,8 @@ class CheckFeature
 
             // Check for current team (property or method)
             if (property_exists($request->user(), 'currentTeam') || method_exists($request->user(), 'currentTeam')) {
-                $team = method_exists($request->user(), 'currentTeam') 
-                    ? $request->user()->currentTeam() 
+                $team = method_exists($request->user(), 'currentTeam')
+                    ? $request->user()->currentTeam()
                     : $request->user()->currentTeam;
                 if ($team && method_exists($team, 'hasFeature')) {
                     return $team;

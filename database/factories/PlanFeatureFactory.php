@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Database\Factories;
 
-use Develupers\PlanUsage\Models\PlanFeature;
-use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\Feature;
+use Develupers\PlanUsage\Models\Plan;
+use Develupers\PlanUsage\Models\PlanFeature;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class PlanFeatureFactory extends Factory

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Traits;
 
-use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\Feature;
+use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\Quota;
 use Develupers\PlanUsage\Models\Usage;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,8 +16,8 @@ use Laravel\Cashier\Billable;
 trait HasPlanFeatures
 {
     use Billable;
-    use TracksUsage;
     use EnforcesQuotas;
+    use TracksUsage;
 
     /**
      * Get the plan that the billable is subscribed to.
@@ -93,13 +93,13 @@ trait HasPlanFeatures
      */
     public function hasFeature(string $featureSlug): bool
     {
-        if (!$this->plan) {
+        if (! $this->plan) {
             return false;
         }
 
         $feature = $this->plan->features()->where('slug', $featureSlug)->first();
 
-        if (!$feature) {
+        if (! $feature) {
             return false;
         }
 
@@ -111,7 +111,8 @@ trait HasPlanFeatures
         // For limit/quota features, check if within limits
         if ($feature->type === 'limit' || $feature->type === 'quota') {
             $quota = $this->quotas()->where('feature_id', $feature->id)->first();
-            return $quota ? !$quota->isExceeded() : true;
+
+            return $quota ? ! $quota->isExceeded() : true;
         }
 
         return false;
@@ -122,7 +123,7 @@ trait HasPlanFeatures
      */
     public function getFeatureValue(string $featureSlug): mixed
     {
-        if (!$this->plan) {
+        if (! $this->plan) {
             return null;
         }
 
@@ -136,7 +137,7 @@ trait HasPlanFeatures
     {
         $feature = Feature::where('slug', $featureSlug)->first();
 
-        if (!$feature || !in_array($feature->type, ['limit', 'quota'])) {
+        if (! $feature || ! in_array($feature->type, ['limit', 'quota'])) {
             return null;
         }
 
@@ -152,7 +153,7 @@ trait HasPlanFeatures
     {
         $feature = Feature::where('slug', $featureSlug)->first();
 
-        if (!$feature || !in_array($feature->type, ['limit', 'quota'])) {
+        if (! $feature || ! in_array($feature->type, ['limit', 'quota'])) {
             return null;
         }
 
@@ -166,7 +167,7 @@ trait HasPlanFeatures
      */
     public function canUseFeature(string $featureSlug, float $amount = 1): bool
     {
-        if (!$this->hasFeature($featureSlug)) {
+        if (! $this->hasFeature($featureSlug)) {
             return false;
         }
 
@@ -188,7 +189,7 @@ trait HasPlanFeatures
      */
     public function getFeaturesStatus(): Collection
     {
-        if (!$this->plan) {
+        if (! $this->plan) {
             return collect();
         }
 
@@ -232,7 +233,7 @@ trait HasPlanFeatures
      */
     public function syncQuotasWithPlan(): void
     {
-        if (!$this->plan) {
+        if (! $this->plan) {
             return;
         }
 

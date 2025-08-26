@@ -39,7 +39,7 @@ arch('services follow single responsibility')
     ->expect('Develupers\PlanUsage\Services\PlanManager')
     ->not->toUse([
         'Develupers\PlanUsage\Models\Usage',
-        'Develupers\PlanUsage\Models\Quota'
+        'Develupers\PlanUsage\Models\Quota',
     ]);
 
 arch('test files use pest')

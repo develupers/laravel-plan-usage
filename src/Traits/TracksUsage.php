@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Traits;
 
+use Carbon\Carbon;
+use Develupers\PlanUsage\Events\UsageRecorded;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Usage;
-use Develupers\PlanUsage\Events\UsageRecorded;
 use Illuminate\Support\Facades\DB;
-use Carbon\Carbon;
 
 trait TracksUsage
 {
@@ -63,15 +63,15 @@ trait TracksUsage
                 ->where('period_start', '<=', now())
                 ->where(function ($query) {
                     $query->where('period_end', '>=', now())
-                          ->orWhereNull('period_end');
+                        ->orWhereNull('period_end');
                 })
                 ->first();
 
             if ($usage) {
                 $usage->increment('used', $amount);
-                if (!empty($metadata)) {
+                if (! empty($metadata)) {
                     $usage->update([
-                        'metadata' => array_merge($usage->metadata ?? [], $metadata)
+                        'metadata' => array_merge($usage->metadata ?? [], $metadata),
                     ]);
                 }
             } else {
@@ -95,6 +95,7 @@ trait TracksUsage
                 $quota = $this->quotas()->where('feature_id', $feature->id)->first();
                 if ($quota && $quota->used >= $amount) {
                     $quota->decrement('used', $amount);
+
                     return true;
                 }
             }
@@ -110,7 +111,7 @@ trait TracksUsage
     {
         $feature = Feature::where('slug', $featureSlug)->first();
 
-        if (!$feature) {
+        if (! $feature) {
             return 0;
         }
 
@@ -134,13 +135,14 @@ trait TracksUsage
     {
         $feature = Feature::where('slug', $featureSlug)->first();
 
-        if (!$feature) {
+        if (! $feature) {
             return 0;
         }
 
         // If feature has a quota, use that for current usage
         if (in_array($feature->type, ['limit', 'quota'])) {
             $quota = $this->quotas()->where('feature_id', $feature->id)->first();
+
             return $quota ? $quota->used : 0;
         }
 
@@ -150,7 +152,7 @@ trait TracksUsage
             ->where('period_start', '<=', now())
             ->where(function ($query) {
                 $query->where('period_end', '>=', now())
-                      ->orWhereNull('period_end');
+                    ->orWhereNull('period_end');
             })
             ->sum('used');
     }
@@ -162,7 +164,7 @@ trait TracksUsage
     {
         $feature = Feature::where('slug', $featureSlug)->first();
 
-        if (!$feature) {
+        if (! $feature) {
             return collect();
         }
 
@@ -180,7 +182,7 @@ trait TracksUsage
     {
         $feature = Feature::where('slug', $featureSlug)->first();
 
-        if (!$feature) {
+        if (! $feature) {
             return collect();
         }
 
@@ -188,7 +190,7 @@ trait TracksUsage
             ->where('feature_id', $feature->id)
             ->where('created_at', '>=', now()->subDays($days));
 
-        $groupBy = match($period) {
+        $groupBy = match ($period) {
             'hourly' => DB::raw('DATE_FORMAT(created_at, "%Y-%m-%d %H:00:00")'),
             'daily' => DB::raw('DATE(created_at)'),
             'weekly' => DB::raw('YEARWEEK(created_at)'),
@@ -197,11 +199,11 @@ trait TracksUsage
         };
 
         return $query->select([
-                $groupBy . ' as period',
-                DB::raw('SUM(used) as total_used'),
-                DB::raw('COUNT(*) as count'),
-                DB::raw('AVG(used) as average_used'),
-            ])
+            $groupBy.' as period',
+            DB::raw('SUM(used) as total_used'),
+            DB::raw('COUNT(*) as count'),
+            DB::raw('AVG(used) as average_used'),
+        ])
             ->groupBy('period')
             ->orderBy('period')
             ->get();
@@ -212,7 +214,7 @@ trait TracksUsage
      */
     protected function reportUsageToStripe(Feature $feature, float $amount): void
     {
-        if (!$this->subscribed() || !method_exists($this, 'reportMeterEvent')) {
+        if (! $this->subscribed() || ! method_exists($this, 'reportMeterEvent')) {
             return;
         }
 
@@ -235,7 +237,7 @@ trait TracksUsage
     {
         $feature = Feature::where('slug', $featureSlug)->first();
 
-        if (!$feature) {
+        if (! $feature) {
             return;
         }
 

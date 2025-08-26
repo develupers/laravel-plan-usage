@@ -14,6 +14,7 @@ use Illuminate\Support\Collection;
 class Plan extends Model
 {
     use HasFactory;
+
     protected $fillable = [
         'name',
         'slug',
@@ -146,7 +147,7 @@ class Plan extends Model
     {
         return $this->features()->where('slug', $slug)->first();
     }
-    
+
     /**
      * Scope to monthly plans.
      */
@@ -154,7 +155,7 @@ class Plan extends Model
     {
         return $query->where('interval', 'monthly');
     }
-    
+
     /**
      * Scope to yearly plans.
      */
@@ -162,7 +163,7 @@ class Plan extends Model
     {
         return $query->where('interval', 'yearly');
     }
-    
+
     /**
      * Check if plan is monthly.
      */
@@ -170,7 +171,7 @@ class Plan extends Model
     {
         return $this->interval === 'monthly';
     }
-    
+
     /**
      * Check if plan is yearly.
      */

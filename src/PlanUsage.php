@@ -5,13 +5,15 @@ declare(strict_types=1);
 namespace Develupers\PlanUsage;
 
 use Develupers\PlanUsage\Services\PlanManager;
-use Develupers\PlanUsage\Services\UsageTracker;
 use Develupers\PlanUsage\Services\QuotaEnforcer;
+use Develupers\PlanUsage\Services\UsageTracker;
 
 class PlanUsage
 {
     protected PlanManager $planManager;
+
     protected UsageTracker $usageTracker;
+
     protected QuotaEnforcer $quotaEnforcer;
 
     public function __construct()

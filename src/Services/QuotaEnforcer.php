@@ -4,21 +4,24 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Services;
 
-use Develupers\PlanUsage\Models\Quota;
-use Develupers\PlanUsage\Models\Feature;
+use Carbon\Carbon;
 use Develupers\PlanUsage\Events\QuotaExceeded;
 use Develupers\PlanUsage\Events\QuotaWarning;
+use Develupers\PlanUsage\Models\Feature;
+use Develupers\PlanUsage\Models\Quota;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\DB;
-use Carbon\Carbon;
+use Illuminate\Support\Facades\Event;
 
 class QuotaEnforcer
 {
     protected string $quotaModel;
+
     protected string $featureModel;
+
     protected PlanManager $planManager;
+
     protected UsageTracker $usageTracker;
 
     public function __construct()
@@ -35,8 +38,8 @@ class QuotaEnforcer
     public function canUse(Model $billable, string $featureSlug, float $amount = 1): bool
     {
         $quota = $this->getOrCreateQuota($billable, $featureSlug);
-        
-        if (!$quota) {
+
+        if (! $quota) {
             return false;
         }
 
@@ -47,6 +50,7 @@ class QuotaEnforcer
 
         // Check if adding amount would exceed limit (with grace)
         $graceAmount = $this->getGraceAmount($quota);
+
         return ($quota->used + $amount) <= ($quota->limit + $graceAmount);
     }
 
@@ -55,14 +59,16 @@ class QuotaEnforcer
      */
     public function enforce(Model $billable, string $featureSlug, float $amount = 1): bool
     {
-        if (!$this->canUse($billable, $featureSlug, $amount)) {
+        if (! $this->canUse($billable, $featureSlug, $amount)) {
             $quota = $this->getQuota($billable, $featureSlug);
             $feature = $this->featureModel::where('slug', $featureSlug)->first();
             Event::dispatch(new QuotaExceeded($billable, $feature, $quota));
+
             return false;
         }
 
         $this->increment($billable, $featureSlug, $amount);
+
         return true;
     }
 
@@ -72,15 +78,15 @@ class QuotaEnforcer
     public function getOrCreateQuota(Model $billable, string $featureSlug): ?Quota
     {
         $feature = $this->featureModel::where('slug', $featureSlug)->first();
-        
-        if (!$feature) {
+
+        if (! $feature) {
             return null;
         }
 
         // Check if billable has a plan with this feature
         $featureValue = null;
         $hasFeature = false;
-        
+
         if (isset($billable->plan_id)) {
             $plan = $this->planManager->findPlan($billable->plan_id);
             if ($plan && $plan->hasFeature($featureSlug)) {
@@ -88,9 +94,9 @@ class QuotaEnforcer
                 $featureValue = $this->planManager->getFeatureValue($billable->plan_id, $featureSlug);
             }
         }
-        
+
         // If billable doesn't have the feature in their plan, return null
-        if (isset($billable->plan_id) && !$hasFeature) {
+        if (isset($billable->plan_id) && ! $hasFeature) {
             return null;
         }
 
@@ -114,8 +120,8 @@ class QuotaEnforcer
     public function getQuota(Model $billable, string $featureSlug): ?Quota
     {
         $feature = $this->featureModel::where('slug', $featureSlug)->first();
-        
-        if (!$feature) {
+
+        if (! $feature) {
             return null;
         }
 
@@ -132,7 +138,7 @@ class QuotaEnforcer
     public function getAllQuotas(Model $billable): \Illuminate\Support\Collection
     {
         $cacheKey = "plan-usage.billable.{$billable->getMorphClass()}.{$billable->getKey()}.quotas";
-        
+
         return Cache::remember($cacheKey, config('plan-usage.cache.ttl', 3600), function () use ($billable) {
             return $this->quotaModel::query()
                 ->where('billable_type', $billable->getMorphClass())
@@ -148,8 +154,8 @@ class QuotaEnforcer
     public function increment(Model $billable, string $featureSlug, float $amount = 1): void
     {
         $quota = $this->getOrCreateQuota($billable, $featureSlug);
-        
-        if (!$quota) {
+
+        if (! $quota) {
             return;
         }
 
@@ -173,13 +179,13 @@ class QuotaEnforcer
     public function decrement(Model $billable, string $featureSlug, float $amount = 1): void
     {
         $quota = $this->getQuota($billable, $featureSlug);
-        
-        if (!$quota) {
+
+        if (! $quota) {
             return;
         }
 
         $quota->decrement('used', $amount);
-        
+
         // Ensure used doesn't go below 0
         if ($quota->used < 0) {
             $quota->used = 0;
@@ -195,7 +201,7 @@ class QuotaEnforcer
     public function reset(Model $billable, string $featureSlug): void
     {
         $quota = $this->getQuota($billable, $featureSlug);
-        
+
         if ($quota) {
             $this->resetQuota($quota);
             $this->clearQuotaCache($billable);
@@ -224,8 +230,8 @@ class QuotaEnforcer
     public function getRemaining(Model $billable, string $featureSlug): ?float
     {
         $quota = $this->getQuota($billable, $featureSlug);
-        
-        if (!$quota) {
+
+        if (! $quota) {
             return null;
         }
 
@@ -242,8 +248,8 @@ class QuotaEnforcer
     public function getUsagePercentage(Model $billable, string $featureSlug): ?float
     {
         $quota = $this->getQuota($billable, $featureSlug);
-        
-        if (!$quota || is_null($quota->limit) || $quota->limit == 0) {
+
+        if (! $quota || is_null($quota->limit) || $quota->limit == 0) {
             return null;
         }
 
@@ -255,7 +261,7 @@ class QuotaEnforcer
      */
     protected function shouldReset(Quota $quota): bool
     {
-        if (!$quota->reset_at) {
+        if (! $quota->reset_at) {
             return false;
         }
 
@@ -277,11 +283,11 @@ class QuotaEnforcer
      */
     protected function calculateResetTime(Feature $feature): ?Carbon
     {
-        if (!$feature->reset_period) {
+        if (! $feature->reset_period) {
             return null;
         }
 
-        return match($feature->reset_period) {
+        return match ($feature->reset_period) {
             'hourly' => now()->addHour()->startOfHour(),
             'daily' => now()->addDay()->startOfDay(),
             'weekly' => now()->addWeek()->startOfWeek(),
@@ -296,12 +302,12 @@ class QuotaEnforcer
      */
     protected function getGraceAmount(Quota $quota): float
     {
-        if (!config('plan-usage.quotas.soft_limit', false)) {
+        if (! config('plan-usage.quotas.soft_limit', false)) {
             return 0;
         }
 
         $gracePercentage = config('plan-usage.quotas.grace_percentage', 10);
-        
+
         if (is_null($quota->limit)) {
             return 0;
         }
@@ -323,7 +329,7 @@ class QuotaEnforcer
 
         if ($usagePercentage >= $warningThreshold && $usagePercentage < 100) {
             $feature = $this->featureModel::where('slug', $featureSlug)->first();
-            Event::dispatch(new QuotaWarning($billable, $feature, (int)$usagePercentage, $quota));
+            Event::dispatch(new QuotaWarning($billable, $feature, (int) $usagePercentage, $quota));
         }
     }
 
@@ -341,7 +347,7 @@ class QuotaEnforcer
      */
     public function syncWithPlan(Model $billable): void
     {
-        if (!isset($billable->plan_id)) {
+        if (! isset($billable->plan_id)) {
             return;
         }
 
@@ -349,7 +355,7 @@ class QuotaEnforcer
 
         foreach ($planFeatures as $planFeature) {
             $quota = $this->getOrCreateQuota($billable, $planFeature->feature->slug);
-            
+
             if ($quota && $quota->limit != $planFeature->value) {
                 $quota->limit = is_numeric($planFeature->value) ? (float) $planFeature->value : null;
                 $quota->save();

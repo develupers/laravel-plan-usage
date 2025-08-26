@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Database\Factories;
 
-use Develupers\PlanUsage\Models\Quota;
-use Develupers\PlanUsage\Models\Feature;
-use Illuminate\Database\Eloquent\Factories\Factory;
 use Carbon\Carbon;
+use Develupers\PlanUsage\Models\Feature;
+use Develupers\PlanUsage\Models\Quota;
+use Illuminate\Database\Eloquent\Factories\Factory;
 
 class QuotaFactory extends Factory
 {
@@ -16,7 +16,7 @@ class QuotaFactory extends Factory
     public function definition(): array
     {
         $limit = $this->faker->boolean(80) ? $this->faker->randomFloat(0, 100, 10000) : null;
-        
+
         return [
             'billable_type' => 'App\\Models\\Account',
             'billable_id' => $this->faker->numberBetween(1, 100),
@@ -65,6 +65,7 @@ class QuotaFactory extends Factory
     {
         return $this->state(function (array $attributes) {
             $limit = $attributes['limit'] ?? 100;
+
             return [
                 'limit' => $limit,
                 'used' => $limit * 0.9,
@@ -76,6 +77,7 @@ class QuotaFactory extends Factory
     {
         return $this->state(function (array $attributes) {
             $limit = $attributes['limit'] ?? 100;
+
             return [
                 'limit' => $limit,
                 'used' => $limit * 1.1,

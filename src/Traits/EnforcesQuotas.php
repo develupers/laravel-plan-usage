@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Traits;
 
-use Develupers\PlanUsage\Models\Feature;
-use Develupers\PlanUsage\Models\Quota;
-use Develupers\PlanUsage\Exceptions\QuotaExceededException;
 use Develupers\PlanUsage\Events\QuotaExceeded;
 use Develupers\PlanUsage\Events\QuotaWarning;
+use Develupers\PlanUsage\Exceptions\QuotaExceededException;
+use Develupers\PlanUsage\Models\Feature;
+use Develupers\PlanUsage\Models\Quota;
 use Illuminate\Support\Facades\Cache;
 
 trait EnforcesQuotas
@@ -41,7 +41,7 @@ trait EnforcesQuotas
         $quota = $this->getOrCreateQuotaForFeature($featureSlug);
 
         // Check if quota can be used
-        if (!$quota->canUse($amount)) {
+        if (! $quota->canUse($amount)) {
             if (config('plan-usage.quota.throw_exception', true)) {
                 throw new QuotaExceededException(
                     "Quota exceeded for feature {$featureSlug}",
@@ -71,7 +71,7 @@ trait EnforcesQuotas
     {
         $feature = Feature::where('slug', $featureSlug)->first();
 
-        if (!$feature) {
+        if (! $feature) {
             return null;
         }
 
@@ -195,7 +195,7 @@ trait EnforcesQuotas
     protected function getQuotaCacheKey(string $featureSlug): string
     {
         $prefix = config('plan-usage.cache.prefix', 'plan_feature_usage');
-        $billableKey = get_class($this) . ':' . $this->getKey();
+        $billableKey = get_class($this).':'.$this->getKey();
 
         return "{$prefix}:quota:{$billableKey}:{$featureSlug}";
     }
@@ -215,7 +215,7 @@ trait EnforcesQuotas
      */
     public function enforceQuota(string $featureSlug, float $amount = 1): void
     {
-        if (!$this->canUseQuota($featureSlug, $amount)) {
+        if (! $this->canUseQuota($featureSlug, $amount)) {
             $quota = $this->getQuotaForFeature($featureSlug);
 
             throw new QuotaExceededException(

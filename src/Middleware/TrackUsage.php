@@ -49,7 +49,7 @@ class TrackUsage
             if (method_exists($request->user(), 'billable')) {
                 return $request->user()->billable();
             }
-            
+
             // Check if user itself is billable
             if (method_exists($request->user(), 'recordUsage')) {
                 return $request->user();

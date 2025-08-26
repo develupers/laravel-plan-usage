@@ -16,7 +16,7 @@ class PlanUsageServiceProvider extends PackageServiceProvider
     public function register(): void
     {
         parent::register();
-        
+
         // Merge default configuration
         $this->mergeConfigFrom(
             __DIR__.'/../config/plan-usage.php', 'plan-usage'
@@ -24,20 +24,20 @@ class PlanUsageServiceProvider extends PackageServiceProvider
 
         // Register service bindings
         $this->app->singleton('plan-usage.manager', function ($app) {
-            return new \Develupers\PlanUsage\Services\PlanManager();
+            return new \Develupers\PlanUsage\Services\PlanManager;
         });
 
         $this->app->singleton('plan-usage.tracker', function ($app) {
-            return new \Develupers\PlanUsage\Services\UsageTracker();
+            return new \Develupers\PlanUsage\Services\UsageTracker;
         });
 
         $this->app->singleton('plan-usage.quota', function ($app) {
-            return new \Develupers\PlanUsage\Services\QuotaEnforcer();
+            return new \Develupers\PlanUsage\Services\QuotaEnforcer;
         });
 
         // Alias for main facade
         $this->app->singleton('plan-usage', function ($app) {
-            return new \Develupers\PlanUsage\PlanUsage();
+            return new \Develupers\PlanUsage\PlanUsage;
         });
     }
 

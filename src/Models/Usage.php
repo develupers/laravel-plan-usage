@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 class Usage extends Model
 {
     use HasFactory;
+
     protected $fillable = [
         'billable_type',
         'billable_id',

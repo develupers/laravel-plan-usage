@@ -16,7 +16,9 @@ class QuotaExceeded
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public Model $billable;
+
     public Feature $feature;
+
     public Quota $quota;
 
     /**

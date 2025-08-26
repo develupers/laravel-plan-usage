@@ -19,20 +19,20 @@ class CheckQuota
     {
         $billable = $this->getBillable($request);
 
-        if (!$billable) {
+        if (! $billable) {
             abort(403, 'No billable entity found.');
         }
 
-        if (!method_exists($billable, 'canUseFeature')) {
+        if (! method_exists($billable, 'canUseFeature')) {
             abort(500, 'Billable must use EnforcesQuotas trait.');
         }
 
-        if (!$billable->canUseFeature($featureSlug, $amount)) {
+        if (! $billable->canUseFeature($featureSlug, $amount)) {
             $remaining = $billable->getRemainingQuota($featureSlug);
-            $message = is_null($remaining) 
+            $message = is_null($remaining)
                 ? "Feature '{$featureSlug}' is not available in your plan."
                 : "Quota exceeded for '{$featureSlug}'. Remaining: {$remaining}.";
-                
+
             abort(403, $message);
         }
 
@@ -50,7 +50,7 @@ class CheckQuota
             if (method_exists($request->user(), 'billable')) {
                 return $request->user()->billable();
             }
-            
+
             // Check if user itself is billable
             if (method_exists($request->user(), 'canUseFeature')) {
                 return $request->user();
