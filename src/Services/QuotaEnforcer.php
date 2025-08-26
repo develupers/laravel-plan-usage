@@ -57,7 +57,8 @@ class QuotaEnforcer
     {
         if (!$this->canUse($billable, $featureSlug, $amount)) {
             $quota = $this->getQuota($billable, $featureSlug);
-            Event::dispatch(new QuotaExceeded($quota, $amount));
+            $feature = $this->featureModel::where('slug', $featureSlug)->first();
+            Event::dispatch(new QuotaExceeded($billable, $feature, $quota));
             return false;
         }
 
@@ -77,12 +78,20 @@ class QuotaEnforcer
         }
 
         // Check if billable has a plan with this feature
+        $featureValue = null;
+        $hasFeature = false;
+        
         if (isset($billable->plan_id)) {
-            $featureValue = $this->planManager->getFeatureValue($billable->plan_id, $featureSlug);
-            
-            if (is_null($featureValue)) {
-                return null; // Feature not available in plan
+            $plan = $this->planManager->findPlan($billable->plan_id);
+            if ($plan && $plan->hasFeature($featureSlug)) {
+                $hasFeature = true;
+                $featureValue = $this->planManager->getFeatureValue($billable->plan_id, $featureSlug);
             }
+        }
+        
+        // If billable doesn't have the feature in their plan, return null
+        if (isset($billable->plan_id) && !$hasFeature) {
+            return null;
         }
 
         return $this->quotaModel::firstOrCreate(
@@ -92,7 +101,7 @@ class QuotaEnforcer
                 'feature_id' => $feature->id,
             ],
             [
-                'limit' => $featureValue ?? null,
+                'limit' => $featureValue, // Can be null for unlimited
                 'used' => 0,
                 'reset_at' => $this->calculateResetTime($feature),
             ]
@@ -152,7 +161,7 @@ class QuotaEnforcer
         $quota->increment('used', $amount);
 
         // Check for warning threshold
-        $this->checkWarningThreshold($quota);
+        $this->checkWarningThreshold($billable, $featureSlug, $quota);
 
         // Clear cache
         $this->clearQuotaCache($billable);
@@ -303,7 +312,7 @@ class QuotaEnforcer
     /**
      * Check if warning threshold is reached
      */
-    protected function checkWarningThreshold(Quota $quota): void
+    protected function checkWarningThreshold(Model $billable, string $featureSlug, Quota $quota): void
     {
         if (is_null($quota->limit)) {
             return;
@@ -313,7 +322,8 @@ class QuotaEnforcer
         $usagePercentage = ($quota->used / $quota->limit) * 100;
 
         if ($usagePercentage >= $warningThreshold && $usagePercentage < 100) {
-            Event::dispatch(new QuotaWarning($quota, $usagePercentage));
+            $feature = $this->featureModel::where('slug', $featureSlug)->first();
+            Event::dispatch(new QuotaWarning($billable, $feature, (int)$usagePercentage, $quota));
         }
     }
 

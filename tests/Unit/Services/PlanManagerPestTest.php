@@ -250,11 +250,11 @@ describe('PlanManager with datasets', function () {
         $result = $this->planManager->getFeatureValue($plan->id, "test-{$type}");
         
         // Assert
-        expect($result)->when(
-            $type === 'boolean',
-            fn ($value) => $value->toBeTrue(),
-            fn ($value) => $value->toBe(100.0)
-        );
+        if ($type === 'boolean') {
+            expect($result)->toBeTrue();
+        } else {
+            expect($result)->toBe(100.0);
+        }
     })->with('feature_types');
     
     it('caches plan data with different intervals', function (string $interval) {

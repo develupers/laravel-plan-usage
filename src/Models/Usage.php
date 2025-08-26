@@ -6,12 +6,14 @@ namespace Develupers\PlanUsage\Models;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class Usage extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'billable_type',
         'billable_id',
@@ -23,7 +25,7 @@ class Usage extends Model
     ];
 
     protected $casts = [
-        'used' => 'decimal:4',
+        'used' => 'float',
         'period_start' => 'datetime',
         'period_end' => 'datetime',
         'metadata' => 'array',
@@ -32,7 +34,7 @@ class Usage extends Model
     public function __construct(array $attributes = [])
     {
         parent::__construct($attributes);
-        $this->table = config('plan-usage.tables.usage', 'usage');
+        $this->table = config('plan-usage.tables.usages', 'usages');
     }
 
     /**
@@ -151,9 +153,9 @@ class Usage extends Model
     }
 
     /**
-     * Increment usage for the current period.
+     * Tick up usage for the current period.
      */
-    public static function increment(Model $billable, $feature, float $amount = 1, array $metadata = []): self
+    public static function tickUp(Model $billable, $feature, float $amount = 1, array $metadata = []): self
     {
         $featureModel = $feature instanceof Feature
             ? $feature

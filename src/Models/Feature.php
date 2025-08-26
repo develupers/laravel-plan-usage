@@ -5,19 +5,23 @@ declare(strict_types=1);
 namespace Develupers\PlanUsage\Models;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Feature extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'name',
         'slug',
         'description',
         'type',
         'unit',
+        'aggregation_method',
         'reset_period',
+        'stripe_meter_id',
         'is_consumable',
         'sort_order',
         'metadata',

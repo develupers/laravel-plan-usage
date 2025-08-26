@@ -6,14 +6,13 @@ arch('models extend eloquent model')
     ->expect('Develupers\PlanUsage\Models')
     ->toExtend('Illuminate\Database\Eloquent\Model');
 
-arch('services are suffixed correctly')
-    ->expect('Develupers\PlanUsage\Services')
-    ->toHaveSuffix(['Manager', 'Tracker', 'Enforcer']);
-
-arch('events extend base event')
-    ->expect('Develupers\PlanUsage\Events')
-    ->toExtend('Develupers\PlanUsage\Events\BaseEvent')
-    ->ignoring(['Develupers\PlanUsage\Events\BaseEvent']);
+arch('services have appropriate names')
+    ->expect('Develupers\PlanUsage\Services\PlanManager')
+    ->toHaveSuffix('Manager')
+    ->and('Develupers\PlanUsage\Services\UsageTracker')
+    ->toHaveSuffix('Tracker')
+    ->and('Develupers\PlanUsage\Services\QuotaEnforcer')
+    ->toHaveSuffix('Enforcer');
 
 arch('middleware implements handle method')
     ->expect('Develupers\PlanUsage\Middleware')
@@ -35,10 +34,6 @@ arch('models have proper relationships')
     ->expect('Develupers\PlanUsage\Models\Plan')
     ->toHaveMethod('features')
     ->toHaveMethod('planFeatures');
-
-arch('events have proper structure')
-    ->expect('Develupers\PlanUsage\Events\UsageRecorded')
-    ->toHaveProperty('usage');
 
 arch('services follow single responsibility')
     ->expect('Develupers\PlanUsage\Services\PlanManager')

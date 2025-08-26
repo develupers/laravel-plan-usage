@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Develupers\PlanUsage\Commands;
 
 use Illuminate\Console\Command;

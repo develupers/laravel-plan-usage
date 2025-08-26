@@ -22,35 +22,39 @@ describe('QuotaEnforcer', function () {
     
     it('can check if billable can use feature', function () {
         // Arrange
+        $billable = createBillable();
+        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
         
         Quota::create([
-            'billable_type' => $this->billable->getMorphClass(),
-            'billable_id' => $this->billable->getKey(),
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
             'feature_id' => $feature->id,
             'limit' => 100,
             'used' => 50,
         ]);
         
         // Act & Assert
-        expect($this->quotaEnforcer->canUse($this->billable, 'api-calls', 30))->toBeTrue()
-            ->and($this->quotaEnforcer->canUse($this->billable, 'api-calls', 60))->toBeFalse();
+        expect($this->quotaEnforcer->canUse($billable, 'api-calls', 30))->toBeTrue()
+            ->and($this->quotaEnforcer->canUse($billable, 'api-calls', 60))->toBeFalse();
     });
     
     it('allows unlimited usage when limit is null', function () {
         // Arrange
+        $billable = createBillable();
+        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
         
         Quota::create([
-            'billable_type' => $this->billable->getMorphClass(),
-            'billable_id' => $this->billable->getKey(),
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
             'feature_id' => $feature->id,
             'limit' => null,
             'used' => 999999,
         ]);
         
         // Act & Assert
-        expect($this->quotaEnforcer->canUse($this->billable, 'api-calls', 10000))->toBeTrue();
+        expect($this->quotaEnforcer->canUse($billable, 'api-calls', 10000))->toBeTrue();
     });
     
     it('enforces quota and dispatches exceeded event', function () {
@@ -97,18 +101,20 @@ describe('QuotaEnforcer', function () {
     
     it('increments quota usage', function () {
         // Arrange
+        $billable = createBillable();
+        $billable->plan_id = null; // Explicitly set to null
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
         
         Quota::create([
-            'billable_type' => $this->billable->getMorphClass(),
-            'billable_id' => $this->billable->getKey(),
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
             'feature_id' => $feature->id,
             'limit' => 100,
             'used' => 10,
         ]);
         
         // Act
-        $this->quotaEnforcer->increment($this->billable, 'api-calls', 5);
+        $this->quotaEnforcer->increment($billable, 'api-calls', 5);
         
         // Assert
         $quota = Quota::where('feature_id', $feature->id)->first();
@@ -117,18 +123,20 @@ describe('QuotaEnforcer', function () {
     
     it('decrements quota usage', function () {
         // Arrange
+        $billable = createBillable();
+        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
         
         Quota::create([
-            'billable_type' => $this->billable->getMorphClass(),
-            'billable_id' => $this->billable->getKey(),
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
             'feature_id' => $feature->id,
             'limit' => 100,
             'used' => 50,
         ]);
         
         // Act
-        $this->quotaEnforcer->decrement($this->billable, 'api-calls', 20);
+        $this->quotaEnforcer->decrement($billable, 'api-calls', 20);
         
         // Assert
         $quota = Quota::where('feature_id', $feature->id)->first();
@@ -137,18 +145,20 @@ describe('QuotaEnforcer', function () {
     
     it('prevents negative usage when decrementing', function () {
         // Arrange
+        $billable = createBillable();
+        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
         
         Quota::create([
-            'billable_type' => $this->billable->getMorphClass(),
-            'billable_id' => $this->billable->getKey(),
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
             'feature_id' => $feature->id,
             'limit' => 100,
             'used' => 10,
         ]);
         
         // Act
-        $this->quotaEnforcer->decrement($this->billable, 'api-calls', 20);
+        $this->quotaEnforcer->decrement($billable, 'api-calls', 20);
         
         // Assert
         $quota = Quota::where('feature_id', $feature->id)->first();
@@ -157,21 +167,23 @@ describe('QuotaEnforcer', function () {
     
     it('resets quota', function () {
         // Arrange
+        $billable = createBillable();
+        $billable->plan_id = null;
         $feature = Feature::factory()->create([
             'slug' => 'api-calls',
             'reset_period' => 'monthly'
         ]);
         
         $quota = Quota::create([
-            'billable_type' => $this->billable->getMorphClass(),
-            'billable_id' => $this->billable->getKey(),
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
             'feature_id' => $feature->id,
             'limit' => 100,
             'used' => 75,
         ]);
         
         // Act
-        $this->quotaEnforcer->reset($this->billable, 'api-calls');
+        $this->quotaEnforcer->reset($billable, 'api-calls');
         
         // Assert
         $quota->refresh();
@@ -180,18 +192,20 @@ describe('QuotaEnforcer', function () {
     
     it('calculates remaining quota correctly', function () {
         // Arrange
+        $billable = createBillable();
+        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
         
         Quota::create([
-            'billable_type' => $this->billable->getMorphClass(),
-            'billable_id' => $this->billable->getKey(),
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
             'feature_id' => $feature->id,
             'limit' => 100,
             'used' => 75,
         ]);
         
         // Act
-        $remaining = $this->quotaEnforcer->getRemaining($this->billable, 'api-calls');
+        $remaining = $this->quotaEnforcer->getRemaining($billable, 'api-calls');
         
         // Assert
         expect($remaining)->toBe(25.0);
@@ -199,18 +213,20 @@ describe('QuotaEnforcer', function () {
     
     it('calculates usage percentage', function () {
         // Arrange
+        $billable = createBillable();
+        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
         
         Quota::create([
-            'billable_type' => $this->billable->getMorphClass(),
-            'billable_id' => $this->billable->getKey(),
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
             'feature_id' => $feature->id,
             'limit' => 100,
             'used' => 75,
         ]);
         
         // Act
-        $percentage = $this->quotaEnforcer->getUsagePercentage($this->billable, 'api-calls');
+        $percentage = $this->quotaEnforcer->getUsagePercentage($billable, 'api-calls');
         
         // Assert
         expect($percentage)->toBe(75.0);
@@ -221,35 +237,39 @@ describe('QuotaEnforcer', function () {
         Event::fake();
         config(['plan-usage.quotas.warning_threshold' => 80]);
         
+        $billable = createBillable();
+        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
         
         Quota::create([
-            'billable_type' => $this->billable->getMorphClass(),
-            'billable_id' => $this->billable->getKey(),
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
             'feature_id' => $feature->id,
             'limit' => 100,
             'used' => 75,
         ]);
         
         // Act
-        $this->quotaEnforcer->increment($this->billable, 'api-calls', 10);
+        $this->quotaEnforcer->increment($billable, 'api-calls', 10);
         
         // Assert
         Event::assertDispatched(QuotaWarning::class, function ($event) {
-            return $event->percentage >= 80 && $event->percentage < 100;
+            return $event->threshold >= 80 && $event->threshold < 100;
         });
     });
     
     it('auto resets expired quotas', function () {
         // Arrange
+        $billable = createBillable();
+        $billable->plan_id = null;
         $feature = Feature::factory()->create([
             'slug' => 'api-calls',
             'reset_period' => 'monthly'
         ]);
         
         $quota = Quota::create([
-            'billable_type' => $this->billable->getMorphClass(),
-            'billable_id' => $this->billable->getKey(),
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
             'feature_id' => $feature->id,
             'limit' => 100,
             'used' => 75,
@@ -257,7 +277,7 @@ describe('QuotaEnforcer', function () {
         ]);
         
         // Act
-        $this->quotaEnforcer->increment($this->billable, 'api-calls', 5);
+        $this->quotaEnforcer->increment($billable, 'api-calls', 5);
         
         // Assert
         $quota->refresh();
@@ -321,11 +341,13 @@ describe('QuotaEnforcer with datasets', function () {
     
     it('handles different quota limits correctly', function (?float $limit) {
         // Arrange
+        $billable = createBillable();
+        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'test-feature']);
         
         Quota::create([
-            'billable_type' => $this->billable->getMorphClass(),
-            'billable_id' => $this->billable->getKey(),
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
             'feature_id' => $feature->id,
             'limit' => $limit,
             'used' => 50,
@@ -333,25 +355,27 @@ describe('QuotaEnforcer with datasets', function () {
         
         // Act & Assert
         if (is_null($limit)) {
-            expect($this->quotaEnforcer->canUse($this->billable, 'test-feature', 9999))->toBeTrue();
-            expect($this->quotaEnforcer->getRemaining($this->billable, 'test-feature'))->toBeNull();
+            expect($this->quotaEnforcer->canUse($billable, 'test-feature', 9999))->toBeTrue();
+            expect($this->quotaEnforcer->getRemaining($billable, 'test-feature'))->toBeNull();
         } else {
-            $canUse = $this->quotaEnforcer->canUse($this->billable, 'test-feature', $limit - 50);
+            $canUse = $this->quotaEnforcer->canUse($billable, 'test-feature', $limit - 50);
             expect($canUse)->toBeTrue();
-            expect($this->quotaEnforcer->getRemaining($this->billable, 'test-feature'))->toBe($limit - 50);
+            expect($this->quotaEnforcer->getRemaining($billable, 'test-feature'))->toBe($limit - 50);
         }
     })->with('quota_limits');
     
     it('resets quotas based on period', function (string $period) {
         // Arrange
+        $billable = createBillable();
+        $billable->plan_id = null;
         $feature = Feature::factory()->create([
             'slug' => "test-{$period}",
             'reset_period' => $period
         ]);
         
         $quota = Quota::create([
-            'billable_type' => $this->billable->getMorphClass(),
-            'billable_id' => $this->billable->getKey(),
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
             'feature_id' => $feature->id,
             'limit' => 100,
             'used' => 50,
@@ -359,7 +383,7 @@ describe('QuotaEnforcer with datasets', function () {
         ]);
         
         // Act
-        $this->quotaEnforcer->increment($this->billable, "test-{$period}", 5);
+        $this->quotaEnforcer->increment($billable, "test-{$period}", 5);
         
         // Assert
         $quota->refresh();

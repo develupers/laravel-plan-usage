@@ -32,19 +32,23 @@ expect()->extend('toBeModel', function (string $model) {
 |--------------------------------------------------------------------------
 */
 
-function createBillable(array $attributes = []): object
+function createBillable(array $attributes = []): \Illuminate\Database\Eloquent\Model
 {
-    return new class($attributes) {
+    return new class($attributes) extends \Illuminate\Database\Eloquent\Model {
         public $plan_id;
         public $plan_changed_at;
         public $stripe_id;
         public $attributes = [];
+        protected $table = 'test_billables';
+        protected $fillable = ['*'];
         
         public function __construct(array $attributes = [])
         {
+            parent::__construct();
             $this->plan_id = $attributes['plan_id'] ?? 1;
             $this->stripe_id = $attributes['stripe_id'] ?? 'cus_' . uniqid();
-            $this->attributes = $attributes;
+            $this->attributes = array_merge($attributes, ['id' => $attributes['id'] ?? 1]);
+            $this->setAttribute('id', $this->attributes['id']);
         }
         
         public function getMorphClass(): string
@@ -57,7 +61,7 @@ function createBillable(array $attributes = []): object
             return $this->attributes['id'] ?? 1;
         }
         
-        public function save(): bool
+        public function save(array $options = []): bool
         {
             $this->plan_changed_at = now();
             return true;

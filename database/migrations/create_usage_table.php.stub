@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create(config('plan-usage.tables.usage', 'usage'), function (Blueprint $table) {
+        Schema::create(config('plan-usage.tables.usages', 'usages'), function (Blueprint $table) {
             $table->id();
             $table->morphs('billable'); // Polymorphic relation to any billable model (e.g., Account, User, Team)
             $table->foreignId('feature_id')->constrained(config('plan-usage.tables.features', 'features'))->cascadeOnDelete();
@@ -26,6 +26,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists(config('plan-usage.tables.usage', 'usage'));
+        Schema::dropIfExists(config('plan-usage.tables.usages', 'usage'));
     }
 };

@@ -15,7 +15,9 @@ return new class extends Migration
             $table->text('description')->nullable();
             $table->string('type')->default('boolean'); // boolean, limit, quota
             $table->string('unit')->nullable(); // e.g., 'words', 'projects', 'api_calls'
+            $table->string('aggregation_method')->default('sum'); // sum, count, max, last
             $table->string('reset_period')->nullable(); // daily, weekly, monthly, yearly, never
+            $table->string('stripe_meter_id')->nullable(); // For Stripe metered billing
             $table->boolean('is_consumable')->default(false); // Whether usage is consumed (true) or just counted
             $table->integer('sort_order')->default(0);
             $table->json('metadata')->nullable();

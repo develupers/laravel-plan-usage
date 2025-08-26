@@ -24,6 +24,7 @@ return [
     'models' => [
         'plan' => \Develupers\PlanUsage\Models\Plan::class,
         'feature' => \Develupers\PlanUsage\Models\Feature::class,
+        'plan_feature' => \Develupers\PlanUsage\Models\PlanFeature::class,
         'usage' => \Develupers\PlanUsage\Models\Usage::class,
         'quota' => \Develupers\PlanUsage\Models\Quota::class,
     ],
@@ -40,8 +41,9 @@ return [
         'plans' => 'plans',
         'features' => 'features',
         'plan_features' => 'plan_features',
-        'usage' => 'usage',
+        'usages' => 'usages',
         'quotas' => 'quotas',
+        'billable' => 'users', // Default billable table - e.g. 'accounts', 'users', 'workspace'
     ],
 
     /*

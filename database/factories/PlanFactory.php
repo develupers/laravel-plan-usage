@@ -13,11 +13,13 @@ class PlanFactory extends Factory
 
     public function definition(): array
     {
+        $name = $this->faker->randomElement(['Starter', 'Professional', 'Enterprise']) . ' Plan';
         return [
-            'name' => $this->faker->randomElement(['Starter', 'Professional', 'Enterprise']) . ' Plan',
+            'name' => $name,
+            'slug' => $this->faker->unique()->slug(2),
             'description' => $this->faker->sentence(),
-            'stripe_product_id' => 'prod_' . $this->faker->unique()->alphaNumeric(14),
-            'stripe_price_id' => 'price_' . $this->faker->unique()->alphaNumeric(24),
+            'stripe_product_id' => 'prod_' . $this->faker->unique()->regexify('[A-Za-z0-9]{14}'),
+            'stripe_price_id' => 'price_' . $this->faker->unique()->regexify('[A-Za-z0-9]{24}'),
             'price' => $this->faker->randomFloat(2, 10, 500),
             'currency' => 'usd',
             'interval' => $this->faker->randomElement(['monthly', 'yearly']),

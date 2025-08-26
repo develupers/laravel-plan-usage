@@ -8,13 +8,13 @@ return new class extends Migration
 {
     /**
      * This migration adds Cashier billable columns to your billable model's table.
-     * You should publish this migration and modify the table name as needed.
+     * Configure the billable table name in config/plan-usage.php under 'tables.billable'
      *
-     * Example: If your billable model is 'Account', change 'billable_table' to 'accounts'
+     * Example: If your billable model is 'Account', set 'tables.billable' to 'accounts'
      */
     public function up(): void
     {
-        Schema::table('billable_table', function (Blueprint $table) {
+        Schema::table(config('plan-usage.tables.billable', 'users'), function (Blueprint $table) {
             // Laravel Cashier columns for Stripe integration
             $table->string('stripe_id')->nullable()->index();
             $table->string('pm_type')->nullable();
@@ -35,7 +35,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('billable_table', function (Blueprint $table) {
+        Schema::table(config('plan-usage.tables.billable', 'users'), function (Blueprint $table) {
             $table->dropForeign(['plan_id']);
             $table->dropColumn([
                 'stripe_id',

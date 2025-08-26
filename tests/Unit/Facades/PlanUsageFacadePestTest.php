@@ -6,6 +6,7 @@ use Develupers\PlanUsage\Facades\PlanUsage;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\PlanFeature;
+use Develupers\PlanUsage\Models\Quota;
 
 describe('PlanUsage Facade', function () {
     
@@ -108,6 +109,8 @@ describe('PlanUsage Facade with complex scenarios', function () {
         
         $billable1->plan_id = $plan->id;
         $billable2->plan_id = $plan->id;
+        $billable1->save();
+        $billable2->save();
         
         // Act
         PlanUsage::record($billable1, 'storage', 30);

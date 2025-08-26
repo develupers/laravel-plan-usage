@@ -6,12 +6,14 @@ namespace Develupers\PlanUsage\Models;
 
 use Develupers\PlanUsage\Exceptions\QuotaExceededException;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class Quota extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'billable_type',
         'billable_id',
@@ -23,8 +25,8 @@ class Quota extends Model
     ];
 
     protected $casts = [
-        'limit' => 'decimal:4',
-        'used' => 'decimal:4',
+        'limit' => 'float',
+        'used' => 'float',
         'reset_at' => 'datetime',
         'metadata' => 'array',
     ];

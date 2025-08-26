@@ -34,7 +34,7 @@ class UsageTracker
         ?Carbon $timestamp = null
     ): Usage {
         $feature = $this->featureModel::where('slug', $featureSlug)->firstOrFail();
-        
+
         // Check if we should aggregate or create new record
         if ($this->shouldAggregate($feature)) {
             return $this->aggregateUsage($billable, $feature, $amount, $metadata, $timestamp);
@@ -54,7 +54,7 @@ class UsageTracker
         ?Carbon $timestamp
     ): Usage {
         $timestamp = $timestamp ?? now();
-        
+
         $usage = $this->usageModel::create([
             'billable_type' => $billable->getMorphClass(),
             'billable_id' => $billable->getKey(),
@@ -65,7 +65,7 @@ class UsageTracker
             'metadata' => $metadata,
         ]);
 
-        Event::dispatch(new UsageRecorded($usage));
+        Event::dispatch(new UsageRecorded($billable, $feature, $amount, $usage));
 
         return $usage;
     }
@@ -107,7 +107,7 @@ class UsageTracker
             $usage->save();
         }
 
-        Event::dispatch(new UsageRecorded($usage));
+        Event::dispatch(new UsageRecorded($billable, $feature, $amount, $usage));
 
         return $usage;
     }
@@ -122,7 +122,7 @@ class UsageTracker
         ?Carbon $to = null
     ): float {
         $feature = $this->featureModel::where('slug', $featureSlug)->firstOrFail();
-        
+
         $query = $this->usageModel::query()
             ->where('billable_type', $billable->getMorphClass())
             ->where('billable_id', $billable->getKey())
@@ -146,7 +146,7 @@ class UsageTracker
     {
         $feature = $this->featureModel::where('slug', $featureSlug)->firstOrFail();
         $now = now();
-        
+
         return $this->getUsage(
             $billable,
             $featureSlug,
@@ -191,7 +191,7 @@ class UsageTracker
         ?Carbon $periodStart = null
     ): void {
         $feature = $this->featureModel::where('slug', $featureSlug)->firstOrFail();
-        
+
         $query = $this->usageModel::query()
             ->where('billable_type', $billable->getMorphClass())
             ->where('billable_id', $billable->getKey())
@@ -215,18 +215,34 @@ class UsageTracker
         string $groupBy = 'day'
     ): \Illuminate\Support\Collection {
         $feature = $this->featureModel::where('slug', $featureSlug)->firstOrFail();
-        
-        $dateFormat = match($groupBy) {
-            'hour' => '%Y-%m-%d %H:00:00',
-            'day' => '%Y-%m-%d',
-            'week' => '%Y-%u',
-            'month' => '%Y-%m',
-            'year' => '%Y',
-            default => '%Y-%m-%d',
-        };
 
-        return DB::table(config('plan-usage.tables.usage'))
-            ->select(DB::raw("DATE_FORMAT(created_at, '{$dateFormat}') as period"), 
+        // Use database-specific date formatting
+        $connection = DB::connection()->getDriverName();
+
+        if ($connection === 'sqlite') {
+            $dateFormat = match($groupBy) {
+                'hour' => '%Y-%m-%d %H:00:00',
+                'day' => '%Y-%m-%d',
+                'week' => '%Y-%W',
+                'month' => '%Y-%m',
+                'year' => '%Y',
+                default => '%Y-%m-%d',
+            };
+            $dateExpression = "strftime('{$dateFormat}', created_at)";
+        } else {
+            $dateFormat = match($groupBy) {
+                'hour' => '%Y-%m-%d %H:00:00',
+                'day' => '%Y-%m-%d',
+                'week' => '%Y-%u',
+                'month' => '%Y-%m',
+                'year' => '%Y',
+                default => '%Y-%m-%d',
+            };
+            $dateExpression = "DATE_FORMAT(created_at, '{$dateFormat}')";
+        }
+
+        return DB::table(config('plan-usage.tables.usages'))
+            ->select(DB::raw("{$dateExpression} as period"),
                      DB::raw('SUM(used) as total_usage'),
                      DB::raw('COUNT(*) as usage_count'),
                      DB::raw('AVG(used) as average_usage'),
@@ -290,7 +306,7 @@ class UsageTracker
         }
 
         $feature = $this->featureModel::where('slug', $featureSlug)->firstOrFail();
-        
+
         if ($feature->stripe_meter_id) {
             $billable->reportUsage($feature->stripe_meter_id, (int) $amount);
         }

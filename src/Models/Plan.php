@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Develupers\PlanUsage\Models;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -12,15 +13,17 @@ use Illuminate\Support\Collection;
 
 class Plan extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'name',
         'slug',
         'display_name',
         'description',
+        'stripe_product_id',
         'stripe_price_id',
         'price',
         'currency',
-        'billing_period',
+        'interval',
         'trial_days',
         'sort_order',
         'is_active',
@@ -28,7 +31,7 @@ class Plan extends Model
     ];
 
     protected $casts = [
-        'price' => 'decimal:2',
+        'price' => 'float',
         'trial_days' => 'integer',
         'sort_order' => 'integer',
         'is_active' => 'boolean',
@@ -134,6 +137,46 @@ class Plan extends Model
     public function hasTrial(): bool
     {
         return $this->trial_days > 0;
+    }
+
+    /**
+     * Get a feature by slug.
+     */
+    public function getFeature(string $slug): ?Feature
+    {
+        return $this->features()->where('slug', $slug)->first();
+    }
+    
+    /**
+     * Scope to monthly plans.
+     */
+    public function scopeMonthly(Builder $query): Builder
+    {
+        return $query->where('interval', 'monthly');
+    }
+    
+    /**
+     * Scope to yearly plans.
+     */
+    public function scopeYearly(Builder $query): Builder
+    {
+        return $query->where('interval', 'yearly');
+    }
+    
+    /**
+     * Check if plan is monthly.
+     */
+    public function isMonthly(): bool
+    {
+        return $this->interval === 'monthly';
+    }
+    
+    /**
+     * Check if plan is yearly.
+     */
+    public function isYearly(): bool
+    {
+        return $this->interval === 'yearly';
     }
 
     /**

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Develupers\PlanUsage;
 
 use Develupers\PlanUsage\Commands\PlanUsageCommand;

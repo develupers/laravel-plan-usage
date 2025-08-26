@@ -49,7 +49,7 @@ describe('UsageTracker', function () {
         $totalUsage = Usage::where('feature_id', $feature->id)->sum('used');
         
         expect($usageCount)->toBe(1)
-            ->and($totalUsage)->toBe(18.0);
+            ->and((float)$totalUsage)->toBe(18.0);
     });
     
     it('creates separate records when not aggregating', function () {
@@ -99,7 +99,7 @@ describe('UsageTracker', function () {
         );
         
         // Assert
-        expect($totalUsage)->toBe(20.0);
+        expect((float)$totalUsage)->toBe(20.0);
     });
     
     it('can get current period usage', function () {
@@ -122,7 +122,7 @@ describe('UsageTracker', function () {
         $currentUsage = $this->usageTracker->getCurrentPeriodUsage($this->billable, 'api-calls');
         
         // Assert
-        expect($currentUsage)->toBe(100.0);
+        expect((float)$currentUsage)->toBe(100.0);
     });
     
     it('can get usage history', function () {
@@ -190,13 +190,17 @@ describe('UsageTracker', function () {
         ];
         
         foreach ($dates as $date) {
-            Usage::create([
+            $usage = new Usage([
                 'billable_type' => $this->billable->getMorphClass(),
                 'billable_id' => $this->billable->getKey(),
                 'feature_id' => $feature->id,
                 'used' => rand(10, 100),
-                'created_at' => $date,
+                'period_start' => $date,
+                'period_end' => $date->copy()->addDay(),
             ]);
+            $usage->created_at = $date;
+            $usage->updated_at = $date;
+            $usage->save();
         }
         
         // Act
@@ -288,7 +292,7 @@ describe('UsageTracker with datasets', function () {
         
         if ($shouldAggregate) {
             $total = Usage::where('feature_id', $feature->id)->sum('used');
-            expect($total)->toBe(30.0);
+            expect((float)$total)->toBe(30.0);
         }
     })->with('aggregation_methods');
     
