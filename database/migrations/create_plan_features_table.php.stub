@@ -8,15 +8,15 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create(config('plan-feature-usage.tables.plan_features', 'plan_features'), function (Blueprint $table) {
+        Schema::create(config('plan-usage.tables.plan_features', 'plan_features'), function (Blueprint $table) {
             $table->id();
-            $table->foreignId('plan_id')->constrained(config('plan-feature-usage.tables.plans', 'plans'))->cascadeOnDelete();
-            $table->foreignId('feature_id')->constrained(config('plan-feature-usage.tables.features', 'features'))->cascadeOnDelete();
+            $table->foreignId('plan_id')->constrained(config('plan-usage.tables.plans', 'plans'))->cascadeOnDelete();
+            $table->foreignId('feature_id')->constrained(config('plan-usage.tables.features', 'features'))->cascadeOnDelete();
             $table->string('value')->nullable(); // Can be boolean (1/0), numeric limit, or null for unlimited
             $table->string('unit')->nullable(); // Override feature unit if needed
             $table->json('metadata')->nullable();
             $table->timestamps();
-            
+
             $table->unique(['plan_id', 'feature_id']);
             $table->index('feature_id');
         });
@@ -24,6 +24,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists(config('plan-feature-usage.tables.plan_features', 'plan_features'));
+        Schema::dropIfExists(config('plan-usage.tables.plan_features', 'plan_features'));
     }
 };

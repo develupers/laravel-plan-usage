@@ -24,7 +24,7 @@ class PlanFeature extends Model
     public function __construct(array $attributes = [])
     {
         parent::__construct($attributes);
-        $this->table = config('plan-feature-usage.tables.plan_features', 'plan_features');
+        $this->table = config('plan-usage.tables.plan_features', 'plan_features');
     }
 
     /**

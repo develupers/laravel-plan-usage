@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create(config('plan-feature-usage.tables.features', 'features'), function (Blueprint $table) {
+        Schema::create(config('plan-usage.tables.features', 'features'), function (Blueprint $table) {
             $table->id();
             $table->string('name');
             $table->string('slug')->unique();
@@ -20,7 +20,7 @@ return new class extends Migration
             $table->integer('sort_order')->default(0);
             $table->json('metadata')->nullable();
             $table->timestamps();
-            
+
             $table->index(['type', 'reset_period']);
             $table->index('sort_order');
         });
@@ -28,6 +28,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists(config('plan-feature-usage.tables.features', 'features'));
+        Schema::dropIfExists(config('plan-usage.tables.features', 'features'));
     }
 };

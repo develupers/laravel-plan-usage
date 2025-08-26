@@ -32,7 +32,7 @@ class Usage extends Model
     public function __construct(array $attributes = [])
     {
         parent::__construct($attributes);
-        $this->table = config('plan-feature-usage.tables.usage', 'usage');
+        $this->table = config('plan-usage.tables.usage', 'usage');
     }
 
     /**
@@ -130,8 +130,8 @@ class Usage extends Model
      */
     public static function record(Model $billable, $feature, float $amount, array $metadata = []): self
     {
-        $featureModel = $feature instanceof Feature 
-            ? $feature 
+        $featureModel = $feature instanceof Feature
+            ? $feature
             : Feature::where('slug', $feature)->firstOrFail();
 
         // Determine period based on feature reset period
@@ -154,8 +154,8 @@ class Usage extends Model
      */
     public static function increment(Model $billable, $feature, float $amount = 1, array $metadata = []): self
     {
-        $featureModel = $feature instanceof Feature 
-            ? $feature 
+        $featureModel = $feature instanceof Feature
+            ? $feature
             : Feature::where('slug', $feature)->firstOrFail();
 
         // Try to find existing usage record for current period

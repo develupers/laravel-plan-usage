@@ -16,13 +16,13 @@ class PlanUsageCommand extends Command
 
         $this->info('Publishing configuration...');
         $this->call('vendor:publish', [
-            '--tag' => 'plan-feature-usage-config',
+            '--tag' => 'plan-usage-config',
             '--force' => true,
         ]);
 
         $this->info('Publishing migrations...');
         $this->call('vendor:publish', [
-            '--tag' => 'plan-feature-usage-migrations',
+            '--tag' => 'plan-usage-migrations',
         ]);
 
         $this->info('Plan Usage package installed successfully.');

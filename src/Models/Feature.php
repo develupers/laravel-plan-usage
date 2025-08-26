@@ -32,7 +32,7 @@ class Feature extends Model
     public function __construct(array $attributes = [])
     {
         parent::__construct($attributes);
-        $this->table = config('plan-feature-usage.tables.features', 'features');
+        $this->table = config('plan-usage.tables.features', 'features');
     }
 
     /**
@@ -42,7 +42,7 @@ class Feature extends Model
     {
         return $this->belongsToMany(
             Plan::class,
-            config('plan-feature-usage.tables.plan_features', 'plan_features'),
+            config('plan-usage.tables.plan_features', 'plan_features'),
             'feature_id',
             'plan_id'
         )->withPivot('value', 'unit', 'metadata')
@@ -146,7 +146,7 @@ class Feature extends Model
      */
     public function getTypeLabel(): string
     {
-        return config("plan-feature-usage.feature_types.{$this->type}.label", ucfirst($this->type));
+        return config("plan-usage.feature_types.{$this->type}.label", ucfirst($this->type));
     }
 
     /**
@@ -158,6 +158,6 @@ class Feature extends Model
             return 'Never';
         }
 
-        return config("plan-feature-usage.reset_periods.{$this->reset_period}.label", ucfirst($this->reset_period));
+        return config("plan-usage.reset_periods.{$this->reset_period}.label", ucfirst($this->reset_period));
     }
 }

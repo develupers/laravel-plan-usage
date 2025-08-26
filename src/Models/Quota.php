@@ -32,7 +32,7 @@ class Quota extends Model
     public function __construct(array $attributes = [])
     {
         parent::__construct($attributes);
-        $this->table = config('plan-feature-usage.tables.quotas', 'quotas');
+        $this->table = config('plan-usage.tables.quotas', 'quotas');
     }
 
     /**
@@ -83,7 +83,7 @@ class Quota extends Model
             return false; // Unlimited
         }
 
-        $gracePercentage = config('plan-feature-usage.quota.grace_period', 0);
+        $gracePercentage = config('plan-usage.quota.grace_period', 0);
         $graceAmount = $this->limit * ($gracePercentage / 100);
 
         return $this->used > ($this->limit + $graceAmount);
@@ -98,7 +98,7 @@ class Quota extends Model
             return null;
         }
 
-        $thresholds = config('plan-feature-usage.quota.warning_thresholds', [80, 90, 100]);
+        $thresholds = config('plan-usage.quota.warning_thresholds', [80, 90, 100]);
         $percentage = ($this->used / $this->limit) * 100;
 
         foreach (array_reverse($thresholds) as $threshold) {
@@ -168,7 +168,7 @@ class Quota extends Model
     public function use(float $amount = 1): self
     {
         if ($this->limit !== null && ($this->used + $amount) > $this->limit) {
-            if (config('plan-feature-usage.quota.throw_exception', true)) {
+            if (config('plan-usage.quota.throw_exception', true)) {
                 throw new QuotaExceededException(
                     "Quota exceeded for feature {$this->feature->name}. Used: {$this->used}, Limit: {$this->limit}",
                     $this->feature->slug,
@@ -192,7 +192,7 @@ class Quota extends Model
             return true; // Unlimited
         }
 
-        $gracePercentage = config('plan-feature-usage.quota.grace_period', 0);
+        $gracePercentage = config('plan-usage.quota.grace_period', 0);
         $graceAmount = $this->limit * ($gracePercentage / 100);
 
         return ($this->used + $amount) <= ($this->limit + $graceAmount);
@@ -203,8 +203,8 @@ class Quota extends Model
      */
     public static function getOrCreate(Model $billable, $feature, ?float $limit = null): self
     {
-        $featureModel = $feature instanceof Feature 
-            ? $feature 
+        $featureModel = $feature instanceof Feature
+            ? $feature
             : Feature::where('slug', $feature)->firstOrFail();
 
         $quota = static::forBillable($billable)

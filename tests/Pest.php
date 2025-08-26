@@ -1,5 +1,117 @@
 <?php
 
 use Develupers\PlanUsage\Tests\TestCase;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(TestCase::class)->in(__DIR__);
+/*
+|--------------------------------------------------------------------------
+| Test Case
+|--------------------------------------------------------------------------
+*/
+
+uses(TestCase::class)->in('Feature', 'Unit');
+uses(RefreshDatabase::class)->in('Feature', 'Unit');
+
+/*
+|--------------------------------------------------------------------------
+| Expectations
+|--------------------------------------------------------------------------
+*/
+
+expect()->extend('toBeOne', function () {
+    return $this->toBe(1);
+});
+
+expect()->extend('toBeModel', function (string $model) {
+    return $this->toBeInstanceOf($model);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Helper Functions
+|--------------------------------------------------------------------------
+*/
+
+function createBillable(array $attributes = []): object
+{
+    return new class($attributes) {
+        public $plan_id;
+        public $plan_changed_at;
+        public $stripe_id;
+        public $attributes = [];
+        
+        public function __construct(array $attributes = [])
+        {
+            $this->plan_id = $attributes['plan_id'] ?? 1;
+            $this->stripe_id = $attributes['stripe_id'] ?? 'cus_' . uniqid();
+            $this->attributes = $attributes;
+        }
+        
+        public function getMorphClass(): string
+        {
+            return $this->attributes['morph_class'] ?? 'App\\Models\\Account';
+        }
+        
+        public function getKey(): int
+        {
+            return $this->attributes['id'] ?? 1;
+        }
+        
+        public function save(): bool
+        {
+            $this->plan_changed_at = now();
+            return true;
+        }
+        
+        public function reportUsage(string $meterId, int $quantity): void
+        {
+            // Mock Stripe usage reporting
+        }
+    };
+}
+
+/*
+|--------------------------------------------------------------------------
+| Datasets
+|--------------------------------------------------------------------------
+*/
+
+dataset('feature_types', [
+    'boolean' => ['boolean'],
+    'limit' => ['limit'],
+    'quota' => ['quota'],
+]);
+
+dataset('reset_periods', [
+    'hourly' => ['hourly'],
+    'daily' => ['daily'],
+    'weekly' => ['weekly'],
+    'monthly' => ['monthly'],
+    'yearly' => ['yearly'],
+]);
+
+dataset('aggregation_methods', [
+    'sum' => ['sum'],
+    'count' => ['count'],
+    'max' => ['max'],
+    'last' => ['last'],
+]);
+
+dataset('plan_intervals', [
+    'monthly' => ['monthly'],
+    'yearly' => ['yearly'],
+]);
+
+dataset('usage_amounts', [
+    'small' => [1],
+    'medium' => [50],
+    'large' => [100],
+    'very large' => [1000],
+]);
+
+dataset('quota_limits', [
+    'small limit' => [100],
+    'medium limit' => [1000],
+    'large limit' => [10000],
+    'unlimited' => [null],
+]);

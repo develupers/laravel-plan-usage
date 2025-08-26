@@ -38,7 +38,7 @@ class Plan extends Model
     public function __construct(array $attributes = [])
     {
         parent::__construct($attributes);
-        $this->table = config('plan-feature-usage.tables.plans', 'plans');
+        $this->table = config('plan-usage.tables.plans', 'plans');
     }
 
     /**
@@ -48,7 +48,7 @@ class Plan extends Model
     {
         return $this->belongsToMany(
             Feature::class,
-            config('plan-feature-usage.tables.plan_features', 'plan_features'),
+            config('plan-usage.tables.plan_features', 'plan_features'),
             'plan_id',
             'feature_id'
         )->withPivot('value', 'unit', 'metadata')
@@ -93,7 +93,7 @@ class Plan extends Model
     public function getFeatureValue(string $featureSlug): mixed
     {
         $feature = $this->features()->where('slug', $featureSlug)->first();
-        
+
         if (!$feature) {
             return null;
         }
