@@ -17,7 +17,9 @@ class Plan extends Model
 
     // Type constants
     public const TYPE_PUBLIC = 'public';
+
     public const TYPE_LEGACY = 'legacy';
+
     public const TYPE_PRIVATE = 'private';
 
     protected $fillable = [
@@ -200,7 +202,7 @@ class Plan extends Model
     public function scopeAvailableForPurchase(Builder $query): Builder
     {
         return $query->where('is_active', true)
-                     ->where('type', self::TYPE_PUBLIC);
+            ->where('type', self::TYPE_PUBLIC);
     }
 
     /**
@@ -234,7 +236,6 @@ class Plan extends Model
     {
         return $this->type === self::TYPE_LEGACY;
     }
-
 
     /**
      * Check if plan is private.

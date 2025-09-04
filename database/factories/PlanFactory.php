@@ -61,7 +61,6 @@ class PlanFactory extends Factory
         ]);
     }
 
-
     public function private(): static
     {
         return $this->state(fn (array $attributes) => [

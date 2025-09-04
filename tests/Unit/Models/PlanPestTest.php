@@ -171,7 +171,7 @@ describe('Plan Model Type Field', function () {
 
     it('defaults to public type', function () {
         $plan = Plan::factory()->create();
-        
+
         expect($plan->type)->toBe('public')
             ->and($plan->isPublic())->toBeTrue();
     });
@@ -192,8 +192,7 @@ describe('Plan Model Type Field', function () {
         Plan::factory()->count(3)->legacy()->create();
 
         expect(Plan::ofType('public')->count())->toBe(2)
-            ->and(Plan::ofType('legacy')->count())->toBe(3)
-;
+            ->and(Plan::ofType('legacy')->count())->toBe(3);
     });
 
     it('scopes to public plans', function () {
@@ -203,7 +202,7 @@ describe('Plan Model Type Field', function () {
         $publicPlans = Plan::publicType()->get();
 
         expect($publicPlans)->toHaveCount(3)
-            ->and($publicPlans->every(fn($plan) => $plan->type === 'public'))->toBeTrue();
+            ->and($publicPlans->every(fn ($plan) => $plan->type === 'public'))->toBeTrue();
     });
 
     it('scopes to legacy plans', function () {
@@ -213,42 +212,41 @@ describe('Plan Model Type Field', function () {
         $legacyPlans = Plan::legacy()->get();
 
         expect($legacyPlans)->toHaveCount(3)
-            ->and($legacyPlans->every(fn($plan) => $plan->type === 'legacy'))->toBeTrue();
+            ->and($legacyPlans->every(fn ($plan) => $plan->type === 'legacy'))->toBeTrue();
     });
 
     it('scopes to plans available for purchase', function () {
         // Active public plans - should be available
         Plan::factory()->count(2)->create(['is_active' => true, 'type' => 'public']);
-        
+
         // Inactive public plans - should NOT be available
         Plan::factory()->create(['is_active' => false, 'type' => 'public']);
-        
+
         // Active legacy plans - should NOT be available
         Plan::factory()->legacy()->create(['is_active' => true]);
-        
+
         // Active private plans - should NOT be available
         Plan::factory()->private()->create(['is_active' => true]);
 
         $availablePlans = Plan::availableForPurchase()->get();
 
         expect($availablePlans)->toHaveCount(2)
-            ->and($availablePlans->every(fn($plan) => 
-                $plan->is_active && $plan->type === 'public'
+            ->and($availablePlans->every(fn ($plan) => $plan->is_active && $plan->type === 'public'
             ))->toBeTrue();
     });
 
     it('correctly checks if plan is available for purchase', function () {
         $availablePlan = Plan::factory()->create([
             'is_active' => true,
-            'type' => 'public'
+            'type' => 'public',
         ]);
 
         $inactivePlan = Plan::factory()->inactive()->create([
-            'type' => 'public'
+            'type' => 'public',
         ]);
 
         $legacyPlan = Plan::factory()->legacy()->create([
-            'is_active' => true
+            'is_active' => true,
         ]);
 
         expect($availablePlan->isAvailableForPurchase())->toBeTrue()
