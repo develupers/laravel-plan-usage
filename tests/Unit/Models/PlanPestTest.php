@@ -20,6 +20,7 @@ describe('Plan Model', function () {
             'currency',
             'interval',
             'is_active',
+            'type',
             'metadata'
         );
     });
@@ -158,4 +159,100 @@ describe('Plan Model with datasets', function () {
             ->and($plan->isMonthly())->toBe($interval === 'monthly')
             ->and($plan->isYearly())->toBe($interval === 'yearly');
     })->with('plan_intervals');
+});
+
+describe('Plan Model Type Field', function () {
+
+    it('has correct type constants', function () {
+        expect(Plan::TYPE_PUBLIC)->toBe('public')
+            ->and(Plan::TYPE_LEGACY)->toBe('legacy')
+            ->and(Plan::TYPE_PRIVATE)->toBe('private');
+    });
+
+    it('defaults to public type', function () {
+        $plan = Plan::factory()->create();
+        
+        expect($plan->type)->toBe('public')
+            ->and($plan->isPublic())->toBeTrue();
+    });
+
+    it('correctly identifies plan types', function () {
+        $publicPlan = Plan::factory()->create(['type' => 'public']);
+        $legacyPlan = Plan::factory()->legacy()->create();
+        $privatePlan = Plan::factory()->private()->create();
+
+        expect($publicPlan->isPublic())->toBeTrue()
+            ->and($publicPlan->isLegacy())->toBeFalse()
+            ->and($legacyPlan->isLegacy())->toBeTrue()
+            ->and($privatePlan->isPrivate())->toBeTrue();
+    });
+
+    it('scopes to plans of specific type', function () {
+        Plan::factory()->count(2)->create(['type' => 'public']);
+        Plan::factory()->count(3)->legacy()->create();
+
+        expect(Plan::ofType('public')->count())->toBe(2)
+            ->and(Plan::ofType('legacy')->count())->toBe(3)
+;
+    });
+
+    it('scopes to public plans', function () {
+        Plan::factory()->count(3)->create(['type' => 'public']);
+        Plan::factory()->count(2)->legacy()->create();
+
+        $publicPlans = Plan::publicType()->get();
+
+        expect($publicPlans)->toHaveCount(3)
+            ->and($publicPlans->every(fn($plan) => $plan->type === 'public'))->toBeTrue();
+    });
+
+    it('scopes to legacy plans', function () {
+        Plan::factory()->count(2)->create(['type' => 'public']);
+        Plan::factory()->count(3)->legacy()->create();
+
+        $legacyPlans = Plan::legacy()->get();
+
+        expect($legacyPlans)->toHaveCount(3)
+            ->and($legacyPlans->every(fn($plan) => $plan->type === 'legacy'))->toBeTrue();
+    });
+
+    it('scopes to plans available for purchase', function () {
+        // Active public plans - should be available
+        Plan::factory()->count(2)->create(['is_active' => true, 'type' => 'public']);
+        
+        // Inactive public plans - should NOT be available
+        Plan::factory()->create(['is_active' => false, 'type' => 'public']);
+        
+        // Active legacy plans - should NOT be available
+        Plan::factory()->legacy()->create(['is_active' => true]);
+        
+        // Active private plans - should NOT be available
+        Plan::factory()->private()->create(['is_active' => true]);
+
+        $availablePlans = Plan::availableForPurchase()->get();
+
+        expect($availablePlans)->toHaveCount(2)
+            ->and($availablePlans->every(fn($plan) => 
+                $plan->is_active && $plan->type === 'public'
+            ))->toBeTrue();
+    });
+
+    it('correctly checks if plan is available for purchase', function () {
+        $availablePlan = Plan::factory()->create([
+            'is_active' => true,
+            'type' => 'public'
+        ]);
+
+        $inactivePlan = Plan::factory()->inactive()->create([
+            'type' => 'public'
+        ]);
+
+        $legacyPlan = Plan::factory()->legacy()->create([
+            'is_active' => true
+        ]);
+
+        expect($availablePlan->isAvailableForPurchase())->toBeTrue()
+            ->and($inactivePlan->isAvailableForPurchase())->toBeFalse()
+            ->and($legacyPlan->isAvailableForPurchase())->toBeFalse();
+    });
 });

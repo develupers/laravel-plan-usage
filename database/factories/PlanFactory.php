@@ -25,6 +25,7 @@ class PlanFactory extends Factory
             'currency' => 'usd',
             'interval' => $this->faker->randomElement(['monthly', 'yearly']),
             'is_active' => true,
+            'type' => 'public',
             'metadata' => [
                 'features' => $this->faker->words(3),
                 'popular' => $this->faker->boolean(),
@@ -50,6 +51,21 @@ class PlanFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'interval' => 'yearly',
+        ]);
+    }
+
+    public function legacy(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'type' => 'legacy',
+        ]);
+    }
+
+
+    public function private(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'type' => 'private',
         ]);
     }
 }

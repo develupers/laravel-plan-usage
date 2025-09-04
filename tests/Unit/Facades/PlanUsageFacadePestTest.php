@@ -98,7 +98,7 @@ describe('PlanUsage Facade with complex scenarios', function () {
         $billable2 = createBillable(['id' => 2]);
 
         $plan = Plan::factory()->create();
-        $feature = Feature::factory()->create(['slug' => 'storage']);
+        $feature = Feature::factory()->quota()->create(['slug' => 'storage']);
 
         PlanFeature::create([
             'plan_id' => $plan->id,

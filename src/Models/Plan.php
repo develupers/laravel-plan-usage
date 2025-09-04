@@ -15,6 +15,11 @@ class Plan extends Model
 {
     use HasFactory;
 
+    // Type constants
+    public const TYPE_PUBLIC = 'public';
+    public const TYPE_LEGACY = 'legacy';
+    public const TYPE_PRIVATE = 'private';
+
     protected $fillable = [
         'name',
         'slug',
@@ -28,6 +33,7 @@ class Plan extends Model
         'trial_days',
         'sort_order',
         'is_active',
+        'type',
         'metadata',
     ];
 
@@ -165,6 +171,39 @@ class Plan extends Model
     }
 
     /**
+     * Scope to plans of a specific type.
+     */
+    public function scopeOfType(Builder $query, string $type): Builder
+    {
+        return $query->where('type', $type);
+    }
+
+    /**
+     * Scope to public plans.
+     */
+    public function scopePublicType(Builder $query): Builder
+    {
+        return $query->where('type', self::TYPE_PUBLIC);
+    }
+
+    /**
+     * Scope to legacy plans.
+     */
+    public function scopeLegacy(Builder $query): Builder
+    {
+        return $query->where('type', self::TYPE_LEGACY);
+    }
+
+    /**
+     * Scope to plans available for new subscriptions.
+     */
+    public function scopeAvailableForPurchase(Builder $query): Builder
+    {
+        return $query->where('is_active', true)
+                     ->where('type', self::TYPE_PUBLIC);
+    }
+
+    /**
      * Check if plan is monthly.
      */
     public function isMonthly(): bool
@@ -178,6 +217,39 @@ class Plan extends Model
     public function isYearly(): bool
     {
         return $this->interval === 'yearly';
+    }
+
+    /**
+     * Check if plan is public.
+     */
+    public function isPublic(): bool
+    {
+        return $this->type === self::TYPE_PUBLIC;
+    }
+
+    /**
+     * Check if plan is legacy.
+     */
+    public function isLegacy(): bool
+    {
+        return $this->type === self::TYPE_LEGACY;
+    }
+
+
+    /**
+     * Check if plan is private.
+     */
+    public function isPrivate(): bool
+    {
+        return $this->type === self::TYPE_PRIVATE;
+    }
+
+    /**
+     * Check if plan is available for new subscriptions.
+     */
+    public function isAvailableForPurchase(): bool
+    {
+        return $this->is_active && $this->type === self::TYPE_PUBLIC;
     }
 
     /**

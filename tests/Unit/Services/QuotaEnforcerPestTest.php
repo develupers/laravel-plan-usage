@@ -80,7 +80,7 @@ describe('QuotaEnforcer', function () {
 
     it('creates quota if not exists', function () {
         // Arrange
-        $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $feature = Feature::factory()->quota()->create(['slug' => 'api-calls']);
         $plan = Plan::factory()->create();
         $this->billable->plan_id = $plan->id;
 
