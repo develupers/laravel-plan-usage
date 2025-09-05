@@ -72,14 +72,7 @@ class PlanUsageServiceProvider extends PackageServiceProvider
     {
         parent::boot();
 
-        // Publish configuration
-        $this->publishes([
-            __DIR__.'/../config/plan-usage.php' => config_path('plan-usage.php'),
-        ], 'plan-usage-config');
-
-        // Publish migrations
-        $this->publishes([
-            __DIR__.'/../database/migrations' => database_path('migrations'),
-        ], 'plan-usage-migrations');
+        // Additional boot logic can go here if needed
+        // Migrations are handled by Spatie Package Tools via hasMigrations()
     }
 }
