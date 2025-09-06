@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Services;
 
-use Illuminate\Support\Carbon;
 use Develupers\PlanUsage\Events\QuotaExceeded;
 use Develupers\PlanUsage\Events\QuotaWarning;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Quota;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
