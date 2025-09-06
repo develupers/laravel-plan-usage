@@ -28,7 +28,7 @@ class CheckQuota
         }
 
         if (! $billable->canUseFeature($featureSlug, $amount)) {
-            $remaining = method_exists($billable, 'getRemainingQuota') 
+            $remaining = method_exists($billable, 'getRemainingQuota')
                 ? $billable->getRemainingQuota($featureSlug)
                 : null;
             $message = is_null($remaining)
