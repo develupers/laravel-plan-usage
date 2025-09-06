@@ -57,7 +57,7 @@ return [
     */
     'cache' => [
         'enabled' => true,
-        'store' => env('PLAN_FEATURE_CACHE_STORE', 'redis'),
+        'store' => 'redis',
         'ttl' => 3600, // Time to live in seconds
         'prefix' => 'plan_feature_usage',
     ],
@@ -167,13 +167,13 @@ return [
     */
     'stripe' => [
         // Enable Stripe metered billing integration
-        'enabled' => env('PLAN_FEATURE_STRIPE_ENABLED', true),
+        'enabled' => true,
 
         // Report usage to Stripe for metered billing
-        'report_usage' => env('PLAN_FEATURE_STRIPE_REPORT_USAGE', true),
+        'report_usage' => true,
 
         // Sync plans from Stripe
-        'sync_plans' => env('PLAN_FEATURE_STRIPE_SYNC_PLANS', false),
+        'sync_plans' => false,
     ],
 
     /*
@@ -186,7 +186,7 @@ return [
     */
     'middleware' => [
         'check-feature' => \Develupers\PlanUsage\Http\Middleware\CheckFeature::class,
-        'enforce-quota' => \Develupers\PlanUsage\Http\Middleware\EnforceQuota::class,
+        'enforce-quota' => \Develupers\PlanUsage\Http\Middleware\CheckQuota::class,
         'track-usage' => \Develupers\PlanUsage\Http\Middleware\TrackUsage::class,
     ],
 
@@ -201,12 +201,13 @@ return [
     'events' => [
         'enabled' => true,
         'listeners' => [
-            \Develupers\PlanUsage\Events\UsageRecorded::class => [
-                \Develupers\PlanUsage\Listeners\ReportUsageToStripe::class,
-            ],
-            \Develupers\PlanUsage\Events\QuotaExceeded::class => [
-                \Develupers\PlanUsage\Listeners\NotifyQuotaExceeded::class,
-            ],
+            // Example listeners - uncomment and create as needed:
+            // \Develupers\PlanUsage\Events\UsageRecorded::class => [
+            //     \App\Listeners\YourUsageListener::class,
+            // ],
+            // \Develupers\PlanUsage\Events\QuotaExceeded::class => [
+            //     \App\Listeners\YourQuotaListener::class,
+            // ],
         ],
     ],
 ];

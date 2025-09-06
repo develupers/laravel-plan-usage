@@ -191,9 +191,9 @@ Protect your routes with built-in middleware:
 // In bootstrap/app.php
 ->withMiddleware(function (Middleware $middleware) {
     $middleware->alias([
-        'check.feature' => \Develupers\PlanUsage\Middleware\CheckFeature::class,
-        'enforce.quota' => \Develupers\PlanUsage\Middleware\CheckQuota::class,
-        'track.usage' => \Develupers\PlanUsage\Middleware\TrackUsage::class,
+        'check.feature' => \Develupers\PlanUsage\Http\Middleware\CheckFeature::class,
+        'enforce.quota' => \Develupers\PlanUsage\Http\Middleware\CheckQuota::class,
+        'track.usage' => \Develupers\PlanUsage\Http\Middleware\TrackUsage::class,
     ]);
 })
 

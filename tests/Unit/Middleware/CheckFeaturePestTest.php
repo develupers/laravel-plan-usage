@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Develupers\PlanUsage\Middleware\CheckFeature;
+use Develupers\PlanUsage\Http\Middleware\CheckFeature;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanFeature;

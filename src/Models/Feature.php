@@ -10,6 +10,22 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property int $id
+ * @property string $name
+ * @property string $slug
+ * @property string|null $description
+ * @property string $type
+ * @property string|null $unit
+ * @property string $aggregation_method
+ * @property string|null $reset_period
+ * @property string|null $stripe_meter_id
+ * @property bool $is_consumable
+ * @property int $sort_order
+ * @property array|null $metadata
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class Feature extends Model
 {
     use HasFactory;
@@ -135,7 +151,7 @@ class Feature extends Model
             return null;
         }
 
-        $from = $from ?: now();
+        $from = $from ? \Illuminate\Support\Carbon::instance($from) : now();
 
         return match ($this->reset_period) {
             'daily' => $from->copy()->addDay()->startOfDay(),

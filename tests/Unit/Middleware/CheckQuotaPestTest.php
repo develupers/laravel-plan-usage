@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Develupers\PlanUsage\Middleware\CheckQuota;
+use Develupers\PlanUsage\Http\Middleware\CheckQuota;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 

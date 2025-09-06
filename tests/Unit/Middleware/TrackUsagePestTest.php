@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Develupers\PlanUsage\Middleware\TrackUsage;
+use Develupers\PlanUsage\Http\Middleware\TrackUsage;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 

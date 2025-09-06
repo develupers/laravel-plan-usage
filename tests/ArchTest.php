@@ -15,7 +15,7 @@ arch('services have appropriate names')
     ->toHaveSuffix('Enforcer');
 
 arch('middleware implements handle method')
-    ->expect('Develupers\PlanUsage\Middleware')
+    ->expect('Develupers\PlanUsage\Http\Middleware')
     ->toHaveMethod('handle');
 
 arch('facades extend laravel facade')

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Develupers\PlanUsage\Middleware;
+namespace Develupers\PlanUsage\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;

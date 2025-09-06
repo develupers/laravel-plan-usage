@@ -11,6 +11,18 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
+/**
+ * @property int $id
+ * @property string $billable_type
+ * @property int $billable_id
+ * @property int $feature_id
+ * @property float|null $limit
+ * @property float $used
+ * @property \Illuminate\Support\Carbon|null $reset_at
+ * @property array|null $metadata
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class Quota extends Model
 {
     use HasFactory;
