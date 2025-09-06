@@ -8,6 +8,7 @@ use Develupers\PlanUsage\Events\QuotaExceeded;
 use Develupers\PlanUsage\Events\QuotaWarning;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Quota;
+use Develupers\PlanUsage\Traits\ManagesCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -16,6 +17,7 @@ use Illuminate\Support\Facades\Event;
 
 class QuotaEnforcer
 {
+    use ManagesCache;
     protected string $quotaModel;
 
     protected string $featureModel;
@@ -138,14 +140,15 @@ class QuotaEnforcer
     public function getAllQuotas(Model $billable): \Illuminate\Support\Collection
     {
         $cacheKey = "plan-usage.billable.{$billable->getMorphClass()}.{$billable->getKey()}.quotas";
+        $tags = $this->getQuotaCacheTags($billable->getMorphClass(), $billable->getKey());
 
-        return Cache::remember($cacheKey, config('plan-usage.cache.ttl', 3600), function () use ($billable) {
+        return $this->cacheRemember($cacheKey, $tags, function () use ($billable) {
             return $this->quotaModel::query()
                 ->where('billable_type', $billable->getMorphClass())
                 ->where('billable_id', $billable->getKey())
                 ->with('feature')
                 ->get();
-        });
+        }, 'quotas');
     }
 
     /**
@@ -302,11 +305,11 @@ class QuotaEnforcer
      */
     protected function getGraceAmount(Quota $quota): float
     {
-        if (! config('plan-usage.quotas.soft_limit', false)) {
+        if (! config('plan-usage.quota.soft_limit', false)) {
             return 0;
         }
 
-        $gracePercentage = config('plan-usage.quotas.grace_percentage', 10);
+        $gracePercentage = config('plan-usage.quota.grace_percentage', 10);
 
         if (is_null($quota->limit)) {
             return 0;
@@ -324,12 +327,16 @@ class QuotaEnforcer
             return;
         }
 
-        $warningThreshold = config('plan-usage.quotas.warning_threshold', 80);
+        $warningThresholds = config('plan-usage.quota.warning_thresholds', [80, 100]);
         $usagePercentage = ($quota->used / $quota->limit) * 100;
 
-        if ($usagePercentage >= $warningThreshold && $usagePercentage < 100) {
-            $feature = $this->featureModel::where('slug', $featureSlug)->first();
-            Event::dispatch(new QuotaWarning($billable, $feature, (int) $usagePercentage, $quota));
+        // Check if any warning threshold is crossed
+        foreach ($warningThresholds as $threshold) {
+            if ($usagePercentage >= $threshold && $usagePercentage < ($threshold + 0.01)) {
+                $feature = $this->featureModel::where('slug', $featureSlug)->first();
+                Event::dispatch(new QuotaWarning($billable, $feature, (int) $usagePercentage, $quota));
+                break;
+            }
         }
     }
 
@@ -338,8 +345,19 @@ class QuotaEnforcer
      */
     protected function clearQuotaCache(Model $billable): void
     {
-        $cacheKey = "plan-usage.billable.{$billable->getMorphClass()}.{$billable->getKey()}.quotas";
-        Cache::forget($cacheKey);
+        if (!config('plan-usage.cache.enabled', true)) {
+            return;
+        }
+
+        // Clear using tags if supported
+        if ($this->supportsCacheTags()) {
+            $tags = $this->getQuotaCacheTags($billable->getMorphClass(), $billable->getKey());
+            $this->cacheFlushTags($tags);
+        } else {
+            // Fallback to manual clearing
+            $cacheKey = "plan-usage.billable.{$billable->getMorphClass()}.{$billable->getKey()}.quotas";
+            Cache::forget($cacheKey);
+        }
     }
 
     /**

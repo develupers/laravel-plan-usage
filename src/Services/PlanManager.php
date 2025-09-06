@@ -6,12 +6,14 @@ namespace Develupers\PlanUsage\Services;
 
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
+use Develupers\PlanUsage\Traits\ManagesCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
 class PlanManager
 {
+    use ManagesCache;
     protected string $planModel;
 
     protected string $featureModel;
@@ -30,9 +32,11 @@ class PlanManager
      */
     public function getAllPlans(): Collection
     {
-        return Cache::remember('plan-usage.plans',
-            config('plan-usage.cache.ttl', 3600),
-            fn () => $this->planModel::with('features')->get()
+        return $this->cacheRemember(
+            'plan-usage.plans',
+            $this->getPlanCacheTags(),
+            fn () => $this->planModel::with('features')->get(),
+            'plans'
         );
     }
 
@@ -41,8 +45,11 @@ class PlanManager
      */
     public function findPlan(string|int $identifier): ?Plan
     {
-        return Cache::remember("plan-usage.plan.{$identifier}",
-            config('plan-usage.cache.ttl', 3600),
+        $planId = is_numeric($identifier) ? (int) $identifier : null;
+        
+        return $this->cacheRemember(
+            "plan-usage.plan.{$identifier}",
+            $this->getPlanCacheTags($planId),
             function () use ($identifier) {
                 if (is_numeric($identifier)) {
                     return $this->planModel::with('features')->find($identifier);
@@ -51,7 +58,8 @@ class PlanManager
                 return $this->planModel::with('features')
                     ->where('stripe_price_id', $identifier)
                     ->first();
-            }
+            },
+            'plans'
         );
     }
 
@@ -60,11 +68,13 @@ class PlanManager
      */
     public function getPlanFeatures(int $planId): Collection
     {
-        return Cache::remember("plan-usage.plan.{$planId}.features",
-            config('plan-usage.cache.ttl', 3600),
+        return $this->cacheRemember(
+            "plan-usage.plan.{$planId}.features",
+            $this->getPlanCacheTags($planId),
             fn () => $this->planFeatureModel::where('plan_id', $planId)
                 ->with('feature')
-                ->get()
+                ->get(),
+            'features'
         );
     }
 
@@ -73,14 +83,21 @@ class PlanManager
      */
     public function planHasFeature(int $planId, string $featureSlug): bool
     {
-        return Cache::remember("plan-usage.plan.{$planId}.has.{$featureSlug}",
-            config('plan-usage.cache.ttl', 3600),
+        $tags = array_merge(
+            $this->getPlanCacheTags($planId),
+            $this->getFeatureCacheTags($featureSlug)
+        );
+        
+        return $this->cacheRemember(
+            "plan-usage.plan.{$planId}.has.{$featureSlug}",
+            $tags,
             function () use ($planId, $featureSlug) {
                 return $this->planFeatureModel::query()
                     ->where('plan_id', $planId)
                     ->whereHas('feature', fn ($q) => $q->where('slug', $featureSlug))
                     ->exists();
-            }
+            },
+            'features'
         );
     }
 
@@ -89,8 +106,14 @@ class PlanManager
      */
     public function getFeatureValue(int $planId, string $featureSlug): mixed
     {
-        return Cache::remember("plan-usage.plan.{$planId}.feature.{$featureSlug}",
-            config('plan-usage.cache.ttl', 3600),
+        $tags = array_merge(
+            $this->getPlanCacheTags($planId),
+            $this->getFeatureCacheTags($featureSlug)
+        );
+        
+        return $this->cacheRemember(
+            "plan-usage.plan.{$planId}.feature.{$featureSlug}",
+            $tags,
             function () use ($planId, $featureSlug) {
                 $planFeature = $this->planFeatureModel::query()
                     ->where('plan_id', $planId)
@@ -108,7 +131,8 @@ class PlanManager
                     'limit', 'quota' => is_numeric($planFeature->value) ? (float) $planFeature->value : null,
                     default => $planFeature->value
                 };
-            }
+            },
+            'features'
         );
     }
 
@@ -167,14 +191,39 @@ class PlanManager
      */
     public function clearCache(?int $planId = null): void
     {
+        if (!config('plan-usage.cache.enabled', true)) {
+            return;
+        }
+
         if ($planId) {
-            Cache::forget("plan-usage.plan.{$planId}");
-            Cache::forget("plan-usage.plan.{$planId}.features");
-            Cache::deleteMultiple(
-                Cache::get("plan-usage.plan.{$planId}.feature.*") ?? []
-            );
+            // Clear specific plan cache using tags if supported
+            if ($this->supportsCacheTags()) {
+                $this->cacheFlushTags($this->getPlanCacheTags($planId));
+            } else {
+                // Fallback to manual clearing
+                Cache::forget("plan-usage.plan.{$planId}");
+                Cache::forget("plan-usage.plan.{$planId}.features");
+                
+                // Clear all feature values for this plan
+                $features = $this->featureModel::all();
+                foreach ($features as $feature) {
+                    Cache::forget("plan-usage.plan.{$planId}.feature.{$feature->slug}");
+                    Cache::forget("plan-usage.plan.{$planId}.has.{$feature->slug}");
+                }
+            }
         } else {
-            Cache::forget('plan-usage.plans');
+            // Clear all plans cache
+            if ($this->supportsCacheTags()) {
+                $this->cacheFlushTags(['plan-usage', 'plans']);
+            } else {
+                Cache::forget('plan-usage.plans');
+                
+                // Clear all individual plan caches
+                $plans = $this->planModel::all();
+                foreach ($plans as $plan) {
+                    $this->clearCache($plan->id);
+                }
+            }
         }
     }
 
@@ -195,6 +244,8 @@ class PlanManager
         $billable->save();
 
         // Clear cached quotas for this billable
-        Cache::forget("plan-usage.billable.{$billable->getMorphClass()}.{$billable->getKey()}.quotas");
+        if (config('plan-usage.cache.enabled', true)) {
+            Cache::forget("plan-usage.billable.{$billable->getMorphClass()}.{$billable->getKey()}.quotas");
+        }
     }
 }

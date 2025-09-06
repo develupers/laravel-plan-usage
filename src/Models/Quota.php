@@ -115,7 +115,7 @@ class Quota extends Model
             return null;
         }
 
-        $thresholds = config('plan-usage.quota.warning_thresholds', [80, 90, 100]);
+        $thresholds = config('plan-usage.quota.warning_thresholds', [80, 100]);
         $percentage = ($this->used / $this->limit) * 100;
 
         foreach (array_reverse($thresholds) as $threshold) {

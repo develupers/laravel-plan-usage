@@ -76,10 +76,11 @@ trait EnforcesQuotas
         }
 
         // Try to get from cache first
-        if (config('plan-usage.cache.enabled')) {
+        if (config('plan-usage.cache.enabled') && config('plan-usage.cache.selective.quotas', true)) {
             $cacheKey = $this->getQuotaCacheKey($featureSlug);
+            $ttl = config('plan-usage.cache.ttl.quotas', config('plan-usage.cache.ttl.default', 3600));
 
-            return Cache::remember($cacheKey, config('plan-usage.cache.ttl'), function () use ($feature) {
+            return Cache::remember($cacheKey, $ttl, function () use ($feature) {
                 return $this->quotas()->where('feature_id', $feature->id)->first();
             });
         }
@@ -167,9 +168,18 @@ trait EnforcesQuotas
             $quota->reset();
         });
 
-        // Clear all quota cache
+        // Clear all quota cache for this billable
         if (config('plan-usage.cache.enabled')) {
-            Cache::flush();
+            // Clear each individual quota cache
+            $features = Feature::all();
+            foreach ($features as $feature) {
+                $this->clearQuotaCache($feature->slug);
+            }
+            
+            // Clear the getAllQuotas cache for this billable
+            $cacheKey = config('plan-usage.cache.prefix', 'plan_feature_usage') 
+                . ':billable:' . get_class($this) . ':' . $this->getKey() . ':quotas';
+            Cache::forget($cacheKey);
         }
     }
 

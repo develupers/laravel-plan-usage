@@ -57,9 +57,31 @@ return [
     */
     'cache' => [
         'enabled' => true,
-        'store' => 'redis',
-        'ttl' => 3600, // Time to live in seconds
+        'store' => env('PLAN_USAGE_CACHE_STORE', 'file'), // Can be any Laravel cache store (file, database, redis, memcached, etc.)
         'prefix' => 'plan_feature_usage',
+
+        // Granular TTL settings for different cache types (in seconds)
+        'ttl' => [
+            'default' => 3600,      // Default TTL for all cache
+            'plans' => 86400,       // Plans are relatively static (24 hours)
+            'features' => 86400,    // Features are relatively static (24 hours)
+            'quotas' => 300,        // Quotas are more dynamic (5 minutes)
+            'usage' => 60,          // Usage data changes frequently (1 minute)
+        ],
+
+        // Selective caching - enable/disable caching for specific features
+        'selective' => [
+            'plans' => true,        // Cache plan data
+            'features' => true,     // Cache feature data
+            'quotas' => true,       // Cache quota data
+            'usage' => false,       // Don't cache usage data by default (too dynamic)
+        ],
+
+        // Use cache tags if supported by the driver (redis, memcached)
+        'use_tags' => true,
+
+        // Automatically warm cache after deployments
+        'warm_on_deploy' => false,
     ],
 
     /*
@@ -77,8 +99,14 @@ return [
         // Grace period percentage (e.g., allow 10% over limit before hard stop)
         'grace_period' => 0,
 
+        // Enable soft limits to allow grace period
+        'soft_limit' => false,
+
+        // Grace percentage - how much over the limit to allow (e.g., 10 = 10% over limit)
+        'grace_percentage' => 10,
+
         // Send notifications at these usage percentages
-        'warning_thresholds' => [80, 90, 100],
+        'warning_thresholds' => [80, 100],
     ],
 
     /*

@@ -70,7 +70,7 @@ return [
     
     'quota' => [
         'throw_exception' => true,
-        'warning_thresholds' => [80, 90, 100],
+        'warning_thresholds' => [80, 100],
     ],
 ];
 ```
@@ -254,7 +254,7 @@ $canProceed = PlanUsage::quotas()->enforce($account, 'api-calls', 10);
 The package dispatches events you can listen to:
 
 - `UsageRecorded` - When usage is recorded
-- `QuotaWarning` - When usage reaches warning threshold (80%, 90%)
+- `QuotaWarning` - When usage reaches warning threshold (80%, 100%)
 - `QuotaExceeded` - When quota limit is exceeded
 
 ```php
