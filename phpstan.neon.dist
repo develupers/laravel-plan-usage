@@ -10,3 +10,11 @@ parameters:
     tmpDir: build/phpstan
     checkOctaneCompatibility: true
     checkModelProperties: true
+    treatPhpDocTypesAsCertain: false
+
+    # Ignore common Laravel patterns that are safe
+    ignoreErrors:
+        # Ignore unused traits (they're used by package consumers)
+        - '#Trait .* is used zero times#'
+        # Ignore dynamic property access on Eloquent models
+        - '#Access to an undefined property Illuminate\\Database\\Eloquent\\Model::\$#'

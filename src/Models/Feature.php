@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
@@ -23,8 +24,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property bool $is_consumable
  * @property int $sort_order
  * @property array|null $metadata
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  * @property-read \Illuminate\Database\Eloquent\Collection<int, Plan> $plans
  * @property-read \Illuminate\Database\Eloquent\Collection<int, PlanFeature> $planFeatures
  * @property-read \Illuminate\Database\Eloquent\Collection<int, Quota> $quotas
@@ -149,13 +150,13 @@ class Feature extends Model
     /**
      * Get the next reset date based on the reset period.
      */
-    public function getNextResetDate(?\DateTimeInterface $from = null): ?\DateTimeInterface
+    public function getNextResetDate(?\DateTimeInterface $from = null): ?Carbon
     {
         if (! $this->resetsperiodically()) {
             return null;
         }
 
-        $from = $from ? \Illuminate\Support\Carbon::instance($from) : now();
+        $from = $from ? Carbon::instance($from) : now();
 
         return match ($this->reset_period) {
             'daily' => $from->copy()->addDay()->startOfDay(),

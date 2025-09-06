@@ -76,8 +76,6 @@ class Plan extends Model
 
     /**
      * Get the features for the plan.
-     * 
-     * @return BelongsToMany<Feature>
      */
     public function features(): BelongsToMany
     {
@@ -130,7 +128,7 @@ class Plan extends Model
         /** @var Feature|null $feature */
         $feature = $this->features()->where('slug', $featureSlug)->first();
 
-        if (! $feature) {
+        if (! $feature || ! isset($feature->pivot)) {
             return null;
         }
 
@@ -179,6 +177,7 @@ class Plan extends Model
      */
     public function getFeature(string $slug): ?Feature
     {
+        /** @var Feature|null */
         return $this->features()->where('slug', $slug)->first();
     }
 

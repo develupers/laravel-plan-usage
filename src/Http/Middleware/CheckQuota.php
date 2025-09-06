@@ -28,7 +28,9 @@ class CheckQuota
         }
 
         if (! $billable->canUseFeature($featureSlug, $amount)) {
-            $remaining = $billable->getRemainingQuota($featureSlug);
+            $remaining = method_exists($billable, 'getRemainingQuota') 
+                ? $billable->getRemainingQuota($featureSlug)
+                : null;
             $message = is_null($remaining)
                 ? "Feature '{$featureSlug}' is not available in your plan."
                 : "Quota exceeded for '{$featureSlug}'. Remaining: {$remaining}.";
