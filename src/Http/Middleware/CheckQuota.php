@@ -57,13 +57,15 @@ class CheckQuota
             }
 
             // Check for account relationship
-            if (method_exists($request->user(), 'account')) {
-                return $request->user()->account;
+            /** @var object $user */
+            $user = $request->user();
+            if (method_exists($user, 'account') && property_exists($user, 'account')) {
+                return $user->account;
             }
 
             // Check for current team
-            if (method_exists($request->user(), 'currentTeam')) {
-                return $request->user()->currentTeam;
+            if (method_exists($user, 'currentTeam') && property_exists($user, 'currentTeam')) {
+                return $user->currentTeam;
             }
         }
 

@@ -25,6 +25,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property array|null $metadata
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, Plan> $plans
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, PlanFeature> $planFeatures
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, Quota> $quotas
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, Usage> $usages
  */
 class Feature extends Model
 {

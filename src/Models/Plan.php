@@ -11,6 +11,27 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
 
+/**
+ * @property int $id
+ * @property string $name
+ * @property string $slug
+ * @property string|null $display_name
+ * @property string|null $description
+ * @property string|null $stripe_product_id
+ * @property string|null $stripe_price_id
+ * @property float $price
+ * @property string $currency
+ * @property string $interval
+ * @property int $trial_days
+ * @property int $sort_order
+ * @property bool $is_active
+ * @property string $type
+ * @property array|null $metadata
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property-read Collection<int, Feature> $features
+ * @property-read Collection<int, PlanFeature> $planFeatures
+ */
 class Plan extends Model
 {
     use HasFactory;
@@ -55,6 +76,8 @@ class Plan extends Model
 
     /**
      * Get the features for the plan.
+     * 
+     * @return BelongsToMany<Feature>
      */
     public function features(): BelongsToMany
     {
@@ -104,13 +127,16 @@ class Plan extends Model
      */
     public function getFeatureValue(string $featureSlug): mixed
     {
+        /** @var Feature|null $feature */
         $feature = $this->features()->where('slug', $featureSlug)->first();
 
         if (! $feature) {
             return null;
         }
 
-        $value = $feature->pivot->value;
+        /** @var \Illuminate\Database\Eloquent\Relations\Pivot $pivot */
+        $pivot = $feature->pivot;
+        $value = $pivot->getAttribute('value');
 
         // Handle different feature types
         return match ($feature->type) {
@@ -269,17 +295,17 @@ class Plan extends Model
     }
 
     /**
-     * Get the billing period label.
+     * Get the interval label.
      */
-    public function getBillingPeriodLabelAttribute(): string
+    public function getIntervalLabelAttribute(): string
     {
-        return match ($this->billing_period) {
+        return match ($this->interval) {
             'daily' => 'per day',
             'weekly' => 'per week',
             'monthly' => 'per month',
             'yearly' => 'per year',
             'lifetime' => 'one-time',
-            default => $this->billing_period,
+            default => $this->interval,
         };
     }
 }

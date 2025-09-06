@@ -8,6 +8,18 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property int $id
+ * @property int $plan_id
+ * @property int $feature_id
+ * @property string|null $value
+ * @property string|null $unit
+ * @property array|null $metadata
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property-read Plan $plan
+ * @property-read Feature $feature
+ */
 class PlanFeature extends Model
 {
     use HasFactory;
