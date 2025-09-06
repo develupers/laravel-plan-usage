@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Event;
 class QuotaEnforcer
 {
     use ManagesCache;
+
     protected string $quotaModel;
 
     protected string $featureModel;
@@ -345,7 +346,7 @@ class QuotaEnforcer
      */
     protected function clearQuotaCache(Model $billable): void
     {
-        if (!config('plan-usage.cache.enabled', true)) {
+        if (! config('plan-usage.cache.enabled', true)) {
             return;
         }
 

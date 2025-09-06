@@ -175,10 +175,10 @@ trait EnforcesQuotas
             foreach ($features as $feature) {
                 $this->clearQuotaCache($feature->slug);
             }
-            
+
             // Clear the getAllQuotas cache for this billable
-            $cacheKey = config('plan-usage.cache.prefix', 'plan_feature_usage') 
-                . ':billable:' . get_class($this) . ':' . $this->getKey() . ':quotas';
+            $cacheKey = config('plan-usage.cache.prefix', 'plan_feature_usage')
+                .':billable:'.get_class($this).':'.$this->getKey().':quotas';
             Cache::forget($cacheKey);
         }
     }

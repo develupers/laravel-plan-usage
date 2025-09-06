@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Cache;
 class PlanManager
 {
     use ManagesCache;
+
     protected string $planModel;
 
     protected string $featureModel;
@@ -46,7 +47,7 @@ class PlanManager
     public function findPlan(string|int $identifier): ?Plan
     {
         $planId = is_numeric($identifier) ? (int) $identifier : null;
-        
+
         return $this->cacheRemember(
             "plan-usage.plan.{$identifier}",
             $this->getPlanCacheTags($planId),
@@ -87,7 +88,7 @@ class PlanManager
             $this->getPlanCacheTags($planId),
             $this->getFeatureCacheTags($featureSlug)
         );
-        
+
         return $this->cacheRemember(
             "plan-usage.plan.{$planId}.has.{$featureSlug}",
             $tags,
@@ -110,7 +111,7 @@ class PlanManager
             $this->getPlanCacheTags($planId),
             $this->getFeatureCacheTags($featureSlug)
         );
-        
+
         return $this->cacheRemember(
             "plan-usage.plan.{$planId}.feature.{$featureSlug}",
             $tags,
@@ -191,7 +192,7 @@ class PlanManager
      */
     public function clearCache(?int $planId = null): void
     {
-        if (!config('plan-usage.cache.enabled', true)) {
+        if (! config('plan-usage.cache.enabled', true)) {
             return;
         }
 
@@ -203,7 +204,7 @@ class PlanManager
                 // Fallback to manual clearing
                 Cache::forget("plan-usage.plan.{$planId}");
                 Cache::forget("plan-usage.plan.{$planId}.features");
-                
+
                 // Clear all feature values for this plan
                 $features = $this->featureModel::all();
                 foreach ($features as $feature) {
@@ -217,7 +218,7 @@ class PlanManager
                 $this->cacheFlushTags(['plan-usage', 'plans']);
             } else {
                 Cache::forget('plan-usage.plans');
-                
+
                 // Clear all individual plan caches
                 $plans = $this->planModel::all();
                 foreach ($plans as $plan) {

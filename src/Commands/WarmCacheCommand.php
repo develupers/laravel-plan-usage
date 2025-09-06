@@ -33,8 +33,9 @@ class WarmCacheCommand extends Command
      */
     public function handle(): int
     {
-        if (!config('plan-usage.cache.enabled')) {
+        if (! config('plan-usage.cache.enabled')) {
             $this->warn('Cache is disabled in configuration. Enable it to use cache warming.');
+
             return Command::FAILURE;
         }
 
@@ -46,8 +47,8 @@ class WarmCacheCommand extends Command
         }
 
         // Determine what to warm
-        $warmAll = !$this->option('plans') && !$this->option('features') && !$this->option('quotas');
-        
+        $warmAll = ! $this->option('plans') && ! $this->option('features') && ! $this->option('quotas');
+
         if ($warmAll || $this->option('plans')) {
             $this->warmPlanCache();
         }
@@ -71,10 +72,10 @@ class WarmCacheCommand extends Command
     protected function clearCache(): void
     {
         $this->info('Clearing existing cache...');
-        
+
         $planManager = app('plan-usage.manager');
         $planManager->clearCache();
-        
+
         $this->info('Cache cleared.');
     }
 
@@ -83,15 +84,16 @@ class WarmCacheCommand extends Command
      */
     protected function warmPlanCache(): void
     {
-        if (!config('plan-usage.cache.selective.plans', true)) {
+        if (! config('plan-usage.cache.selective.plans', true)) {
             $this->info('Plan caching is disabled in configuration.');
+
             return;
         }
 
         $this->info('Warming plan cache...');
-        
+
         $planManager = app('plan-usage.manager');
-        
+
         // Load all plans
         $plans = $planManager->getAllPlans();
         $this->info("Cached {$plans->count()} plans");
@@ -99,11 +101,11 @@ class WarmCacheCommand extends Command
         // Load each plan individually (including by stripe_price_id)
         foreach ($plans as $plan) {
             $planManager->findPlan($plan->id);
-            
+
             if ($plan->stripe_price_id) {
                 $planManager->findPlan($plan->stripe_price_id);
             }
-            
+
             // Load plan features
             $planManager->getPlanFeatures($plan->id);
         }
@@ -116,28 +118,29 @@ class WarmCacheCommand extends Command
      */
     protected function warmFeatureCache(): void
     {
-        if (!config('plan-usage.cache.selective.features', true)) {
+        if (! config('plan-usage.cache.selective.features', true)) {
             $this->info('Feature caching is disabled in configuration.');
+
             return;
         }
 
         $this->info('Warming feature cache...');
-        
+
         $planManager = app('plan-usage.manager');
         $plans = Plan::all();
         $features = Feature::all();
-        
+
         $combinations = 0;
-        
+
         // Cache all plan-feature combinations
         foreach ($plans as $plan) {
             foreach ($features as $feature) {
                 // Check if plan has feature
                 $planManager->planHasFeature($plan->id, $feature->slug);
-                
+
                 // Get feature value
                 $planManager->getFeatureValue($plan->id, $feature->slug);
-                
+
                 $combinations++;
             }
         }
@@ -151,29 +154,31 @@ class WarmCacheCommand extends Command
      */
     protected function warmQuotaCache(): void
     {
-        if (!config('plan-usage.cache.selective.quotas', true)) {
+        if (! config('plan-usage.cache.selective.quotas', true)) {
             $this->info('Quota caching is disabled in configuration.');
+
             return;
         }
 
         $this->info('Warming quota cache...');
-        
+
         $quotaEnforcer = app('plan-usage.quota');
-        
+
         // Get billable model class from config
         $billableTable = config('plan-usage.tables.billable', 'users');
-        
+
         // Try to determine the model class from the table name
-        $modelClass = match($billableTable) {
+        $modelClass = match ($billableTable) {
             'users' => '\\App\\Models\\User',
             'teams' => '\\App\\Models\\Team',
             'accounts' => '\\App\\Models\\Account',
             default => null
         };
 
-        if (!$modelClass || !class_exists($modelClass)) {
+        if (! $modelClass || ! class_exists($modelClass)) {
             $this->warn("Could not determine billable model class for table '{$billableTable}'.");
             $this->warn('Skipping quota cache warming. You may need to warm quota cache manually.');
+
             return;
         }
 
@@ -183,7 +188,7 @@ class WarmCacheCommand extends Command
             ->get();
 
         $quotaCount = 0;
-        
+
         foreach ($billables as $billable) {
             $quotas = $quotaEnforcer->getAllQuotas($billable);
             $quotaCount += $quotas->count();

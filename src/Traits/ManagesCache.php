@@ -14,6 +14,7 @@ trait ManagesCache
     protected function getCacheStore()
     {
         $store = config('plan-usage.cache.store', 'redis');
+
         return Cache::store($store);
     }
 
@@ -22,11 +23,12 @@ trait ManagesCache
      */
     protected function supportsCacheTags(): bool
     {
-        if (!config('plan-usage.cache.use_tags', true)) {
+        if (! config('plan-usage.cache.use_tags', true)) {
             return false;
         }
-        
+
         $store = config('plan-usage.cache.store', 'redis');
+
         return in_array($store, ['redis', 'memcached', 'dynamodb', 'octane']);
     }
 
@@ -35,13 +37,13 @@ trait ManagesCache
      */
     protected function cache(array $tags = [])
     {
-        if (!config('plan-usage.cache.enabled', true)) {
+        if (! config('plan-usage.cache.enabled', true)) {
             return null;
         }
 
         $cache = $this->getCacheStore();
 
-        if ($this->supportsCacheTags() && !empty($tags)) {
+        if ($this->supportsCacheTags() && ! empty($tags)) {
             return $cache->tags($tags);
         }
 
@@ -53,12 +55,12 @@ trait ManagesCache
      */
     protected function cacheRemember(string $key, array $tags, \Closure $callback, ?string $type = null)
     {
-        if (!config('plan-usage.cache.enabled', true)) {
+        if (! config('plan-usage.cache.enabled', true)) {
             return $callback();
         }
 
         // Check selective caching for specific type
-        if ($type && !config("plan-usage.cache.selective.{$type}", true)) {
+        if ($type && ! config("plan-usage.cache.selective.{$type}", true)) {
             return $callback();
         }
 
@@ -78,7 +80,7 @@ trait ManagesCache
      */
     protected function cacheForget(string $key, array $tags = []): void
     {
-        if (!config('plan-usage.cache.enabled', true)) {
+        if (! config('plan-usage.cache.enabled', true)) {
             return;
         }
 
@@ -94,7 +96,7 @@ trait ManagesCache
      */
     protected function cacheFlushTags(array $tags): void
     {
-        if (!config('plan-usage.cache.enabled', true)) {
+        if (! config('plan-usage.cache.enabled', true)) {
             return;
         }
 
@@ -161,7 +163,7 @@ trait ManagesCache
      */
     protected function isCacheTypeEnabled(string $type): bool
     {
-        if (!config('plan-usage.cache.enabled', true)) {
+        if (! config('plan-usage.cache.enabled', true)) {
             return false;
         }
 
