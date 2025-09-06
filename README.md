@@ -277,8 +277,8 @@ Compare plans to show upgrade benefits:
 $comparison = PlanUsage::plans()->comparePlans($currentPlanId, $newPlanId);
 
 foreach ($comparison as $featureSlug => $data) {
-    echo "{$data['feature']->name}: ";
-    echo "{$data['from_value']} → {$data['to_value']}";
+    echo "{$data['feature']}: ";
+    echo "{$data['plan1']} → {$data['plan2']}";
     if ($data['difference'] > 0) {
         echo " (+{$data['difference']})";
     }

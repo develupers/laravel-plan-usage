@@ -4,23 +4,38 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Traits;
 
-use Develupers\PlanUsage\Events\QuotaExceeded;
-use Develupers\PlanUsage\Events\QuotaWarning;
 use Develupers\PlanUsage\Exceptions\QuotaExceededException;
-use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Quota;
-use Illuminate\Support\Facades\Cache;
 
+/**
+ * Trait EnforcesQuotas
+ *
+ * Provides convenient methods for quota enforcement on billable models.
+ * All methods delegate to the QuotaEnforcer service for consistency.
+ */
 trait EnforcesQuotas
 {
+    /**
+     * Get the quota enforcer service instance.
+     */
+    protected function quotaEnforcer(): \Develupers\PlanUsage\Services\QuotaEnforcer
+    {
+        return app('plan-usage.quota');
+    }
+
     /**
      * Check if a feature quota is exceeded.
      */
     public function isQuotaExceeded(string $featureSlug): bool
     {
-        $quota = $this->getQuotaForFeature($featureSlug);
+        $quota = $this->quotaEnforcer()->getQuota($this, $featureSlug);
 
-        return $quota ? $quota->isExceeded() : false;
+        if (! $quota) {
+            return false;
+        }
+
+        // Check if quota limit is exceeded
+        return ! is_null($quota->limit) && $quota->used > $quota->limit;
     }
 
     /**
@@ -28,40 +43,23 @@ trait EnforcesQuotas
      */
     public function canUseQuota(string $featureSlug, float $amount = 1): bool
     {
-        $quota = $this->getQuotaForFeature($featureSlug);
+        return $this->quotaEnforcer()->canUse($this, $featureSlug, $amount);
+    }
 
-        return $quota ? $quota->canUse($amount) : true;
+    /**
+     * Check if billable can use a feature (alias for canUseQuota for consistency).
+     */
+    public function canUseFeature(string $featureSlug, float $amount = 1): bool
+    {
+        return $this->canUseQuota($featureSlug, $amount);
     }
 
     /**
      * Use quota for a feature.
      */
-    public function useQuota(string $featureSlug, float $amount = 1): Quota
+    public function useQuota(string $featureSlug, float $amount = 1): bool
     {
-        $quota = $this->getOrCreateQuotaForFeature($featureSlug);
-
-        // Check if quota can be used
-        if (! $quota->canUse($amount)) {
-            if (config('plan-usage.quota.throw_exception', true)) {
-                throw new QuotaExceededException(
-                    "Quota exceeded for feature {$featureSlug}",
-                    $featureSlug,
-                    $quota->limit,
-                    $quota->used
-                );
-            }
-        }
-
-        // Use the quota
-        $quota->use($amount);
-
-        // Check for warning thresholds
-        $this->checkQuotaWarnings($quota);
-
-        // Clear cache
-        $this->clearQuotaCache($featureSlug);
-
-        return $quota;
+        return $this->quotaEnforcer()->enforce($this, $featureSlug, $amount);
     }
 
     /**
@@ -69,94 +67,39 @@ trait EnforcesQuotas
      */
     public function getQuotaForFeature(string $featureSlug): ?Quota
     {
-        $feature = Feature::where('slug', $featureSlug)->first();
-
-        if (! $feature) {
-            return null;
-        }
-
-        // Try to get from cache first
-        if (config('plan-usage.cache.enabled') && config('plan-usage.cache.selective.quotas', true)) {
-            $cacheKey = $this->getQuotaCacheKey($featureSlug);
-            $ttl = config('plan-usage.cache.ttl.quotas', config('plan-usage.cache.ttl.default', 3600));
-
-            return Cache::remember($cacheKey, $ttl, function () use ($feature) {
-                return $this->quotas()->where('feature_id', $feature->id)->first();
-            });
-        }
-
-        return $this->quotas()->where('feature_id', $feature->id)->first();
+        return $this->quotaEnforcer()->getQuota($this, $featureSlug);
     }
 
     /**
      * Get or create quota for a feature.
      */
-    public function getOrCreateQuotaForFeature(string $featureSlug): Quota
+    public function getOrCreateQuotaForFeature(string $featureSlug): ?Quota
     {
-        $feature = Feature::where('slug', $featureSlug)->firstOrFail();
-
-        $quota = $this->quotas()->firstOrCreate(
-            ['feature_id' => $feature->id],
-            [
-                'limit' => $this->plan ? $this->plan->getFeatureValue($featureSlug) : null,
-                'used' => 0,
-                'reset_at' => $feature->getNextResetDate(),
-            ]
-        );
-
-        // Reset if needed
-        if ($quota->needsReset()) {
-            $quota->reset();
-        }
-
-        return $quota;
+        return $this->quotaEnforcer()->getOrCreateQuota($this, $featureSlug);
     }
 
     /**
-     * Set quota limit for a feature.
+     * Get remaining quota for a feature.
      */
-    public function setQuotaLimit(string $featureSlug, ?float $limit): Quota
+    public function getRemainingQuota(string $featureSlug): ?float
     {
-        $quota = $this->getOrCreateQuotaForFeature($featureSlug);
-
-        $quota->update(['limit' => $limit]);
-
-        // Clear cache
-        $this->clearQuotaCache($featureSlug);
-
-        return $quota;
+        return $this->quotaEnforcer()->getRemaining($this, $featureSlug);
     }
 
     /**
-     * Increase quota limit for a feature.
+     * Get quota usage percentage.
      */
-    public function increaseQuotaLimit(string $featureSlug, float $amount): Quota
+    public function getQuotaUsagePercentage(string $featureSlug): ?float
     {
-        $quota = $this->getOrCreateQuotaForFeature($featureSlug);
-
-        if ($quota->limit !== null) {
-            $quota->increment('limit', $amount);
-        }
-
-        // Clear cache
-        $this->clearQuotaCache($featureSlug);
-
-        return $quota;
+        return $this->quotaEnforcer()->getUsagePercentage($this, $featureSlug);
     }
 
     /**
      * Reset quota for a feature.
      */
-    public function resetQuota(string $featureSlug): Quota
+    public function resetQuota(string $featureSlug): void
     {
-        $quota = $this->getOrCreateQuotaForFeature($featureSlug);
-
-        $quota->reset();
-
-        // Clear cache
-        $this->clearQuotaCache($featureSlug);
-
-        return $quota;
+        $this->quotaEnforcer()->reset($this, $featureSlug);
     }
 
     /**
@@ -164,60 +107,23 @@ trait EnforcesQuotas
      */
     public function resetAllQuotas(): void
     {
-        $this->quotas->each(function ($quota) {
-            $quota->reset();
-        });
-
-        // Clear all quota cache for this billable
-        if (config('plan-usage.cache.enabled')) {
-            // Clear each individual quota cache
-            $features = Feature::all();
-            foreach ($features as $feature) {
-                $this->clearQuotaCache($feature->slug);
-            }
-
-            // Clear the getAllQuotas cache for this billable
-            $cacheKey = config('plan-usage.cache.prefix', 'plan_feature_usage')
-                .':billable:'.get_class($this).':'.$this->getKey().':quotas';
-            Cache::forget($cacheKey);
-        }
+        $this->quotaEnforcer()->resetAll($this);
     }
 
     /**
-     * Check and fire warning events for quota thresholds.
+     * Increment quota usage.
      */
-    protected function checkQuotaWarnings(Quota $quota): void
+    public function incrementQuotaUsage(string $featureSlug, float $amount = 1): void
     {
-        $threshold = $quota->isAtWarningThreshold();
-
-        if ($threshold && config('plan-usage.events.enabled')) {
-            event(new QuotaWarning($this, $quota->feature, $threshold, $quota));
-        }
-
-        if ($quota->isExceeded() && config('plan-usage.events.enabled')) {
-            event(new QuotaExceeded($this, $quota->feature, $quota));
-        }
+        $this->quotaEnforcer()->increment($this, $featureSlug, $amount);
     }
 
     /**
-     * Get cache key for a feature quota.
+     * Decrement quota usage.
      */
-    protected function getQuotaCacheKey(string $featureSlug): string
+    public function decrementQuotaUsage(string $featureSlug, float $amount = 1): void
     {
-        $prefix = config('plan-usage.cache.prefix', 'plan_feature_usage');
-        $billableKey = get_class($this).':'.$this->getKey();
-
-        return "{$prefix}:quota:{$billableKey}:{$featureSlug}";
-    }
-
-    /**
-     * Clear quota cache for a feature.
-     */
-    protected function clearQuotaCache(string $featureSlug): void
-    {
-        if (config('plan-usage.cache.enabled')) {
-            Cache::forget($this->getQuotaCacheKey($featureSlug));
-        }
+        $this->quotaEnforcer()->decrement($this, $featureSlug, $amount);
     }
 
     /**
@@ -225,14 +131,14 @@ trait EnforcesQuotas
      */
     public function enforceQuota(string $featureSlug, float $amount = 1): void
     {
-        if (! $this->canUseQuota($featureSlug, $amount)) {
+        if (! $this->quotaEnforcer()->enforce($this, $featureSlug, $amount)) {
             $quota = $this->getQuotaForFeature($featureSlug);
 
             throw new QuotaExceededException(
-                "Quota exceeded for feature {$featureSlug}. Limit: {$quota->limit}, Used: {$quota->used}, Requested: {$amount}",
+                "Quota exceeded for feature {$featureSlug}",
                 $featureSlug,
-                $quota->limit,
-                $quota->used
+                $quota ? $quota->limit : null,
+                $quota ? $quota->used : 0
             );
         }
     }
@@ -242,18 +148,27 @@ trait EnforcesQuotas
      */
     public function getQuotasStatus(): \Illuminate\Support\Collection
     {
-        return $this->quotas->map(function ($quota) {
+        $quotas = $this->quotaEnforcer()->getAllQuotas($this);
+
+        return $quotas->map(function ($quota) {
             return [
                 'feature' => $quota->feature->slug,
                 'name' => $quota->feature->name,
                 'limit' => $quota->limit,
                 'used' => $quota->used,
-                'remaining' => $quota->remaining(),
-                'percentage' => $quota->usagePercentage(),
-                'exceeded' => $quota->isExceeded(),
-                'warning_threshold' => $quota->isAtWarningThreshold(),
+                'remaining' => $this->quotaEnforcer()->getRemaining($this, $quota->feature->slug),
+                'percentage' => $this->quotaEnforcer()->getUsagePercentage($this, $quota->feature->slug),
+                'exceeded' => ! is_null($quota->limit) && $quota->used > $quota->limit,
                 'reset_at' => $quota->reset_at,
             ];
         });
+    }
+
+    /**
+     * Sync quotas with current plan.
+     */
+    public function syncQuotas(): void
+    {
+        $this->quotaEnforcer()->syncWithPlan($this);
     }
 }

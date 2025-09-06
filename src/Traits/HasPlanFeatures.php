@@ -163,28 +163,6 @@ trait HasPlanFeatures
     }
 
     /**
-     * Check if the billable can use more of a feature.
-     */
-    public function canUseFeature(string $featureSlug, float $amount = 1): bool
-    {
-        if (! $this->hasFeature($featureSlug)) {
-            return false;
-        }
-
-        $feature = Feature::where('slug', $featureSlug)->first();
-
-        // Boolean features are always available if enabled
-        if ($feature->type === 'boolean') {
-            return true;
-        }
-
-        // Check quota
-        $quota = $this->quotas()->where('feature_id', $feature->id)->first();
-
-        return $quota ? $quota->canUse($amount) : false;
-    }
-
-    /**
      * Get all features with their current status.
      */
     public function getFeaturesStatus(): Collection

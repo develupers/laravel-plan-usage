@@ -47,6 +47,7 @@ describe('PlanUsage Facade', function () {
         ]);
 
         $this->billable->plan_id = $plan->id;
+        $this->billable->save();
 
         // Act
         $canUse = PlanUsage::can($this->billable, 'test-feature', 50);

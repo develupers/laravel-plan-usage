@@ -27,6 +27,11 @@ class TestCase extends Orchestra
     public function getEnvironmentSetUp($app)
     {
         config()->set('database.default', 'testing');
+        
+        // Set cache configuration for tests
+        config()->set('cache.default', 'array');
+        config()->set('plan-usage.cache.store', 'array');
+        config()->set('plan-usage.cache.use_tags', false); // Array driver doesn't support tags
 
         // Run migrations
         $migrations = [

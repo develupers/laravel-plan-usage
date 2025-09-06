@@ -325,6 +325,7 @@ describe('PlanUsage with multiple features', function () {
         ]);
 
         $this->billable->plan_id = $plan->id;
+        $this->billable->save();
 
         // Act
         PlanUsage::record($this->billable, 'api-calls', 100);

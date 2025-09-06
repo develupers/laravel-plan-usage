@@ -333,7 +333,7 @@ class QuotaEnforcer
 
         // Check if any warning threshold is crossed
         foreach ($warningThresholds as $threshold) {
-            if ($usagePercentage >= $threshold && $usagePercentage < ($threshold + 0.01)) {
+            if ($usagePercentage >= $threshold && $usagePercentage < 100) {
                 $feature = $this->featureModel::where('slug', $featureSlug)->first();
                 Event::dispatch(new QuotaWarning($billable, $feature, (int) $usagePercentage, $quota));
                 break;
