@@ -52,12 +52,12 @@ return [
     |--------------------------------------------------------------------------
     |
     | Configure caching for quota checks and usage tracking to improve
-    | performance. Set to false to disable caching.
+    | performance.
     |
     */
     'cache' => [
-        'enabled' => true,
-        'store' => env('PLAN_USAGE_CACHE_STORE', 'file'), // Can be any Laravel cache store (file, database, redis, memcached, etc.)
+        'enabled' => env('PLAN_USAGE_CACHE_ENABLED', false),
+        'store' => env('PLAN_USAGE_CACHE_STORE', 'database'), // Can be any Laravel cache store (file, database, redis, memcached, etc.)
         'prefix' => 'plan_feature_usage',
 
         // Granular TTL settings for different cache types (in seconds)
@@ -129,6 +129,12 @@ return [
 
         // Track usage in real-time or batch
         'mode' => 'real-time', // 'real-time' or 'batch'
+
+        // Merge metadata from multiple usage records
+        'merge_metadata' => false,
+
+        // Aggregate usage records from the same period when calculating statistics
+        'aggregate_same_period' => true,
     ],
 
     /*
