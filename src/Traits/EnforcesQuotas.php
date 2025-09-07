@@ -40,14 +40,14 @@ trait EnforcesQuotas
 
     /**
      * Check if the billable can use a feature.
-     * 
-     * @param string $featureSlug The feature to check
-     * @param float $amount The amount to check (default: 1)
+     *
+     * @param  string  $featureSlug  The feature to check
+     * @param  float  $amount  The amount to check (default: 1)
      * @return bool
-     * 
+     *
      * Behavior by feature type:
      * - boolean: Always returns true if feature is enabled
-     * - quota: Checks if usage + amount <= limit (resets periodically)  
+     * - quota: Checks if usage + amount <= limit (resets periodically)
      * - limit: Checks if current count + amount <= limit (never resets)
      */
     public function canUseFeature(string $featureSlug, float $amount = 1): bool

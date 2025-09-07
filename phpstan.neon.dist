@@ -18,3 +18,6 @@ parameters:
         - '#Trait .* is used zero times#'
         # Ignore dynamic property access on Eloquent models
         - '#Access to an undefined property Illuminate\\Database\\Eloquent\\Model::\$#'
+        # env() is correctly used in config files - this is standard Laravel practice
+        - identifier: larastan.noEnvCallsOutsideOfConfig
+          path: config/*.php

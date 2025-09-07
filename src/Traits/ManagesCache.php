@@ -66,13 +66,14 @@ trait ManagesCache
 
         // Get TTL based on type or use default
         $ttl = $this->getCacheTtl($type);
-        
+
         // If tags are supported and provided, use tagged cache
         if ($this->supportsCacheTags() && ! empty($tags)) {
             $cache = $this->getCacheStore()->tags($tags);
+
             return $cache->remember($key, $ttl, $callback);
         }
-        
+
         // Otherwise use regular cache (this ensures Cache::has() works in tests)
         return $this->getCacheStore()->remember($key, $ttl, $callback);
     }

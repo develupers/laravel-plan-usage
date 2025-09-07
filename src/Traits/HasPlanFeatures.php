@@ -90,11 +90,11 @@ trait HasPlanFeatures
 
     /**
      * Check if the billable's plan includes a feature.
-     * 
+     *
      * This checks if the feature exists in the plan, not if it can be used.
      * For usage checks, use canUseFeature() instead.
-     * 
-     * @param string $featureSlug The feature to check
+     *
+     * @param  string  $featureSlug  The feature to check
      * @return bool True if the plan includes this feature
      */
     public function hasFeature(string $featureSlug): bool
