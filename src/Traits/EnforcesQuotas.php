@@ -39,19 +39,20 @@ trait EnforcesQuotas
     }
 
     /**
-     * Check if a feature quota can be used.
-     */
-    public function canUseQuota(string $featureSlug, float $amount = 1): bool
-    {
-        return $this->quotaEnforcer()->canUse($this, $featureSlug, $amount);
-    }
-
-    /**
-     * Check if billable can use a feature (alias for canUseQuota for consistency).
+     * Check if the billable can use a feature.
+     * 
+     * @param string $featureSlug The feature to check
+     * @param float $amount The amount to check (default: 1)
+     * @return bool
+     * 
+     * Behavior by feature type:
+     * - boolean: Always returns true if feature is enabled
+     * - quota: Checks if usage + amount <= limit (resets periodically)  
+     * - limit: Checks if current count + amount <= limit (never resets)
      */
     public function canUseFeature(string $featureSlug, float $amount = 1): bool
     {
-        return $this->canUseQuota($featureSlug, $amount);
+        return $this->quotaEnforcer()->canUse($this, $featureSlug, $amount);
     }
 
     /**

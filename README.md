@@ -132,9 +132,14 @@ $account->save();
 ### 4. Use Features in Your Application
 
 ```php
-// Check if account has access to a feature
+// Check if feature is in the plan
 if ($account->hasFeature('api-calls')) {
-    // Feature is available
+    // Feature is included in the plan
+}
+
+// Check if account can use more of a feature
+if ($account->canUseFeature('api-calls', 10)) {
+    // Has enough quota for 10 more calls
 }
 
 // Record usage
@@ -143,12 +148,18 @@ $account->recordUsage('api-calls', 1);
 // Check remaining quota
 $remaining = $account->getRemainingQuota('api-calls');
 echo "API calls remaining: {$remaining}";
-
-// Check if account can use more
-if ($account->canUse('api-calls', 10)) {
-    // Has enough quota for 10 more calls
-}
 ```
+
+## 🔍 Understanding Feature Checks
+
+The package provides two main methods for checking features:
+
+| Method | Purpose | Returns |
+|--------|---------|---------|
+| `hasFeature('api-calls')` | Check if feature is included in the plan | `true` if feature exists in plan |
+| `canUseFeature('api-calls', 10)` | Check if you can use/consume more | `true` if within limits |
+
+**Key difference**: `hasFeature()` checks plan inclusion, while `canUseFeature()` checks current availability/quota.
 
 ## 🏷️ Plan Types
 
