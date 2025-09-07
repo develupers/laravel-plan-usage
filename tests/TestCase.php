@@ -15,6 +15,9 @@ class TestCase extends Orchestra
         Factory::guessFactoryNamesUsing(
             fn (string $modelName) => 'Develupers\\PlanUsage\\Database\\Factories\\'.class_basename($modelName).'Factory'
         );
+        
+        // Clear cache before each test to ensure isolation
+        \Illuminate\Support\Facades\Cache::store('sqlite')->flush();
     }
 
     protected function getPackageProviders($app)
@@ -28,10 +31,33 @@ class TestCase extends Orchestra
     {
         config()->set('database.default', 'testing');
         
-        // Set cache configuration for tests
-        config()->set('cache.default', 'array');
-        config()->set('plan-usage.cache.store', 'array');
-        config()->set('plan-usage.cache.use_tags', false); // Array driver doesn't support tags
+        // Set up SQLite database for cache
+        config()->set('database.connections.sqlite_cache', [
+            'driver' => 'sqlite',
+            'database' => ':memory:',
+            'prefix' => '',
+        ]);
+        
+        // Configure cache to use database driver with SQLite
+        config()->set('cache.stores.sqlite', [
+            'driver' => 'database',
+            'table' => 'cache',
+            'connection' => 'sqlite_cache',
+        ]);
+        
+        // Set cache configuration for tests - use SQLite database driver
+        config()->set('cache.default', 'sqlite');
+        config()->set('plan-usage.cache.store', 'sqlite');
+        config()->set('plan-usage.cache.enabled', true); // Enable caching to test it properly
+        config()->set('plan-usage.cache.use_tags', false); // Database driver doesn't support tags
+        
+        // Create cache table in SQLite
+        \Illuminate\Support\Facades\Schema::connection('sqlite_cache')->create('cache', function ($table) {
+            $table->string('key')->primary();
+            $table->text('value');
+            $table->integer('expiration');
+            $table->index('expiration');
+        });
 
         // Run migrations
         $migrations = [

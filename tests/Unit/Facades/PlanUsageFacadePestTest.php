@@ -39,8 +39,9 @@ describe('PlanUsage Facade', function () {
 
     it('can check feature availability', function () {
         // Arrange
-        $plan = Plan::factory()->create();
-        $feature = Feature::factory()->create(['slug' => 'test-feature']);
+        $testId = uniqid('test_'); // Unique identifier for this test run
+        $plan = Plan::factory()->create(['slug' => 'plan-'.$testId]);
+        $feature = Feature::factory()->quota()->create(['slug' => 'test-feature-'.$testId]);
 
         PlanFeature::create([
             'plan_id' => $plan->id,
@@ -52,7 +53,7 @@ describe('PlanUsage Facade', function () {
         $this->billable->save();
 
         // Act
-        $canUse = PlanUsage::can($this->billable, 'test-feature', 50);
+        $canUse = PlanUsage::can($this->billable, 'test-feature-'.$testId, 50);
 
         // Assert
         expect($canUse)->toBeTrue();
@@ -60,8 +61,9 @@ describe('PlanUsage Facade', function () {
 
     it('records usage through facade', function () {
         // Arrange
-        $plan = Plan::factory()->create();
-        $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $testId = uniqid('test_'); // Unique identifier for this test run
+        $plan = Plan::factory()->create(['slug' => 'plan-'.$testId]);
+        $feature = Feature::factory()->create(['slug' => 'api-calls-'.$testId]);
 
         PlanFeature::create([
             'plan_id' => $plan->id,
@@ -72,7 +74,7 @@ describe('PlanUsage Facade', function () {
         $this->billable->plan_id = $plan->id;
 
         // Act
-        PlanUsage::record($this->billable, 'api-calls', 100, ['source' => 'test']);
+        PlanUsage::record($this->billable, 'api-calls-'.$testId, 100, ['source' => 'test']);
 
         // Assert
         $usage = \Develupers\PlanUsage\Models\Usage::where('feature_id', $feature->id)->first();
@@ -97,11 +99,12 @@ describe('PlanUsage Facade with complex scenarios', function () {
 
     it('handles multiple billables correctly', function () {
         // Arrange
-        $billable1 = createBillable(['id' => 1]);
-        $billable2 = createBillable(['id' => 2]);
+        $testId = uniqid('test_'); // Unique identifier for this test run
+        $billable1 = createBillable(['id' => rand(100000, 199999)]);
+        $billable2 = createBillable(['id' => rand(200000, 299999)]);
 
-        $plan = Plan::factory()->create();
-        $feature = Feature::factory()->quota()->create(['slug' => 'storage']);
+        $plan = Plan::factory()->create(['slug' => 'plan-'.$testId]);
+        $feature = Feature::factory()->quota()->create(['slug' => 'storage-'.$testId]);
 
         PlanFeature::create([
             'plan_id' => $plan->id,
@@ -115,12 +118,12 @@ describe('PlanUsage Facade with complex scenarios', function () {
         $billable2->save();
 
         // Act
-        PlanUsage::record($billable1, 'storage', 30);
-        PlanUsage::record($billable2, 'storage', 50);
+        PlanUsage::record($billable1, 'storage-'.$testId, 30);
+        PlanUsage::record($billable2, 'storage-'.$testId, 50);
 
         // Assert
-        $remaining1 = PlanUsage::quotas()->getRemaining($billable1, 'storage');
-        $remaining2 = PlanUsage::quotas()->getRemaining($billable2, 'storage');
+        $remaining1 = PlanUsage::quotas()->getRemaining($billable1, 'storage-'.$testId);
+        $remaining2 = PlanUsage::quotas()->getRemaining($billable2, 'storage-'.$testId);
 
         expect($remaining1)->toBe(70.0)
             ->and($remaining2)->toBe(50.0);

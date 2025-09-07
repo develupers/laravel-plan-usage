@@ -24,15 +24,17 @@ describe('PlanUsage Integration', function () {
     it('completes full usage workflow', function () {
         // Arrange
         Event::fake();
+        $testId = uniqid('test_'); // Unique identifier for this test run
 
         $plan = Plan::factory()->create([
             'name' => 'Professional Plan',
+            'slug' => 'pro-'.$testId,
             'price' => 99.99,
         ]);
 
         $apiCallsFeature = Feature::factory()->create([
             'name' => 'API Calls',
-            'slug' => 'api-calls',
+            'slug' => 'api-calls-'.$testId,
             'type' => 'quota',
             'unit' => 'requests',
             'reset_period' => 'monthly',
@@ -40,14 +42,14 @@ describe('PlanUsage Integration', function () {
 
         $projectsFeature = Feature::factory()->create([
             'name' => 'Projects',
-            'slug' => 'projects',
+            'slug' => 'projects-'.$testId,
             'type' => 'limit',
             'unit' => 'projects',
         ]);
 
         $advancedFeature = Feature::factory()->create([
             'name' => 'Advanced Analytics',
-            'slug' => 'advanced-analytics',
+            'slug' => 'advanced-analytics-'.$testId,
             'type' => 'boolean',
         ]);
 
@@ -73,10 +75,10 @@ describe('PlanUsage Integration', function () {
 
         // Act & Assert
         expect(PlanUsage::findPlan($plan->id)->id)->toBe($plan->id)
-            ->and(PlanUsage::plans()->planHasFeature($plan->id, 'api-calls'))->toBeTrue()
-            ->and(PlanUsage::can($this->billable, 'api-calls', 100))->toBeTrue();
+            ->and(PlanUsage::plans()->planHasFeature($plan->id, 'api-calls-'.$testId))->toBeTrue()
+            ->and(PlanUsage::can($this->billable, 'api-calls-'.$testId, 100))->toBeTrue();
 
-        PlanUsage::record($this->billable, 'api-calls', 100, ['source' => 'api']);
+        PlanUsage::record($this->billable, 'api-calls-'.$testId, 100, ['source' => 'api']);
         Event::assertDispatched(UsageRecorded::class);
 
         $usage = Usage::where('billable_type', $this->billable->getMorphClass())
@@ -94,14 +96,14 @@ describe('PlanUsage Integration', function () {
 
         expect($quota)->not->toBeNull()
             ->and($quota->used)->toBe(100.0)
-            ->and(PlanUsage::quotas()->getRemaining($this->billable, 'api-calls'))->toBe(9900.0);
+            ->and(PlanUsage::quotas()->getRemaining($this->billable, 'api-calls-'.$testId))->toBe(9900.0);
 
-        $history = PlanUsage::usage()->getHistory($this->billable, 'api-calls');
+        $history = PlanUsage::usage()->getHistory($this->billable, 'api-calls-'.$testId);
         expect($history)->toHaveCount(1);
 
         $stats = PlanUsage::usage()->getStatistics(
             $this->billable,
-            'api-calls',
+            'api-calls-'.$testId,
             now()->subMonth(),
             now(),
             'month'
@@ -309,10 +311,11 @@ describe('PlanUsage with multiple features', function () {
 
     it('tracks usage across multiple features simultaneously', function () {
         // Arrange
-        $plan = Plan::factory()->create();
+        $testId = uniqid('test_'); // Unique identifier for this test run
+        $plan = Plan::factory()->create(['slug' => 'plan-'.$testId]);
 
-        $apiFeature = Feature::factory()->create(['slug' => 'api-calls']);
-        $storageFeature = Feature::factory()->create(['slug' => 'storage-gb']);
+        $apiFeature = Feature::factory()->quota()->create(['slug' => 'api-calls-'.$testId]);
+        $storageFeature = Feature::factory()->quota()->create(['slug' => 'storage-gb-'.$testId]);
 
         PlanFeature::create([
             'plan_id' => $plan->id,
@@ -333,13 +336,13 @@ describe('PlanUsage with multiple features', function () {
         app('plan-usage.manager')->clearCache($plan->id);
 
         // Act
-        PlanUsage::record($this->billable, 'api-calls', 100);
-        PlanUsage::record($this->billable, 'storage-gb', 5);
+        PlanUsage::record($this->billable, 'api-calls-'.$testId, 100);
+        PlanUsage::record($this->billable, 'storage-gb-'.$testId, 5);
 
         // Assert
-        expect(PlanUsage::quotas()->getRemaining($this->billable, 'api-calls'))->toBe(900.0)
-            ->and(PlanUsage::quotas()->getRemaining($this->billable, 'storage-gb'))->toBe(45.0)
-            ->and(PlanUsage::quotas()->getUsagePercentage($this->billable, 'api-calls'))->toBe(10.0)
-            ->and(PlanUsage::quotas()->getUsagePercentage($this->billable, 'storage-gb'))->toBe(10.0);
+        expect(PlanUsage::quotas()->getRemaining($this->billable, 'api-calls-'.$testId))->toBe(900.0)
+            ->and(PlanUsage::quotas()->getRemaining($this->billable, 'storage-gb-'.$testId))->toBe(45.0)
+            ->and(PlanUsage::quotas()->getUsagePercentage($this->billable, 'api-calls-'.$testId))->toBe(10.0)
+            ->and(PlanUsage::quotas()->getUsagePercentage($this->billable, 'storage-gb-'.$testId))->toBe(10.0);
     });
 });
