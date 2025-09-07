@@ -14,6 +14,8 @@ use Develupers\PlanUsage\Models\Usage;
 use Illuminate\Support\Facades\Event;
 
 beforeEach(function () {
+    // Clear cache to ensure test isolation
+    \Illuminate\Support\Facades\Cache::flush();
     $this->billable = createBillable();
 });
 
@@ -326,6 +328,9 @@ describe('PlanUsage with multiple features', function () {
 
         $this->billable->plan_id = $plan->id;
         $this->billable->save();
+
+        // Clear any cached plan data to ensure fresh data
+        app('plan-usage.manager')->clearCache($plan->id);
 
         // Act
         PlanUsage::record($this->billable, 'api-calls', 100);

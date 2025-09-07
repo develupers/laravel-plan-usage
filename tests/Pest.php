@@ -51,9 +51,9 @@ function createBillable(array $attributes = []): \Illuminate\Database\Eloquent\M
         public function __construct(array $attributes = [])
         {
             parent::__construct();
-            $this->plan_id = $attributes['plan_id'] ?? 1;
+            $this->plan_id = $attributes['plan_id'] ?? null;
             $this->stripe_id = $attributes['stripe_id'] ?? 'cus_'.uniqid();
-            $this->attributes = array_merge($attributes, ['id' => $attributes['id'] ?? 1]);
+            $this->attributes = array_merge($attributes, ['id' => $attributes['id'] ?? rand(100000, 999999)]);
             $this->setAttribute('id', $this->attributes['id']);
         }
 
@@ -70,6 +70,10 @@ function createBillable(array $attributes = []): \Illuminate\Database\Eloquent\M
         public function save(array $options = []): bool
         {
             $this->plan_changed_at = now();
+            // Ensure plan_id is accessible after save
+            if (property_exists($this, 'plan_id')) {
+                $this->attributes['plan_id'] = $this->plan_id;
+            }
 
             return true;
         }

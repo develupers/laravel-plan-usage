@@ -10,6 +10,8 @@ use Develupers\PlanUsage\Models\PlanFeature;
 describe('PlanUsage Facade', function () {
 
     beforeEach(function () {
+        // Clear cache to ensure test isolation
+        \Illuminate\Support\Facades\Cache::flush();
         $this->billable = createBillable();
     });
 
