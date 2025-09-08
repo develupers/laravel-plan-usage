@@ -107,7 +107,7 @@ describe('UsageTracker', function () {
         // Arrange
         $feature = Feature::factory()->create([
             'slug' => 'api-calls',
-            'reset_period' => Period::MONTHLY->value,
+            'reset_period' => Period::MONTH->value,
         ]);
 
         Usage::create([
@@ -249,19 +249,19 @@ describe('UsageTracker with datasets', function () {
 
         // Assert
         $startMethod = match ($period) {
-            'hourly' => 'startOfHour',
-            'daily' => 'startOfDay',
-            'weekly' => 'startOfWeek',
-            'monthly' => 'startOfMonth',
-            'yearly' => 'startOfYear',
+            'hour' => 'startOfHour',
+            'day' => 'startOfDay',
+            'week' => 'startOfWeek',
+            'month' => 'startOfMonth',
+            'year' => 'startOfYear',
         };
 
         $endMethod = match ($period) {
-            'hourly' => 'endOfHour',
-            'daily' => 'endOfDay',
-            'weekly' => 'endOfWeek',
-            'monthly' => 'endOfMonth',
-            'yearly' => 'endOfYear',
+            'hour' => 'endOfHour',
+            'day' => 'endOfDay',
+            'week' => 'endOfWeek',
+            'month' => 'endOfMonth',
+            'year' => 'endOfYear',
         };
 
         $expectedStart = Carbon::now()->$startMethod();

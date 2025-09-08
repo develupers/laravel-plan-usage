@@ -137,7 +137,7 @@ describe('Plan Model', function () {
         $monthlyPlans = Plan::monthly()->get();
 
         expect($monthlyPlans)->toHaveCount(2)
-            ->and($monthlyPlans->every(fn ($plan) => $plan->interval === Interval::MONTHLY))->toBeTrue();
+            ->and($monthlyPlans->every(fn ($plan) => $plan->interval === Interval::MONTH))->toBeTrue();
     });
 
     it('scopes to yearly plans', function () {
@@ -147,7 +147,7 @@ describe('Plan Model', function () {
         $yearlyPlans = Plan::yearly()->get();
 
         expect($yearlyPlans)->toHaveCount(3)
-            ->and($yearlyPlans->every(fn ($plan) => $plan->interval === Interval::YEARLY))->toBeTrue();
+            ->and($yearlyPlans->every(fn ($plan) => $plan->interval === Interval::YEAR))->toBeTrue();
     });
 });
 
@@ -158,8 +158,8 @@ describe('Plan Model with datasets', function () {
         $interval = Interval::from($intervalValue);
 
         expect($plan->interval)->toBe($interval)
-            ->and($plan->isMonthly())->toBe($interval === Interval::MONTHLY)
-            ->and($plan->isYearly())->toBe($interval === Interval::YEARLY);
+            ->and($plan->isMonthly())->toBe($interval === Interval::MONTH)
+            ->and($plan->isYearly())->toBe($interval === Interval::YEAR);
     })->with('plan_intervals');
 });
 

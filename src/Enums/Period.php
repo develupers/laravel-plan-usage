@@ -8,11 +8,11 @@ use Illuminate\Support\Carbon;
 
 enum Period: string
 {
-    case HOURLY = 'hourly';
-    case DAILY = 'daily';
-    case WEEKLY = 'weekly';
-    case MONTHLY = 'monthly';
-    case YEARLY = 'yearly';
+    case HOUR = 'hour';
+    case DAY = 'day';
+    case WEEK = 'week';
+    case MONTH = 'month';
+    case YEAR = 'year';
 
     /**
      * Get the display label for the period.
@@ -20,11 +20,11 @@ enum Period: string
     public function label(): string
     {
         return match ($this) {
-            self::HOURLY => 'Hourly',
-            self::DAILY => 'Daily',
-            self::WEEKLY => 'Weekly',
-            self::MONTHLY => 'Monthly',
-            self::YEARLY => 'Yearly',
+            self::HOUR => 'Hourly',
+            self::DAY => 'Daily',
+            self::WEEK => 'Weekly',
+            self::MONTH => 'Monthly',
+            self::YEAR => 'Yearly',
         };
     }
 
@@ -36,11 +36,11 @@ enum Period: string
         $from = $from ? Carbon::instance($from) : now();
 
         return match ($this) {
-            self::HOURLY => $from->copy()->addHour()->startOfHour(),
-            self::DAILY => $from->copy()->addDay()->startOfDay(),
-            self::WEEKLY => $from->copy()->addWeek()->startOfWeek(),
-            self::MONTHLY => $from->copy()->addMonth()->startOfMonth(),
-            self::YEARLY => $from->copy()->addYear()->startOfYear(),
+            self::HOUR => $from->copy()->addHour()->startOfHour(),
+            self::DAY => $from->copy()->addDay()->startOfDay(),
+            self::WEEK => $from->copy()->addWeek()->startOfWeek(),
+            self::MONTH => $from->copy()->addMonth()->startOfMonth(),
+            self::YEAR => $from->copy()->addYear()->startOfYear(),
         };
     }
 
@@ -52,11 +52,11 @@ enum Period: string
         $timestamp = $timestamp ? Carbon::instance($timestamp) : now();
 
         return match ($this) {
-            self::HOURLY => $timestamp->copy()->startOfHour(),
-            self::DAILY => $timestamp->copy()->startOfDay(),
-            self::WEEKLY => $timestamp->copy()->startOfWeek(),
-            self::MONTHLY => $timestamp->copy()->startOfMonth(),
-            self::YEARLY => $timestamp->copy()->startOfYear(),
+            self::HOUR => $timestamp->copy()->startOfHour(),
+            self::DAY => $timestamp->copy()->startOfDay(),
+            self::WEEK => $timestamp->copy()->startOfWeek(),
+            self::MONTH => $timestamp->copy()->startOfMonth(),
+            self::YEAR => $timestamp->copy()->startOfYear(),
         };
     }
 
@@ -68,11 +68,11 @@ enum Period: string
         $timestamp = $timestamp ? Carbon::instance($timestamp) : now();
 
         return match ($this) {
-            self::HOURLY => $timestamp->copy()->endOfHour(),
-            self::DAILY => $timestamp->copy()->endOfDay(),
-            self::WEEKLY => $timestamp->copy()->endOfWeek(),
-            self::MONTHLY => $timestamp->copy()->endOfMonth(),
-            self::YEARLY => $timestamp->copy()->endOfYear(),
+            self::HOUR => $timestamp->copy()->endOfHour(),
+            self::DAY => $timestamp->copy()->endOfDay(),
+            self::WEEK => $timestamp->copy()->endOfWeek(),
+            self::MONTH => $timestamp->copy()->endOfMonth(),
+            self::YEAR => $timestamp->copy()->endOfYear(),
         };
     }
 

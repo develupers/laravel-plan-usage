@@ -188,7 +188,7 @@ class Plan extends Model
      */
     public function scopeMonthly(Builder $query): Builder
     {
-        return $query->where('interval', Interval::MONTHLY->value);
+        return $query->where('interval', Interval::MONTH->value);
     }
 
     /**
@@ -196,7 +196,7 @@ class Plan extends Model
      */
     public function scopeYearly(Builder $query): Builder
     {
-        return $query->where('interval', Interval::YEARLY->value);
+        return $query->where('interval', Interval::YEAR->value);
     }
 
     /**
@@ -237,7 +237,7 @@ class Plan extends Model
      */
     public function isMonthly(): bool
     {
-        return $this->interval === Interval::MONTHLY;
+        return $this->interval === Interval::MONTH;
     }
 
     /**
@@ -245,7 +245,7 @@ class Plan extends Model
      */
     public function isYearly(): bool
     {
-        return $this->interval === Interval::YEARLY;
+        return $this->interval === Interval::YEAR;
     }
 
     /**

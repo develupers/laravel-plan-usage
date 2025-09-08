@@ -98,11 +98,11 @@ dataset('feature_types', [
 ]);
 
 dataset('reset_periods', [
-    'hourly' => [\Develupers\PlanUsage\Enums\Period::HOURLY->value],
-    'daily' => [\Develupers\PlanUsage\Enums\Period::DAILY->value],
-    'weekly' => [\Develupers\PlanUsage\Enums\Period::WEEKLY->value],
-    'monthly' => [\Develupers\PlanUsage\Enums\Period::MONTHLY->value],
-    'yearly' => [\Develupers\PlanUsage\Enums\Period::YEARLY->value],
+    'hourly' => [\Develupers\PlanUsage\Enums\Period::HOUR->value],
+    'daily' => [\Develupers\PlanUsage\Enums\Period::DAY->value],
+    'weekly' => [\Develupers\PlanUsage\Enums\Period::WEEK->value],
+    'monthly' => [\Develupers\PlanUsage\Enums\Period::MONTH->value],
+    'yearly' => [\Develupers\PlanUsage\Enums\Period::YEAR->value],
 ]);
 
 dataset('aggregation_methods', [
@@ -113,8 +113,8 @@ dataset('aggregation_methods', [
 ]);
 
 dataset('plan_intervals', [
-    'monthly' => [\Develupers\PlanUsage\Enums\Interval::MONTHLY->value],
-    'yearly' => [\Develupers\PlanUsage\Enums\Interval::YEARLY->value],
+    'monthly' => [\Develupers\PlanUsage\Enums\Interval::MONTH->value],
+    'yearly' => [\Develupers\PlanUsage\Enums\Interval::YEAR->value],
 ]);
 
 dataset('usage_amounts', [

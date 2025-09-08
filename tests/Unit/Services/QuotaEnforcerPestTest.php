@@ -172,7 +172,7 @@ describe('QuotaEnforcer', function () {
         $billable->plan_id = null;
         $feature = Feature::factory()->create([
             'slug' => 'api-calls',
-            'reset_period' => Period::MONTHLY->value,
+            'reset_period' => Period::MONTH->value,
         ]);
 
         $quota = Quota::create([
@@ -265,7 +265,7 @@ describe('QuotaEnforcer', function () {
         $billable->plan_id = null;
         $feature = Feature::factory()->create([
             'slug' => 'api-calls',
-            'reset_period' => Period::MONTHLY->value,
+            'reset_period' => Period::MONTH->value,
         ]);
 
         $quota = Quota::create([
@@ -391,11 +391,11 @@ describe('QuotaEnforcer with datasets', function () {
         expect($quota->used)->toBe(5.0);
 
         $expectedResetTime = match ($period) {
-            'hourly' => Carbon::now()->addHour()->startOfHour(),
-            'daily' => Carbon::now()->addDay()->startOfDay(),
-            'weekly' => Carbon::now()->addWeek()->startOfWeek(),
-            'monthly' => Carbon::now()->addMonth()->startOfMonth(),
-            'yearly' => Carbon::now()->addYear()->startOfYear(),
+            'hour' => Carbon::now()->addHour()->startOfHour(),
+            'day' => Carbon::now()->addDay()->startOfDay(),
+            'week' => Carbon::now()->addWeek()->startOfWeek(),
+            'month' => Carbon::now()->addMonth()->startOfMonth(),
+            'year' => Carbon::now()->addYear()->startOfYear(),
         };
 
         expect($quota->reset_at->format('Y-m-d'))->toBe($expectedResetTime->format('Y-m-d'));

@@ -38,7 +38,7 @@ describe('PlanUsage Integration', function () {
             'slug' => 'api-calls-'.$testId,
             'type' => 'quota',
             'unit' => 'requests',
-            'reset_period' => Period::MONTHLY->value,
+            'reset_period' => Period::MONTH->value,
         ]);
 
         $projectsFeature = Feature::factory()->create([
@@ -195,7 +195,7 @@ describe('PlanUsage Integration', function () {
         $feature = Feature::factory()->create([
             'slug' => 'monthly-reports',
             'type' => 'quota',
-            'reset_period' => Period::MONTHLY->value,
+            'reset_period' => Period::MONTH->value,
         ]);
 
         PlanFeature::create([

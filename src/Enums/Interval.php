@@ -6,10 +6,10 @@ namespace Develupers\PlanUsage\Enums;
 
 enum Interval: string
 {
-    case DAILY = 'daily';
-    case WEEKLY = 'weekly';
-    case MONTHLY = 'monthly';
-    case YEARLY = 'yearly';
+    case DAY = 'day';
+    case WEEK = 'week';
+    case MONTH = 'month';
+    case YEAR = 'year';
     case LIFETIME = 'lifetime';
 
     /**
@@ -18,10 +18,10 @@ enum Interval: string
     public function label(): string
     {
         return match ($this) {
-            self::DAILY => 'per day',
-            self::WEEKLY => 'per week',
-            self::MONTHLY => 'per month',
-            self::YEARLY => 'per year',
+            self::DAY => 'per day',
+            self::WEEK => 'per week',
+            self::MONTH => 'per month',
+            self::YEAR => 'per year',
             self::LIFETIME => 'one-time',
         };
     }
