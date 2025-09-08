@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use Illuminate\Support\Carbon;
 use Develupers\PlanUsage\Enums\Period;
 use Develupers\PlanUsage\Events\QuotaExceeded;
 use Develupers\PlanUsage\Events\QuotaWarning;
@@ -11,6 +10,7 @@ use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanFeature;
 use Develupers\PlanUsage\Models\Quota;
 use Develupers\PlanUsage\Services\QuotaEnforcer;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 

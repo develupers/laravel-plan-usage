@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Database\Factories;
 
-use Illuminate\Support\Carbon;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Quota;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Carbon;
 
 class QuotaFactory extends Factory
 {

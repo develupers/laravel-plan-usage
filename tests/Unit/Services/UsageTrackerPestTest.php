@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-use Illuminate\Support\Carbon;
 use Develupers\PlanUsage\Enums\Period;
 use Develupers\PlanUsage\Events\UsageRecorded;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Usage;
 use Develupers\PlanUsage\Services\UsageTracker;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 
 beforeEach(function () {
