@@ -168,7 +168,7 @@ class Quota extends Model
      */
     public function reset(): self
     {
-        if (! $this->feature || ! $this->feature->resetsperiodically()) {
+        if (! $this->feature || ! $this->feature->resetsPeriodically()) {
             return $this;
         }
 

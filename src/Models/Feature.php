@@ -144,7 +144,7 @@ class Feature extends Model
     /**
      * Check if this feature resets periodically.
      */
-    public function resetsperiodically(): bool
+    public function resetsPeriodically(): bool
     {
         return $this->reset_period !== null;
     }
