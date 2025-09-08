@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Develupers\PlanUsage\Enums\Period;
 use Develupers\PlanUsage\Events\QuotaExceeded;
 use Develupers\PlanUsage\Events\QuotaWarning;
 use Develupers\PlanUsage\Events\UsageRecorded;
@@ -37,7 +38,7 @@ describe('PlanUsage Integration', function () {
             'slug' => 'api-calls-'.$testId,
             'type' => 'quota',
             'unit' => 'requests',
-            'reset_period' => 'monthly',
+            'reset_period' => Period::MONTHLY->value,
         ]);
 
         $projectsFeature = Feature::factory()->create([
@@ -194,7 +195,7 @@ describe('PlanUsage Integration', function () {
         $feature = Feature::factory()->create([
             'slug' => 'monthly-reports',
             'type' => 'quota',
-            'reset_period' => 'monthly',
+            'reset_period' => Period::MONTHLY->value,
         ]);
 
         PlanFeature::create([

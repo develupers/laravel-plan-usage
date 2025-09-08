@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Develupers\PlanUsage\Enums\Interval;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanFeature;
@@ -136,7 +137,7 @@ describe('Plan Model', function () {
         $monthlyPlans = Plan::monthly()->get();
 
         expect($monthlyPlans)->toHaveCount(2)
-            ->and($monthlyPlans->every(fn ($plan) => $plan->interval === 'monthly'))->toBeTrue();
+            ->and($monthlyPlans->every(fn ($plan) => $plan->interval === Interval::MONTHLY))->toBeTrue();
     });
 
     it('scopes to yearly plans', function () {
@@ -146,18 +147,19 @@ describe('Plan Model', function () {
         $yearlyPlans = Plan::yearly()->get();
 
         expect($yearlyPlans)->toHaveCount(3)
-            ->and($yearlyPlans->every(fn ($plan) => $plan->interval === 'yearly'))->toBeTrue();
+            ->and($yearlyPlans->every(fn ($plan) => $plan->interval === Interval::YEARLY))->toBeTrue();
     });
 });
 
 describe('Plan Model with datasets', function () {
 
-    it('handles different intervals correctly', function (string $interval) {
-        $plan = Plan::factory()->create(['interval' => $interval]);
+    it('handles different intervals correctly', function (string $intervalValue) {
+        $plan = Plan::factory()->create(['interval' => $intervalValue]);
+        $interval = Interval::from($intervalValue);
 
         expect($plan->interval)->toBe($interval)
-            ->and($plan->isMonthly())->toBe($interval === 'monthly')
-            ->and($plan->isYearly())->toBe($interval === 'yearly');
+            ->and($plan->isMonthly())->toBe($interval === Interval::MONTHLY)
+            ->and($plan->isYearly())->toBe($interval === Interval::YEARLY);
     })->with('plan_intervals');
 });
 

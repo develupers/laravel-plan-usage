@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Models;
 
+use Develupers\PlanUsage\Enums\Interval;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -21,7 +22,7 @@ use Illuminate\Support\Collection;
  * @property string|null $stripe_price_id
  * @property float $price
  * @property string $currency
- * @property string $interval
+ * @property Interval $interval
  * @property int $trial_days
  * @property int $sort_order
  * @property bool $is_active
@@ -66,6 +67,7 @@ class Plan extends Model
         'sort_order' => 'integer',
         'is_active' => 'boolean',
         'metadata' => 'array',
+        'interval' => Interval::class,
     ];
 
     public function __construct(array $attributes = [])
@@ -186,7 +188,7 @@ class Plan extends Model
      */
     public function scopeMonthly(Builder $query): Builder
     {
-        return $query->where('interval', 'monthly');
+        return $query->where('interval', Interval::MONTHLY->value);
     }
 
     /**
@@ -194,7 +196,7 @@ class Plan extends Model
      */
     public function scopeYearly(Builder $query): Builder
     {
-        return $query->where('interval', 'yearly');
+        return $query->where('interval', Interval::YEARLY->value);
     }
 
     /**
@@ -235,7 +237,7 @@ class Plan extends Model
      */
     public function isMonthly(): bool
     {
-        return $this->interval === 'monthly';
+        return $this->interval === Interval::MONTHLY;
     }
 
     /**
@@ -243,7 +245,7 @@ class Plan extends Model
      */
     public function isYearly(): bool
     {
-        return $this->interval === 'yearly';
+        return $this->interval === Interval::YEARLY;
     }
 
     /**
@@ -298,13 +300,6 @@ class Plan extends Model
      */
     public function getIntervalLabelAttribute(): string
     {
-        return match ($this->interval) {
-            'daily' => 'per day',
-            'weekly' => 'per week',
-            'monthly' => 'per month',
-            'yearly' => 'per year',
-            'lifetime' => 'one-time',
-            default => $this->interval,
-        };
+        return $this->interval->label();
     }
 }

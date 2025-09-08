@@ -2,7 +2,8 @@
 
 declare(strict_types=1);
 
-use Carbon\Carbon;
+use Illuminate\Support\Carbon;
+use Develupers\PlanUsage\Enums\Period;
 use Develupers\PlanUsage\Events\UsageRecorded;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Usage;
@@ -106,7 +107,7 @@ describe('UsageTracker', function () {
         // Arrange
         $feature = Feature::factory()->create([
             'slug' => 'api-calls',
-            'reset_period' => 'monthly',
+            'reset_period' => Period::MONTHLY->value,
         ]);
 
         Usage::create([

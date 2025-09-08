@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Database\Factories;
 
+use Develupers\PlanUsage\Enums\Interval;
 use Develupers\PlanUsage\Models\Plan;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -23,7 +24,7 @@ class PlanFactory extends Factory
             'stripe_price_id' => 'price_'.$this->faker->unique()->regexify('[A-Za-z0-9]{24}'),
             'price' => $this->faker->randomFloat(2, 10, 500),
             'currency' => 'usd',
-            'interval' => $this->faker->randomElement(['monthly', 'yearly']),
+            'interval' => $this->faker->randomElement([Interval::MONTHLY->value, Interval::YEARLY->value]),
             'is_active' => true,
             'type' => 'public',
             'metadata' => [
@@ -43,14 +44,14 @@ class PlanFactory extends Factory
     public function monthly(): static
     {
         return $this->state(fn (array $attributes) => [
-            'interval' => 'monthly',
+            'interval' => Interval::MONTHLY->value,
         ]);
     }
 
     public function yearly(): static
     {
         return $this->state(fn (array $attributes) => [
-            'interval' => 'yearly',
+            'interval' => Interval::YEARLY->value,
         ]);
     }
 

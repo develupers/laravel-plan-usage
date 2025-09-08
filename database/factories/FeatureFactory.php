@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Database\Factories;
 
+use Develupers\PlanUsage\Enums\Period;
 use Develupers\PlanUsage\Models\Feature;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -22,7 +23,7 @@ class FeatureFactory extends Factory
             'type' => $this->faker->randomElement(['boolean', 'limit', 'quota']),
             'unit' => $this->faker->randomElement(['requests', 'users', 'projects', 'gb', null]),
             'aggregation_method' => $this->faker->randomElement(['sum', 'count', 'max', 'last']),
-            'reset_period' => $this->faker->randomElement(['hourly', 'daily', 'weekly', 'monthly', 'yearly', null]),
+            'reset_period' => $this->faker->randomElement([Period::HOURLY->value, Period::DAILY->value, Period::WEEKLY->value, Period::MONTHLY->value, Period::YEARLY->value, null]),
             'stripe_meter_id' => $this->faker->boolean(30) ? 'meter_'.$this->faker->unique()->regexify('[A-Za-z0-9]{24}') : null,
             'metadata' => [
                 'category' => $this->faker->randomElement(['api', 'storage', 'users', 'features']),
@@ -53,7 +54,7 @@ class FeatureFactory extends Factory
         return $this->state(fn (array $attributes) => [
             'type' => 'quota',
             'aggregation_method' => 'sum',
-            'reset_period' => $this->faker->randomElement(['monthly', 'weekly', 'daily']),
+            'reset_period' => $this->faker->randomElement([Period::MONTHLY->value, Period::WEEKLY->value, Period::DAILY->value]),
         ]);
     }
 

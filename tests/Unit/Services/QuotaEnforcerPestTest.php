@@ -2,7 +2,8 @@
 
 declare(strict_types=1);
 
-use Carbon\Carbon;
+use Illuminate\Support\Carbon;
+use Develupers\PlanUsage\Enums\Period;
 use Develupers\PlanUsage\Events\QuotaExceeded;
 use Develupers\PlanUsage\Events\QuotaWarning;
 use Develupers\PlanUsage\Models\Feature;
@@ -171,7 +172,7 @@ describe('QuotaEnforcer', function () {
         $billable->plan_id = null;
         $feature = Feature::factory()->create([
             'slug' => 'api-calls',
-            'reset_period' => 'monthly',
+            'reset_period' => Period::MONTHLY->value,
         ]);
 
         $quota = Quota::create([
@@ -264,7 +265,7 @@ describe('QuotaEnforcer', function () {
         $billable->plan_id = null;
         $feature = Feature::factory()->create([
             'slug' => 'api-calls',
-            'reset_period' => 'monthly',
+            'reset_period' => Period::MONTHLY->value,
         ]);
 
         $quota = Quota::create([

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Database\Factories;
 
-use Carbon\Carbon;
+use Illuminate\Support\Carbon;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Usage;
 use Illuminate\Database\Eloquent\Factories\Factory;

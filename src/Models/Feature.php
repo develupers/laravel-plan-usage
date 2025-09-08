@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Models;
 
+use Develupers\PlanUsage\Enums\Period;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -19,7 +20,7 @@ use Illuminate\Support\Carbon;
  * @property string $type
  * @property string|null $unit
  * @property string $aggregation_method
- * @property string|null $reset_period
+ * @property Period|null $reset_period
  * @property string|null $stripe_meter_id
  * @property bool $is_consumable
  * @property int $sort_order
@@ -53,6 +54,7 @@ class Feature extends Model
         'is_consumable' => 'boolean',
         'sort_order' => 'integer',
         'metadata' => 'array',
+        'reset_period' => Period::class,
     ];
 
     public function __construct(array $attributes = [])
@@ -144,7 +146,7 @@ class Feature extends Model
      */
     public function resetsperiodically(): bool
     {
-        return ! in_array($this->reset_period, [null, 'never']);
+        return $this->reset_period !== null;
     }
 
     /**
@@ -152,19 +154,11 @@ class Feature extends Model
      */
     public function getNextResetDate(?\DateTimeInterface $from = null): ?Carbon
     {
-        if (! $this->resetsperiodically()) {
+        if (! $this->reset_period) {
             return null;
         }
 
-        $from = $from ? Carbon::instance($from) : now();
-
-        return match ($this->reset_period) {
-            'daily' => $from->copy()->addDay()->startOfDay(),
-            'weekly' => $from->copy()->addWeek()->startOfWeek(),
-            'monthly' => $from->copy()->addMonth()->startOfMonth(),
-            'yearly' => $from->copy()->addYear()->startOfYear(),
-            default => null,
-        };
+        return $this->reset_period->getNextResetDate($from);
     }
 
     /**
@@ -184,6 +178,6 @@ class Feature extends Model
             return 'Never';
         }
 
-        return config("plan-usage.reset_periods.{$this->reset_period}.label", ucfirst($this->reset_period));
+        return $this->reset_period->label();
     }
 }

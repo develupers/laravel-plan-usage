@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Develupers\PlanUsage\Enums\Interval;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanFeature;
@@ -257,15 +258,15 @@ describe('PlanManager with datasets', function () {
         }
     })->with('feature_types');
 
-    it('caches plan data with different intervals', function (string $interval) {
+    it('caches plan data with different intervals', function (string $intervalValue) {
         // Arrange
-        $plan = Plan::factory()->create(['interval' => $interval]);
+        $plan = Plan::factory()->create(['interval' => $intervalValue]);
 
         // Act
         $foundPlan = $this->planManager->findPlan($plan->id);
 
         // Assert
         expect(Cache::has("plan-usage.plan.{$plan->id}"))->toBeTrue()
-            ->and($foundPlan->interval)->toBe($interval);
+            ->and($foundPlan->interval)->toBe(Interval::from($intervalValue));
     })->with('plan_intervals');
 });

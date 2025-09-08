@@ -291,14 +291,7 @@ class QuotaEnforcer
             return null;
         }
 
-        return match ($feature->reset_period) {
-            'hourly' => now()->addHour()->startOfHour(),
-            'daily' => now()->addDay()->startOfDay(),
-            'weekly' => now()->addWeek()->startOfWeek(),
-            'monthly' => now()->addMonth()->startOfMonth(),
-            'yearly' => now()->addYear()->startOfYear(),
-            default => null,
-        };
+        return $feature->reset_period->getNextResetDate();
     }
 
     /**

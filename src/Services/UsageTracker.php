@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Services;
 
-use Carbon\Carbon;
+use Illuminate\Support\Carbon;
 use Develupers\PlanUsage\Events\UsageRecorded;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Usage;
@@ -272,14 +272,11 @@ class UsageTracker
      */
     protected function getPeriodStart(Feature $feature, Carbon $timestamp): Carbon
     {
-        return match ($feature->reset_period) {
-            'hourly' => $timestamp->copy()->startOfHour(),
-            'daily' => $timestamp->copy()->startOfDay(),
-            'weekly' => $timestamp->copy()->startOfWeek(),
-            'monthly' => $timestamp->copy()->startOfMonth(),
-            'yearly' => $timestamp->copy()->startOfYear(),
-            default => $timestamp->copy()->startOfMonth(),
-        };
+        if (! $feature->reset_period) {
+            return $timestamp->copy()->startOfMonth();
+        }
+
+        return $feature->reset_period->getPeriodStart($timestamp);
     }
 
     /**
@@ -287,14 +284,11 @@ class UsageTracker
      */
     protected function getPeriodEnd(Feature $feature, Carbon $timestamp): Carbon
     {
-        return match ($feature->reset_period) {
-            'hourly' => $timestamp->copy()->endOfHour(),
-            'daily' => $timestamp->copy()->endOfDay(),
-            'weekly' => $timestamp->copy()->endOfWeek(),
-            'monthly' => $timestamp->copy()->endOfMonth(),
-            'yearly' => $timestamp->copy()->endOfYear(),
-            default => $timestamp->copy()->endOfMonth(),
-        };
+        if (! $feature->reset_period) {
+            return $timestamp->copy()->endOfMonth();
+        }
+
+        return $feature->reset_period->getPeriodEnd($timestamp);
     }
 
     /**

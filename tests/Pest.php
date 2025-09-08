@@ -98,11 +98,11 @@ dataset('feature_types', [
 ]);
 
 dataset('reset_periods', [
-    'hourly' => ['hourly'],
-    'daily' => ['daily'],
-    'weekly' => ['weekly'],
-    'monthly' => ['monthly'],
-    'yearly' => ['yearly'],
+    'hourly' => [\Develupers\PlanUsage\Enums\Period::HOURLY->value],
+    'daily' => [\Develupers\PlanUsage\Enums\Period::DAILY->value],
+    'weekly' => [\Develupers\PlanUsage\Enums\Period::WEEKLY->value],
+    'monthly' => [\Develupers\PlanUsage\Enums\Period::MONTHLY->value],
+    'yearly' => [\Develupers\PlanUsage\Enums\Period::YEARLY->value],
 ]);
 
 dataset('aggregation_methods', [
@@ -113,8 +113,8 @@ dataset('aggregation_methods', [
 ]);
 
 dataset('plan_intervals', [
-    'monthly' => ['monthly'],
-    'yearly' => ['yearly'],
+    'monthly' => [\Develupers\PlanUsage\Enums\Interval::MONTHLY->value],
+    'yearly' => [\Develupers\PlanUsage\Enums\Interval::YEARLY->value],
 ]);
 
 dataset('usage_amounts', [
