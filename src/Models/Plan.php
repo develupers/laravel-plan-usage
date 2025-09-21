@@ -223,6 +223,7 @@ class Plan extends Model
     {
         // Check if any price is 0 or if there are no prices
         $defaultPrice = $this->defaultPrice;
+
         return $defaultPrice ? $defaultPrice->price == 0 : true;
     }
 
@@ -242,7 +243,6 @@ class Plan extends Model
         /** @var Feature|null */
         return $this->features()->where('slug', $slug)->first();
     }
-
 
     /**
      * Scope to plans of a specific type.
@@ -277,7 +277,6 @@ class Plan extends Model
             ->where('type', self::TYPE_PUBLIC);
     }
 
-
     /**
      * Check if plan is public.
      */
@@ -309,5 +308,4 @@ class Plan extends Model
     {
         return $this->is_active && $this->type === self::TYPE_PUBLIC;
     }
-
 }
