@@ -6,6 +6,7 @@ namespace Develupers\PlanUsage\Commands;
 
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
+use Develupers\PlanUsage\Models\PlanPrice;
 use Illuminate\Console\Command;
 
 class WarmCacheCommand extends Command
@@ -98,12 +99,16 @@ class WarmCacheCommand extends Command
         $plans = $planManager->getAllPlans();
         $this->info("Cached {$plans->count()} plans");
 
-        // Load each plan individually (including by stripe_price_id)
+        // Load each plan individually (including by stripe_price_id from PlanPrice)
         foreach ($plans as $plan) {
             $planManager->findPlan($plan->id);
 
-            if ($plan->stripe_price_id) {
-                $planManager->findPlan($plan->stripe_price_id);
+            // Load plan by each of its stripe price IDs
+            $plan->load('prices');
+            foreach ($plan->prices as $price) {
+                if ($price->stripe_price_id) {
+                    $planManager->findPlan($price->stripe_price_id);
+                }
             }
 
             // Load plan features

@@ -6,6 +6,7 @@ namespace Develupers\PlanUsage\Services;
 
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
+use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Traits\ManagesCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -36,13 +37,13 @@ class PlanManager
         return $this->cacheRemember(
             'plan-usage.plans',
             $this->getPlanCacheTags(),
-            fn () => $this->planModel::with('features')->get(),
+            fn () => $this->planModel::with(['features', 'prices'])->get(),
             'plans'
         );
     }
 
     /**
-     * Get a plan by ID or stripe_price_id
+     * Get a plan by ID or stripe_price_id (via PlanPrice)
      */
     public function findPlan(string|int $identifier): ?Plan
     {
@@ -53,12 +54,17 @@ class PlanManager
             $this->getPlanCacheTags($planId),
             function () use ($identifier) {
                 if (is_numeric($identifier)) {
-                    return $this->planModel::with('features')->find($identifier);
+                    return $this->planModel::with(['features', 'prices'])->find($identifier);
                 }
 
-                return $this->planModel::with('features')
-                    ->where('stripe_price_id', $identifier)
-                    ->first();
+                // Find plan by stripe_price_id through PlanPrice
+                $planPrice = PlanPrice::where('stripe_price_id', $identifier)->first();
+                
+                if ($planPrice) {
+                    return $this->planModel::with(['features', 'prices'])->find($planPrice->plan_id);
+                }
+
+                return null;
             },
             'plans'
         );

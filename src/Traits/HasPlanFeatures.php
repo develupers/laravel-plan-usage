@@ -11,6 +11,7 @@ use Develupers\PlanUsage\Models\Usage;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 use Laravel\Cashier\Billable;
 
 trait HasPlanFeatures
@@ -48,25 +49,75 @@ trait HasPlanFeatures
      */
     public function subscribeToPlan(Plan $plan, array $options = []): self
     {
+        $plan->loadMissing(['defaultPrice', 'prices']);
+
+        $selectedPlanPrice = null;
+
+        if (isset($options['plan_price_id'])) {
+            $selectedPlanPrice = $plan->prices
+                ->firstWhere('id', (int) $options['plan_price_id']);
+        }
+
+        if (! $selectedPlanPrice && isset($options['stripe_price_id'])) {
+            $selectedPlanPrice = $plan->prices
+                ->firstWhere('stripe_price_id', $options['stripe_price_id']);
+        }
+
+        $defaultPlanPrice = $plan->defaultPrice
+            ?? $plan->prices
+                ->where('is_active', true)
+                ->sortByDesc(fn ($price) => $price->is_default)
+                ->first();
+
+        $planPriceToAssign = $selectedPlanPrice ?? $defaultPlanPrice;
+
         // Update the plan_id on the billable model
         $this->plan_id = $plan->id;
+
+        if ($planPriceToAssign && $this->supportsPlanPriceColumn()) {
+            $this->plan_price_id = $planPriceToAssign->id;
+        }
+
         $this->save();
 
         // Initialize quotas for the new plan
         $this->initializeQuotasForPlan($plan);
 
-        // If Stripe integration is enabled and plan has a Stripe price ID
-        if (config('plan-usage.stripe.enabled') && $plan->stripe_price_id) {
-            // Create or update Stripe subscription
-            if ($this->subscribed()) {
-                $this->subscription()->swap($plan->stripe_price_id);
-            } else {
-                $this->newSubscription('default', $plan->stripe_price_id)
-                    ->create($options['payment_method'] ?? null);
+        // If Stripe integration is enabled and plan has prices
+        if (config('plan-usage.stripe.enabled')) {
+            // Get the default price or specified price
+            $priceId = $options['stripe_price_id'] ?? null;
+            
+            if (! $priceId && $planPriceToAssign) {
+                $priceId = $planPriceToAssign->stripe_price_id;
+            }
+
+            if ($priceId) {
+                // Create or update Stripe subscription
+                if ($this->subscribed()) {
+                    $this->subscription()->swap($priceId);
+                } else {
+                    $this->newSubscription('default', $priceId)
+                        ->create($options['payment_method'] ?? null);
+                }
             }
         }
 
         return $this;
+    }
+
+    /**
+     * Determine if the underlying table supports the plan_price_id column.
+     */
+    protected function supportsPlanPriceColumn(): bool
+    {
+        static $supportsPlanPrice;
+
+        if ($supportsPlanPrice === null) {
+            $supportsPlanPrice = Schema::hasColumn($this->getTable(), 'plan_price_id');
+        }
+
+        return $supportsPlanPrice;
     }
 
     /**

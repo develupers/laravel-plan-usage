@@ -28,9 +28,7 @@ return new class extends Migration
             $table->index(['interval']);
             $table->index(['currency', 'is_active']);
             
-            // Ensure only one default price per plan
-            $table->unique(['plan_id', 'is_default'], 'unique_default_price_per_plan')
-                ->where('is_default', true);
+            // Soft constraint: enforce a single default price via application logic
         });
     }
 

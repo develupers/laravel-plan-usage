@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Models;
 
+use Develupers\PlanUsage\Database\Factories\PlanPriceFactory;
 use Develupers\PlanUsage\Enums\Interval;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -51,6 +52,14 @@ class PlanPrice extends Model
     {
         parent::__construct($attributes);
         $this->table = config('plan-usage.tables.plan_prices', 'plan_prices');
+    }
+
+    /**
+     * Create a new factory instance for the model.
+     */
+    protected static function newFactory(): PlanPriceFactory
+    {
+        return PlanPriceFactory::new();
     }
 
     /**
