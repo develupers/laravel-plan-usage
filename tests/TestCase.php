@@ -4,6 +4,8 @@ namespace Develupers\PlanUsage\Tests;
 
 use Develupers\PlanUsage\PlanUsageServiceProvider;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as Orchestra;
 
 class TestCase extends Orchestra
@@ -50,9 +52,13 @@ class TestCase extends Orchestra
         config()->set('plan-usage.cache.store', 'sqlite');
         config()->set('plan-usage.cache.enabled', true); // Enable caching to test it properly
         config()->set('plan-usage.cache.use_tags', false); // Database driver doesn't support tags
+        config()->set('plan-usage.tables.billable', 'test_billables');
+        
+        // Disable Stripe integration for tests
+        config()->set('plan-usage.stripe.enabled', false);
 
         // Create cache table in SQLite
-        \Illuminate\Support\Facades\Schema::connection('sqlite_cache')->create('cache', function ($table) {
+        Schema::connection('sqlite_cache')->create('cache', function ($table) {
             $table->string('key')->primary();
             $table->text('value');
             $table->integer('expiration');
@@ -73,5 +79,39 @@ class TestCase extends Orchestra
             $migrationFile = include __DIR__."/../database/migrations/{$migration}.php.stub";
             $migrationFile->up();
         }
+
+        Schema::create('test_billables', function (Blueprint $table) {
+            $table->id();
+            $table->string('stripe_id')->nullable();
+            $table->foreignId('plan_id')->nullable();
+            $table->foreignId('plan_price_id')->nullable();
+            $table->timestamp('plan_changed_at')->nullable();
+        });
+
+        // Create subscriptions table for Cashier compatibility
+        Schema::create('subscriptions', function (Blueprint $table) {
+            $table->id();
+            $table->string('billable_type');
+            $table->unsignedBigInteger('billable_id');
+            $table->string('type');
+            $table->string('stripe_id')->unique();
+            $table->string('stripe_status');
+            $table->string('stripe_price')->nullable();
+            $table->integer('quantity')->nullable();
+            $table->timestamp('trial_ends_at')->nullable();
+            $table->timestamp('ends_at')->nullable();
+            $table->timestamps();
+            $table->index(['billable_type', 'billable_id']);
+        });
+
+        Schema::create('subscription_items', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('subscription_id');
+            $table->string('stripe_id')->unique();
+            $table->string('stripe_product');
+            $table->string('stripe_price');
+            $table->integer('quantity')->nullable();
+            $table->timestamps();
+        });
     }
 }

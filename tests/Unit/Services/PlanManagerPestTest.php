@@ -35,7 +35,7 @@ describe('PlanManager', function () {
     });
 
     it('can find plan by id', function () {
-        $plan = Plan::factory()->create();
+        $plan = Plan::factory()->create()->refresh();
 
         $foundPlan = $this->planManager->findPlan($plan->id);
 
@@ -44,11 +44,10 @@ describe('PlanManager', function () {
     });
 
     it('can find plan by stripe price id', function () {
-        $plan = Plan::factory()->create();
-        $price = PlanPrice::factory()->default()->monthly()->create([
-            'plan_id' => $plan->id,
-            'stripe_price_id' => 'price_test123',
-        ]);
+        $plan = Plan::factory()->create()->refresh();
+        // Update the existing default price created by the factory
+        $plan->defaultPrice->update(['stripe_price_id' => 'price_test123']);
+        $price = $plan->defaultPrice;
 
         $foundPlan = $this->planManager->findPlan('price_test123');
 
@@ -64,7 +63,7 @@ describe('PlanManager', function () {
     });
 
     it('can get plan features', function () {
-        $plan = Plan::factory()->create();
+        $plan = Plan::factory()->create()->refresh();
         $feature = Feature::factory()->create();
 
         PlanFeature::create([
@@ -80,7 +79,7 @@ describe('PlanManager', function () {
     });
 
     it('can check if plan has feature', function () {
-        $plan = Plan::factory()->create();
+        $plan = Plan::factory()->create()->refresh();
         $feature = Feature::factory()->create(['slug' => 'test-feature']);
 
         PlanFeature::create([
@@ -94,7 +93,7 @@ describe('PlanManager', function () {
     });
 
     it('can get feature value with correct type casting', function () {
-        $plan = Plan::factory()->create();
+        $plan = Plan::factory()->create()->refresh();
 
         $booleanFeature = Feature::factory()->create([
             'slug' => 'boolean-feature',
@@ -128,8 +127,8 @@ describe('PlanManager', function () {
     });
 
     it('can compare two plans', function () {
-        $plan1 = Plan::factory()->create();
-        $plan2 = Plan::factory()->create();
+        $plan1 = Plan::factory()->create()->refresh();
+        $plan2 = Plan::factory()->create()->refresh();
 
         $feature = Feature::factory()->create([
             'slug' => 'test-feature',
@@ -155,7 +154,7 @@ describe('PlanManager', function () {
     });
 
     it('can clear cache for specific plan', function () {
-        $plan = Plan::factory()->create();
+        $plan = Plan::factory()->create()->refresh();
         $this->planManager->findPlan($plan->id);
 
         expect(Cache::has("plan-usage.plan.{$plan->id}"))->toBeTrue();

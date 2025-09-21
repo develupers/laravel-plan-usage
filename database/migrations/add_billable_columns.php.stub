@@ -26,10 +26,14 @@ return new class extends Migration
                 ->constrained(config('plan-usage.tables.plans', 'plans'))
                 ->nullOnDelete();
 
+            $table->foreignId('plan_price_id')->nullable()
+                ->constrained(config('plan-usage.tables.plan_prices', 'plan_prices'))
+                ->nullOnDelete();
+
             // Optional: Track plan changes
             $table->timestamp('plan_changed_at')->nullable();
 
-            $table->index('plan_id');
+            $table->index(['plan_id', 'plan_price_id']);
         });
     }
 
@@ -37,12 +41,14 @@ return new class extends Migration
     {
         Schema::table(config('plan-usage.tables.billable', 'users'), function (Blueprint $table) {
             $table->dropForeign(['plan_id']);
+            $table->dropForeign(['plan_price_id']);
             $table->dropColumn([
                 'stripe_id',
                 'pm_type',
                 'pm_last_four',
                 'trial_ends_at',
                 'plan_id',
+                'plan_price_id',
                 'plan_changed_at',
             ]);
         });

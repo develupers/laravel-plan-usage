@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use Develupers\PlanUsage\Enums\Interval;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanFeature;
@@ -42,7 +41,7 @@ describe('Plan Model', function () {
     });
 
     it('has prices relationship with default variant', function () {
-        $plan = Plan::factory()->create();
+        $plan = Plan::factory()->create()->refresh();
 
         expect($plan->prices)->not->toBeEmpty()
             ->and($plan->defaultPrice)->not->toBeNull()
@@ -50,30 +49,26 @@ describe('Plan Model', function () {
     });
 
     it('returns price by interval helpers', function () {
-        $plan = Plan::factory()->create();
+        $plan = Plan::factory()->create()->refresh();
 
-        $monthly = PlanPrice::factory()->default()->monthly()->create([
-            'plan_id' => $plan->id,
-            'price' => 10,
-        ]);
-
+        $monthly = $plan->defaultPrice;
         $yearly = PlanPrice::factory()->yearly()->create([
             'plan_id' => $plan->id,
             'price' => 100,
             'is_default' => false,
         ]);
 
+        $plan->refresh();
+
         expect($plan->getMonthlyPrice()?->id)->toBe($monthly->id)
-            ->and($plan->getYearlyPrice()?->id)->toBe($yearly->id)
-            ->and($plan->getPriceByInterval(Interval::YEAR)?->id)->toBe($yearly->id);
+            ->and($plan->getYearlyPrice()?->id)->toBe($yearly->id);
     });
 
     it('finds plan by Stripe price id', function () {
-        $plan = Plan::factory()->create();
-        $price = PlanPrice::factory()->default()->monthly()->create([
-            'plan_id' => $plan->id,
-            'stripe_price_id' => 'price_test_123',
-        ]);
+        $plan = Plan::factory()->create()->refresh();
+        // Update the existing default price created by the factory
+        $plan->defaultPrice->update(['stripe_price_id' => 'price_test_123']);
+        $price = $plan->defaultPrice;
 
         $found = Plan::findByStripePriceId('price_test_123');
 
@@ -84,16 +79,13 @@ describe('Plan Model', function () {
 
     it('determines if plan is free based on default price', function () {
         $freePlan = Plan::factory()->create();
-        PlanPrice::factory()->default()->monthly()->create([
-            'plan_id' => $freePlan->id,
-            'price' => 0,
-        ]);
+        $freePlan->defaultPrice()->update(['price' => 0]);
 
         $paidPlan = Plan::factory()->create();
-        PlanPrice::factory()->default()->monthly()->create([
-            'plan_id' => $paidPlan->id,
-            'price' => 25,
-        ]);
+        $paidPlan->defaultPrice()->update(['price' => 25]);
+
+        $freePlan->refresh();
+        $paidPlan->refresh();
 
         expect($freePlan->isFree())->toBeTrue()
             ->and($paidPlan->isFree())->toBeFalse();

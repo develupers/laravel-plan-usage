@@ -36,7 +36,11 @@ function createBillable(array $attributes = []): \Illuminate\Database\Eloquent\M
 {
     return new class($attributes) extends \Illuminate\Database\Eloquent\Model
     {
+        use \Develupers\PlanUsage\Traits\HasPlanFeatures;
+
         public $plan_id;
+
+        public $plan_price_id;
 
         public $plan_changed_at;
 
@@ -52,6 +56,7 @@ function createBillable(array $attributes = []): \Illuminate\Database\Eloquent\M
         {
             parent::__construct();
             $this->plan_id = $attributes['plan_id'] ?? null;
+            $this->plan_price_id = $attributes['plan_price_id'] ?? null;
             $this->stripe_id = $attributes['stripe_id'] ?? 'cus_'.uniqid();
             $this->attributes = array_merge($attributes, ['id' => $attributes['id'] ?? rand(100000, 999999)]);
             $this->setAttribute('id', $this->attributes['id']);
@@ -71,9 +76,8 @@ function createBillable(array $attributes = []): \Illuminate\Database\Eloquent\M
         {
             $this->plan_changed_at = now();
             // Ensure plan_id is accessible after save
-            if (property_exists($this, 'plan_id')) {
-                $this->attributes['plan_id'] = $this->plan_id;
-            }
+            $this->attributes['plan_id'] = $this->plan_id;
+            $this->attributes['plan_price_id'] = $this->plan_price_id;
 
             return true;
         }

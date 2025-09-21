@@ -123,15 +123,11 @@ describe('PlanUsage Integration', function () {
         expect($stats)->not->toBeEmpty();
     });
 
-
-    it('syncs plan_price_id when subscribing to plan', function () {
-
     it('defaults to first active plan price when none provided', function () {
-        $plan = Plan::factory()->create();
-        $planPrice = PlanPrice::factory()->default()->monthly()->create([
-            'plan_id' => $plan->id,
-            'stripe_price_id' => 'price_default_selection',
-        ]);
+        $plan = Plan::factory()->create()->refresh();
+        // Update the existing default price instead of creating a duplicate
+        $plan->defaultPrice->update(['stripe_price_id' => 'price_default_selection']);
+        $planPrice = $plan->defaultPrice;
 
         $billable = createBillable();
         $billable->subscribeToPlan($plan);
@@ -140,11 +136,11 @@ describe('PlanUsage Integration', function () {
             ->and($billable->plan_price_id)->toBe($planPrice->id);
     });
 
-        $plan = Plan::factory()->create();
-        $planPrice = PlanPrice::factory()->default()->monthly()->create([
-            'plan_id' => $plan->id,
-            'stripe_price_id' => 'price_subscribe_test',
-        ]);
+    it('syncs plan_price_id when subscribing to plan', function () {
+        $plan = Plan::factory()->create()->refresh();
+        // Update the existing default price instead of creating a duplicate
+        $plan->defaultPrice->update(['stripe_price_id' => 'price_subscribe_test']);
+        $planPrice = $plan->defaultPrice;
 
         $billable = createBillable();
         $billable->subscribeToPlan($plan, ['stripe_price_id' => 'price_subscribe_test']);
@@ -157,7 +153,7 @@ describe('PlanUsage Integration', function () {
         // Arrange
         Event::fake();
 
-        $plan = Plan::factory()->create();
+        $plan = Plan::factory()->create()->refresh();
         $feature = Feature::factory()->create([
             'slug' => 'api-calls',
             'type' => 'quota',
@@ -233,7 +229,7 @@ describe('PlanUsage Integration', function () {
 
     it('resets quotas properly', function () {
         // Arrange
-        $plan = Plan::factory()->create();
+        $plan = Plan::factory()->create()->refresh();
         $feature = Feature::factory()->create([
             'slug' => 'monthly-reports',
             'type' => 'quota',
@@ -263,7 +259,7 @@ describe('PlanUsage Integration', function () {
 
     it('handles unlimited features correctly', function () {
         // Arrange
-        $plan = Plan::factory()->create();
+        $plan = Plan::factory()->create()->refresh();
         $feature = Feature::factory()->create([
             'slug' => 'unlimited-feature',
             'type' => 'quota',
@@ -289,7 +285,7 @@ describe('PlanUsage Integration', function () {
 
     it('syncs quotas when plan changes', function () {
         // Arrange
-        $plan1 = Plan::factory()->create();
+        $plan1 = Plan::factory()->create()->refresh();
         $feature = Feature::factory()->create(['slug' => 'projects']);
 
         PlanFeature::create([
@@ -301,7 +297,7 @@ describe('PlanUsage Integration', function () {
         $this->billable->plan_id = $plan1->id;
         PlanUsage::quotas()->getOrCreateQuota($this->billable, 'projects');
 
-        $plan2 = Plan::factory()->create();
+        $plan2 = Plan::factory()->create()->refresh();
         PlanFeature::create([
             'plan_id' => $plan2->id,
             'feature_id' => $feature->id,
@@ -322,7 +318,7 @@ describe('PlanUsage with multiple features', function () {
 
     it('handles mixed feature types in one plan', function () {
         // Arrange
-        $plan = Plan::factory()->create();
+        $plan = Plan::factory()->create()->refresh();
 
         $booleanFeature = Feature::factory()->boolean()->create(['slug' => 'premium-support']);
         $limitFeature = Feature::factory()->limit()->create(['slug' => 'max-users']);
