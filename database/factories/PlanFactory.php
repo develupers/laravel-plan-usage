@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Develupers\PlanUsage\Database\Factories;
 
 use Develupers\PlanUsage\Models\Plan;
+use Develupers\PlanUsage\Models\PlanPrice;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class PlanFactory extends Factory
@@ -27,6 +28,17 @@ class PlanFactory extends Factory
                 'popular' => $this->faker->boolean(),
             ],
         ];
+    }
+
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Plan $plan) {
+            if (! $plan->prices()->exists()) {
+                PlanPrice::factory()->default()->monthly()->create([
+                    'plan_id' => $plan->id,
+                ]);
+            }
+        });
     }
 
     public function inactive(): static

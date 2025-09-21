@@ -10,13 +10,15 @@ use Develupers\PlanUsage\Facades\PlanUsage;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanFeature;
+use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Models\Quota;
 use Develupers\PlanUsage\Models\Usage;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 
 beforeEach(function () {
     // Clear cache to ensure test isolation
-    \Illuminate\Support\Facades\Cache::flush();
+    Cache::flush();
     $this->billable = createBillable();
 });
 
@@ -30,8 +32,16 @@ describe('PlanUsage Integration', function () {
         $plan = Plan::factory()->create([
             'name' => 'Professional Plan',
             'slug' => 'pro-'.$testId,
-            'price' => 99.99,
         ]);
+
+        $planPrice = PlanPrice::factory()
+            ->default()
+            ->monthly()
+            ->create([
+                'plan_id' => $plan->id,
+                'stripe_price_id' => 'price_'.$testId,
+                'price' => 99.99,
+            ]);
 
         $apiCallsFeature = Feature::factory()->create([
             'name' => 'API Calls',
@@ -73,6 +83,7 @@ describe('PlanUsage Integration', function () {
         ]);
 
         $this->billable->plan_id = $plan->id;
+        $this->billable->plan_price_id = $planPrice->id;
 
         // Act & Assert
         expect(PlanUsage::findPlan($plan->id)->id)->toBe($plan->id)
