@@ -123,6 +123,36 @@ describe('PlanUsage Integration', function () {
         expect($stats)->not->toBeEmpty();
     });
 
+
+    it('syncs plan_price_id when subscribing to plan', function () {
+
+    it('defaults to first active plan price when none provided', function () {
+        $plan = Plan::factory()->create();
+        $planPrice = PlanPrice::factory()->default()->monthly()->create([
+            'plan_id' => $plan->id,
+            'stripe_price_id' => 'price_default_selection',
+        ]);
+
+        $billable = createBillable();
+        $billable->subscribeToPlan($plan);
+
+        expect($billable->plan_id)->toBe($plan->id)
+            ->and($billable->plan_price_id)->toBe($planPrice->id);
+    });
+
+        $plan = Plan::factory()->create();
+        $planPrice = PlanPrice::factory()->default()->monthly()->create([
+            'plan_id' => $plan->id,
+            'stripe_price_id' => 'price_subscribe_test',
+        ]);
+
+        $billable = createBillable();
+        $billable->subscribeToPlan($plan, ['stripe_price_id' => 'price_subscribe_test']);
+
+        expect($billable->plan_id)->toBe($plan->id)
+            ->and($billable->plan_price_id)->toBe($planPrice->id);
+    });
+
     it('triggers quota warning and exceeded events', function () {
         // Arrange
         Event::fake();
@@ -140,6 +170,7 @@ describe('PlanUsage Integration', function () {
         ]);
 
         $this->billable->plan_id = $plan->id;
+        $this->billable->plan_price_id = $plan->defaultPrice?->id;
 
         // Act & Assert
         PlanUsage::record($this->billable, 'api-calls', 85);
@@ -216,6 +247,7 @@ describe('PlanUsage Integration', function () {
         ]);
 
         $this->billable->plan_id = $plan->id;
+        $this->billable->plan_price_id = $plan->defaultPrice?->id;
 
         // Act & Assert
         PlanUsage::record($this->billable, 'monthly-reports', 5);
@@ -244,6 +276,7 @@ describe('PlanUsage Integration', function () {
         ]);
 
         $this->billable->plan_id = $plan->id;
+        $this->billable->plan_price_id = $plan->defaultPrice?->id;
 
         // Act & Assert
         expect(PlanUsage::can($this->billable, 'unlimited-feature', 999999))->toBeTrue();
@@ -314,6 +347,7 @@ describe('PlanUsage with multiple features', function () {
         ]);
 
         $this->billable->plan_id = $plan->id;
+        $this->billable->plan_price_id = $plan->defaultPrice?->id;
 
         // Act & Assert
         expect(PlanUsage::plans()->getFeatureValue($plan->id, 'premium-support'))->toBeTrue()
@@ -342,6 +376,7 @@ describe('PlanUsage with multiple features', function () {
         ]);
 
         $this->billable->plan_id = $plan->id;
+        $this->billable->plan_price_id = $plan->defaultPrice?->id;
         $this->billable->save();
 
         // Clear any cached plan data to ensure fresh data

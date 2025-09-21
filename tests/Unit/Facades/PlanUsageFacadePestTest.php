@@ -50,6 +50,7 @@ describe('PlanUsage Facade', function () {
         ]);
 
         $this->billable->plan_id = $plan->id;
+        $this->billable->plan_price_id = $plan->defaultPrice?->id;
         $this->billable->save();
 
         // Act
@@ -72,6 +73,7 @@ describe('PlanUsage Facade', function () {
         ]);
 
         $this->billable->plan_id = $plan->id;
+        $this->billable->plan_price_id = $plan->defaultPrice?->id;
 
         // Act
         PlanUsage::record($this->billable, 'api-calls-'.$testId, 100, ['source' => 'test']);
@@ -114,6 +116,8 @@ describe('PlanUsage Facade with complex scenarios', function () {
 
         $billable1->plan_id = $plan->id;
         $billable2->plan_id = $plan->id;
+        $billable1->plan_price_id = $plan->defaultPrice?->id;
+        $billable2->plan_price_id = $plan->defaultPrice?->id;
         $billable1->save();
         $billable2->save();
 

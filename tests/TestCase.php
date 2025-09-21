@@ -62,6 +62,7 @@ class TestCase extends Orchestra
         // Run migrations
         $migrations = [
             'create_plans_table',
+            'create_plan_prices_table',
             'create_features_table',
             'create_plan_features_table',
             'create_usage_table',
