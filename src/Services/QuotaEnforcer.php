@@ -229,6 +229,26 @@ class QuotaEnforcer
     }
 
     /**
+     * Get used quota amount
+     */
+    public function getUsed(Model $billable, string $featureSlug): float
+    {
+        $quota = $this->getQuota($billable, $featureSlug);
+
+        return $quota ? $quota->used : 0;
+    }
+
+    /**
+     * Get quota limit
+     */
+    public function getLimit(Model $billable, string $featureSlug): ?float
+    {
+        $quota = $this->getQuota($billable, $featureSlug);
+
+        return $quota ? $quota->limit : null;
+    }
+
+    /**
      * Get remaining quota
      */
     public function getRemaining(Model $billable, string $featureSlug): ?float

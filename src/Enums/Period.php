@@ -33,7 +33,7 @@ enum Period: string
      */
     public function getNextResetDate(?\DateTimeInterface $from = null): Carbon
     {
-        $from = $from ? Carbon::instance($from) : now();
+        $from = $from ? Carbon::instance($from) : Carbon::now();
 
         return match ($this) {
             self::HOUR => $from->copy()->addHour()->startOfHour(),
@@ -49,7 +49,7 @@ enum Period: string
      */
     public function getPeriodStart(?\DateTimeInterface $timestamp = null): Carbon
     {
-        $timestamp = $timestamp ? Carbon::instance($timestamp) : now();
+        $timestamp = $timestamp ? Carbon::instance($timestamp) : Carbon::now();
 
         return match ($this) {
             self::HOUR => $timestamp->copy()->startOfHour(),
@@ -65,7 +65,7 @@ enum Period: string
      */
     public function getPeriodEnd(?\DateTimeInterface $timestamp = null): Carbon
     {
-        $timestamp = $timestamp ? Carbon::instance($timestamp) : now();
+        $timestamp = $timestamp ? Carbon::instance($timestamp) : Carbon::now();
 
         return match ($this) {
             self::HOUR => $timestamp->copy()->endOfHour(),
