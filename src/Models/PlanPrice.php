@@ -17,7 +17,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property float $price
  * @property string $currency
  * @property Interval $interval
- * @property int $interval_count
  * @property bool $is_active
  * @property bool $is_default
  * @property array|null $metadata
@@ -35,7 +34,6 @@ class PlanPrice extends Model
         'price',
         'currency',
         'interval',
-        'interval_count',
         'is_active',
         'is_default',
         'metadata',
@@ -43,7 +41,6 @@ class PlanPrice extends Model
 
     protected $casts = [
         'price' => 'float',
-        'interval_count' => 'integer',
         'is_active' => 'boolean',
         'is_default' => 'boolean',
         'metadata' => 'array',
@@ -105,7 +102,7 @@ class PlanPrice extends Model
      */
     public function isMonthly(): bool
     {
-        return $this->interval === Interval::MONTH && $this->interval_count === 1;
+        return $this->interval === Interval::MONTH;
     }
 
     /**
@@ -113,7 +110,7 @@ class PlanPrice extends Model
      */
     public function isYearly(): bool
     {
-        return $this->interval === Interval::YEAR && $this->interval_count === 1;
+        return $this->interval === Interval::YEAR;
     }
 
     /**
@@ -121,13 +118,7 @@ class PlanPrice extends Model
      */
     public function getIntervalDescription(): string
     {
-        if ($this->interval_count === 1) {
-            return $this->interval->label();
-        }
-
-        $intervalName = $this->interval === Interval::MONTH ? 'month' : $this->interval->value;
-
-        return "every {$this->interval_count} {$intervalName}s";
+        return $this->interval->label();
     }
 
     /**
@@ -136,10 +127,10 @@ class PlanPrice extends Model
     public function getMonthlyEquivalent(): float
     {
         return match ($this->interval) {
-            Interval::DAY => $this->price * 30 / $this->interval_count,
-            Interval::WEEK => $this->price * 4.33 / $this->interval_count,
-            Interval::MONTH => $this->price / $this->interval_count,
-            Interval::YEAR => $this->price / (12 * $this->interval_count),
+            Interval::DAY => $this->price * 30,
+            Interval::WEEK => $this->price * 4.33,
+            Interval::MONTH => $this->price,
+            Interval::YEAR => $this->price / 12,
             Interval::LIFETIME => 0, // Cannot calculate monthly for lifetime
         };
     }

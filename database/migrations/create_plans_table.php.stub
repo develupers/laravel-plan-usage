@@ -14,15 +14,11 @@ return new class extends Migration
             $table->string('slug')->unique();
             $table->string('display_name')->nullable();
             $table->text('description')->nullable();
-            $table->string('stripe_product_id')->nullable()->index();
-            $table->string('stripe_price_id')->nullable()->index();
-            $table->decimal('price', 10, 2)->default(0);
-            $table->string('currency', 3)->default('USD');
-            $table->string('interval')->default('month'); // month, year, week, day, lifetime
-            $table->integer('trial_days')->default(0);
+            $table->string('stripe_product_id')->nullable()->index(); // Stripe Product, not Price
+            $table->integer('trial_days')->default(0); // Trial period applies to the plan
             $table->integer('sort_order')->default(0);
             $table->boolean('is_active')->default(true);
-            $table->string('type')->default('public')->index();
+            $table->string('type')->default('public')->index(); // public, private, legacy
             $table->json('metadata')->nullable();
             $table->timestamps();
 

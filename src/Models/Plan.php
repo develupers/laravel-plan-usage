@@ -20,10 +20,6 @@ use Illuminate\Support\Collection;
  * @property string|null $display_name
  * @property string|null $description
  * @property string|null $stripe_product_id
- * @property string|null $stripe_price_id
- * @property float $price
- * @property string $currency
- * @property Interval $interval
  * @property int $trial_days
  * @property int $sort_order
  * @property bool $is_active
@@ -33,6 +29,8 @@ use Illuminate\Support\Collection;
  * @property \Illuminate\Support\Carbon|null $updated_at
  * @property-read Collection<int, Feature> $features
  * @property-read Collection<int, PlanFeature> $planFeatures
+ * @property-read Collection<int, PlanPrice> $prices
+ * @property-read PlanPrice|null $defaultPrice
  */
 class Plan extends Model
 {
@@ -51,10 +49,6 @@ class Plan extends Model
         'display_name',
         'description',
         'stripe_product_id',
-        'stripe_price_id',
-        'price',
-        'currency',
-        'interval',
         'trial_days',
         'sort_order',
         'is_active',
@@ -63,12 +57,10 @@ class Plan extends Model
     ];
 
     protected $casts = [
-        'price' => 'float',
         'trial_days' => 'integer',
         'sort_order' => 'integer',
         'is_active' => 'boolean',
         'metadata' => 'array',
-        'interval' => Interval::class,
     ];
 
     public function __construct(array $attributes = [])
@@ -124,9 +116,9 @@ class Plan extends Model
     }
 
     /**
-     * Get price by interval and interval count.
+     * Get price by interval.
      */
-    public function getPriceByInterval(Interval|string $interval, int $intervalCount = 1): ?PlanPrice
+    public function getPriceByInterval(Interval|string $interval): ?PlanPrice
     {
         if (is_string($interval)) {
             $interval = Interval::from($interval);
@@ -134,7 +126,6 @@ class Plan extends Model
 
         return $this->prices()
             ->where('interval', $interval->value)
-            ->where('interval_count', $intervalCount)
             ->where('is_active', true)
             ->first();
     }
@@ -144,7 +135,7 @@ class Plan extends Model
      */
     public function getMonthlyPrice(): ?PlanPrice
     {
-        return $this->getPriceByInterval(Interval::MONTH, 1);
+        return $this->getPriceByInterval(Interval::MONTH);
     }
 
     /**
@@ -152,7 +143,7 @@ class Plan extends Model
      */
     public function getYearlyPrice(): ?PlanPrice
     {
-        return $this->getPriceByInterval(Interval::YEAR, 1);
+        return $this->getPriceByInterval(Interval::YEAR);
     }
 
     /**
@@ -178,7 +169,7 @@ class Plan extends Model
      */
     public function scopeOrdered(Builder $query): Builder
     {
-        return $query->orderBy('sort_order')->orderBy('price');
+        return $query->orderBy('sort_order')->orderBy('id');
     }
 
     /**
@@ -230,7 +221,9 @@ class Plan extends Model
      */
     public function isFree(): bool
     {
-        return $this->price == 0;
+        // Check if any price is 0 or if there are no prices
+        $defaultPrice = $this->defaultPrice;
+        return $defaultPrice ? $defaultPrice->price == 0 : true;
     }
 
     /**
@@ -250,21 +243,6 @@ class Plan extends Model
         return $this->features()->where('slug', $slug)->first();
     }
 
-    /**
-     * Scope to monthly plans.
-     */
-    public function scopeMonthly(Builder $query): Builder
-    {
-        return $query->where('interval', Interval::MONTH->value);
-    }
-
-    /**
-     * Scope to yearly plans.
-     */
-    public function scopeYearly(Builder $query): Builder
-    {
-        return $query->where('interval', Interval::YEAR->value);
-    }
 
     /**
      * Scope to plans of a specific type.
@@ -299,21 +277,6 @@ class Plan extends Model
             ->where('type', self::TYPE_PUBLIC);
     }
 
-    /**
-     * Check if plan is monthly.
-     */
-    public function isMonthly(): bool
-    {
-        return $this->interval === Interval::MONTH;
-    }
-
-    /**
-     * Check if plan is yearly.
-     */
-    public function isYearly(): bool
-    {
-        return $this->interval === Interval::YEAR;
-    }
 
     /**
      * Check if plan is public.
@@ -347,26 +310,4 @@ class Plan extends Model
         return $this->is_active && $this->type === self::TYPE_PUBLIC;
     }
 
-    /**
-     * Get the display price with currency.
-     */
-    public function getFormattedPriceAttribute(): string
-    {
-        $symbol = match ($this->currency) {
-            'USD' => '$',
-            'EUR' => '€',
-            'GBP' => '£',
-            default => $this->currency.' ',
-        };
-
-        return $symbol.number_format($this->price, 2);
-    }
-
-    /**
-     * Get the interval label.
-     */
-    public function getIntervalLabelAttribute(): string
-    {
-        return $this->interval->label();
-    }
 }
