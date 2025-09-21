@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Collection;
 
 /**
@@ -96,6 +97,72 @@ class Plan extends Model
     public function planFeatures(): HasMany
     {
         return $this->hasMany(PlanFeature::class);
+    }
+
+    /**
+     * Get the prices for the plan.
+     */
+    public function prices(): HasMany
+    {
+        return $this->hasMany(PlanPrice::class);
+    }
+
+    /**
+     * Get the default price for the plan.
+     */
+    public function defaultPrice(): HasOne
+    {
+        return $this->hasOne(PlanPrice::class)->where('is_default', true);
+    }
+
+    /**
+     * Get active prices for the plan.
+     */
+    public function activePrices(): HasMany
+    {
+        return $this->hasMany(PlanPrice::class)->where('is_active', true);
+    }
+
+    /**
+     * Get price by interval and interval count.
+     */
+    public function getPriceByInterval(Interval|string $interval, int $intervalCount = 1): ?PlanPrice
+    {
+        if (is_string($interval)) {
+            $interval = Interval::from($interval);
+        }
+
+        return $this->prices()
+            ->where('interval', $interval->value)
+            ->where('interval_count', $intervalCount)
+            ->where('is_active', true)
+            ->first();
+    }
+
+    /**
+     * Get monthly price.
+     */
+    public function getMonthlyPrice(): ?PlanPrice
+    {
+        return $this->getPriceByInterval(Interval::MONTH, 1);
+    }
+
+    /**
+     * Get yearly price.
+     */
+    public function getYearlyPrice(): ?PlanPrice
+    {
+        return $this->getPriceByInterval(Interval::YEAR, 1);
+    }
+
+    /**
+     * Find plan by any of its Stripe price IDs.
+     */
+    public static function findByStripePriceId(string $stripePriceId): ?self
+    {
+        $planPrice = PlanPrice::where('stripe_price_id', $stripePriceId)->first();
+
+        return $planPrice ? $planPrice->plan : null;
     }
 
     /**

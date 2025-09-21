@@ -59,6 +59,7 @@ class PlanUsageServiceProvider extends PackageServiceProvider
                 'create_plans_table',
                 'create_features_table',
                 'create_plan_features_table',
+                'create_plan_prices_table',
                 'create_usage_table',
                 'create_quotas_table',
                 'add_billable_columns',

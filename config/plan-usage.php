@@ -23,6 +23,7 @@ return [
     */
     'models' => [
         'plan' => \Develupers\PlanUsage\Models\Plan::class,
+        'plan_price' => \Develupers\PlanUsage\Models\PlanPrice::class,
         'feature' => \Develupers\PlanUsage\Models\Feature::class,
         'plan_feature' => \Develupers\PlanUsage\Models\PlanFeature::class,
         'usage' => \Develupers\PlanUsage\Models\Usage::class,
@@ -39,6 +40,7 @@ return [
     */
     'tables' => [
         'plans' => 'plans',
+        'plan_prices' => 'plan_prices',
         'features' => 'features',
         'plan_features' => 'plan_features',
         'usages' => 'usages',
