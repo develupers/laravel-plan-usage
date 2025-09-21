@@ -48,7 +48,6 @@ class PlanFactory extends Factory
         ]);
     }
 
-
     public function legacy(): static
     {
         return $this->state(fn (array $attributes) => [

@@ -59,7 +59,7 @@ class PlanManager
 
                 // Find plan by stripe_price_id through PlanPrice
                 $planPrice = PlanPrice::where('stripe_price_id', $identifier)->first();
-                
+
                 if ($planPrice) {
                     return $this->planModel::with(['features', 'prices'])->find($planPrice->plan_id);
                 }

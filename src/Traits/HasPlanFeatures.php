@@ -87,7 +87,7 @@ trait HasPlanFeatures
         if (config('plan-usage.stripe.enabled')) {
             // Get the default price or specified price
             $priceId = $options['stripe_price_id'] ?? null;
-            
+
             if (! $priceId && $planPriceToAssign) {
                 $priceId = $planPriceToAssign->stripe_price_id;
             }
