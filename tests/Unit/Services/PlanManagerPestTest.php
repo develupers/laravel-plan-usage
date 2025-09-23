@@ -5,7 +5,6 @@ declare(strict_types=1);
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanFeature;
-use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Services\PlanManager;
 use Illuminate\Support\Facades\Cache;
 

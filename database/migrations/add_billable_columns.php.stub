@@ -14,35 +14,72 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table(config('plan-usage.tables.billable', 'users'), function (Blueprint $table) {
+        $tableName = config('plan-usage.tables.billable', 'users');
+        
+        Schema::table($tableName, function (Blueprint $table) use ($tableName) {
             // Laravel Cashier columns for Stripe integration
-            $table->string('stripe_id')->nullable()->index();
-            $table->string('pm_type')->nullable();
-            $table->string('pm_last_four', 4)->nullable();
-            $table->timestamp('trial_ends_at')->nullable();
+            if (! Schema::hasColumn($tableName, 'stripe_id')) {
+                $table->string('stripe_id')->nullable()->index();
+            }
+            if (! Schema::hasColumn($tableName, 'pm_type')) {
+                $table->string('pm_type')->nullable();
+            }
+            if (! Schema::hasColumn($tableName, 'pm_last_four')) {
+                $table->string('pm_last_four', 4)->nullable();
+            }
+            if (! Schema::hasColumn($tableName, 'trial_ends_at')) {
+                $table->timestamp('trial_ends_at')->nullable();
+            }
 
             // Plan tracking
-            $table->foreignId('plan_id')->nullable()
-                ->constrained(config('plan-usage.tables.plans', 'plans'))
-                ->nullOnDelete();
+            if (! Schema::hasColumn($tableName, 'plan_id')) {
+                $table->foreignId('plan_id')->nullable()
+                    ->constrained(config('plan-usage.tables.plans', 'plans'))
+                    ->nullOnDelete();
+            }
 
-            $table->foreignId('plan_price_id')->nullable()
-                ->constrained(config('plan-usage.tables.plan_prices', 'plan_prices'))
-                ->nullOnDelete();
+            if (! Schema::hasColumn($tableName, 'plan_price_id')) {
+                $table->foreignId('plan_price_id')->nullable()
+                    ->constrained(config('plan-usage.tables.plan_prices', 'plan_prices'))
+                    ->nullOnDelete();
+            }
+
+            // Create compound index if both columns exist
+            if (Schema::hasColumn($tableName, 'plan_id') && Schema::hasColumn($tableName, 'plan_price_id')) {
+                $existingIndexes = Schema::getConnection()->getDoctrineSchemaManager()->listTableIndexes($tableName);
+                $indexName = $tableName . '_plan_id_plan_price_id_index';
+                if (! array_key_exists($indexName, $existingIndexes)) {
+                    $table->index(['plan_id', 'plan_price_id']);
+                }
+            }
 
             // Optional: Track plan changes
-            $table->timestamp('plan_changed_at')->nullable();
-
-            $table->index(['plan_id', 'plan_price_id']);
+            if (! Schema::hasColumn($tableName, 'plan_changed_at')) {
+                $table->timestamp('plan_changed_at')->nullable();
+            }
         });
     }
 
     public function down(): void
     {
-        Schema::table(config('plan-usage.tables.billable', 'users'), function (Blueprint $table) {
-            $table->dropForeign(['plan_id']);
-            $table->dropForeign(['plan_price_id']);
-            $table->dropColumn([
+        $tableName = config('plan-usage.tables.billable', 'users');
+        
+        Schema::table($tableName, function (Blueprint $table) use ($tableName) {
+            // Drop foreign keys if they exist
+            $foreignKeys = Schema::getConnection()->getDoctrineSchemaManager()->listTableForeignKeys($tableName);
+            
+            foreach ($foreignKeys as $foreignKey) {
+                if (in_array('plan_id', $foreignKey->getLocalColumns())) {
+                    $table->dropForeign($foreignKey->getName());
+                }
+                if (in_array('plan_price_id', $foreignKey->getLocalColumns())) {
+                    $table->dropForeign($foreignKey->getName());
+                }
+            }
+            
+            // Drop columns that exist
+            $columnsToRemove = [];
+            $checkColumns = [
                 'stripe_id',
                 'pm_type',
                 'pm_last_four',
@@ -50,7 +87,17 @@ return new class extends Migration
                 'plan_id',
                 'plan_price_id',
                 'plan_changed_at',
-            ]);
+            ];
+            
+            foreach ($checkColumns as $column) {
+                if (Schema::hasColumn($tableName, $column)) {
+                    $columnsToRemove[] = $column;
+                }
+            }
+            
+            if (! empty($columnsToRemove)) {
+                $table->dropColumn($columnsToRemove);
+            }
         });
     }
 };

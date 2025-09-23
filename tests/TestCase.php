@@ -53,7 +53,7 @@ class TestCase extends Orchestra
         config()->set('plan-usage.cache.enabled', true); // Enable caching to test it properly
         config()->set('plan-usage.cache.use_tags', false); // Database driver doesn't support tags
         config()->set('plan-usage.tables.billable', 'test_billables');
-        
+
         // Disable Stripe integration for tests
         config()->set('plan-usage.stripe.enabled', false);
 

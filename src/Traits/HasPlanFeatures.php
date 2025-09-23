@@ -220,6 +220,32 @@ trait HasPlanFeatures
     }
 
     /**
+     * Get feature usage details with limit and used values.
+     */
+    public function getFeatureUsage(string $featureSlug): array
+    {
+        $feature = Feature::where('slug', $featureSlug)->first();
+
+        if (! $feature || ! in_array($feature->type, ['limit', 'quota'])) {
+            return ['limit' => 0, 'used' => 0, 'remaining' => 0];
+        }
+
+        $quota = $this->quotas()->where('feature_id', $feature->id)->first();
+
+        if (! $quota) {
+            // Return plan limits with zero usage if quota not initialized
+            $limit = $this->getFeatureValue($featureSlug) ?? 0;
+            return ['limit' => $limit, 'used' => 0, 'remaining' => $limit];
+        }
+
+        return [
+            'limit' => $quota->limit,
+            'used' => $quota->used,
+            'remaining' => $quota->remaining(),
+        ];
+    }
+
+    /**
      * Get all features with their current status.
      */
     public function getFeaturesStatus(): Collection
