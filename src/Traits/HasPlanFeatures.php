@@ -235,6 +235,7 @@ trait HasPlanFeatures
         if (! $quota) {
             // Return plan limits with zero usage if quota not initialized
             $limit = $this->getFeatureValue($featureSlug) ?? 0;
+
             return ['limit' => $limit, 'used' => 0, 'remaining' => $limit];
         }
 
