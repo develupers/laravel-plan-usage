@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Enums;
 
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 
 enum Period: string
@@ -31,9 +32,9 @@ enum Period: string
     /**
      * Get the next reset date from a given date.
      */
-    public function getNextResetDate(?\DateTimeInterface $from = null): Carbon
+    public function getNextResetDate(?\DateTimeInterface $from = null): CarbonInterface
     {
-        $from = $from ? Carbon::instance($from) : Carbon::now();
+        $from = $from ? Carbon::parse($from) : now();
 
         return match ($this) {
             self::HOUR => $from->copy()->addHour()->startOfHour(),
@@ -47,9 +48,9 @@ enum Period: string
     /**
      * Get the start of the period for a given timestamp.
      */
-    public function getPeriodStart(?\DateTimeInterface $timestamp = null): Carbon
+    public function getPeriodStart(?\DateTimeInterface $timestamp = null): CarbonInterface
     {
-        $timestamp = $timestamp ? Carbon::instance($timestamp) : Carbon::now();
+        $timestamp = $timestamp ? Carbon::parse($timestamp) : now();
 
         return match ($this) {
             self::HOUR => $timestamp->copy()->startOfHour(),
@@ -63,9 +64,9 @@ enum Period: string
     /**
      * Get the end of the period for a given timestamp.
      */
-    public function getPeriodEnd(?\DateTimeInterface $timestamp = null): Carbon
+    public function getPeriodEnd(?\DateTimeInterface $timestamp = null): CarbonInterface
     {
-        $timestamp = $timestamp ? Carbon::instance($timestamp) : Carbon::now();
+        $timestamp = $timestamp ? Carbon::parse($timestamp) : now();
 
         return match ($this) {
             self::HOUR => $timestamp->copy()->endOfHour(),

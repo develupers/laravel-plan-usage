@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Services;
 
+use Carbon\CarbonInterface;
 use Develupers\PlanUsage\Events\UsageRecorded;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Usage;
@@ -32,7 +33,7 @@ class UsageTracker
         string $featureSlug,
         float $amount,
         ?array $metadata = null,
-        ?Carbon $timestamp = null
+        ?CarbonInterface $timestamp = null
     ): Usage {
         $feature = $this->featureModel::where('slug', $featureSlug)->firstOrFail();
 
@@ -52,7 +53,7 @@ class UsageTracker
         Feature $feature,
         float $amount,
         ?array $metadata,
-        ?Carbon $timestamp
+        ?CarbonInterface $timestamp
     ): Usage {
         $timestamp = $timestamp ?? now();
 
@@ -79,7 +80,7 @@ class UsageTracker
         Feature $feature,
         float $amount,
         ?array $metadata,
-        ?Carbon $timestamp
+        ?CarbonInterface $timestamp
     ): Usage {
         $timestamp = $timestamp ?? now();
         $periodStart = $this->getPeriodStart($feature, $timestamp);
@@ -119,8 +120,8 @@ class UsageTracker
     public function getUsage(
         Model $billable,
         string $featureSlug,
-        ?Carbon $from = null,
-        ?Carbon $to = null
+        ?CarbonInterface $from = null,
+        ?CarbonInterface $to = null
     ): float {
         $feature = $this->featureModel::where('slug', $featureSlug)->firstOrFail();
 
@@ -189,7 +190,7 @@ class UsageTracker
     public function resetUsage(
         Model $billable,
         string $featureSlug,
-        ?Carbon $periodStart = null
+        ?CarbonInterface $periodStart = null
     ): void {
         $feature = $this->featureModel::where('slug', $featureSlug)->firstOrFail();
 
@@ -211,8 +212,8 @@ class UsageTracker
     public function getStatistics(
         Model $billable,
         string $featureSlug,
-        Carbon $from,
-        Carbon $to,
+        CarbonInterface $from,
+        CarbonInterface $to,
         string $groupBy = 'day'
     ): \Illuminate\Support\Collection {
         $feature = $this->featureModel::where('slug', $featureSlug)->firstOrFail();
@@ -270,7 +271,7 @@ class UsageTracker
     /**
      * Get period start based on reset period
      */
-    protected function getPeriodStart(Feature $feature, Carbon $timestamp): Carbon
+    protected function getPeriodStart(Feature $feature, CarbonInterface $timestamp): CarbonInterface
     {
         if (! $feature->reset_period) {
             return $timestamp->copy()->startOfMonth();
@@ -282,7 +283,7 @@ class UsageTracker
     /**
      * Get period end based on reset period
      */
-    protected function getPeriodEnd(Feature $feature, Carbon $timestamp): Carbon
+    protected function getPeriodEnd(Feature $feature, CarbonInterface $timestamp): CarbonInterface
     {
         if (! $feature->reset_period) {
             return $timestamp->copy()->endOfMonth();

@@ -15,6 +15,8 @@ A powerful Laravel package for managing subscription plans, features, quotas, an
 - 📈 **Usage Tracking** - Monitor and track feature consumption in real-time
 - 🚦 **Quota Enforcement** - Automatic quota limits with configurable warning thresholds
 - 💳 **Laravel Cashier Integration** - Seamless integration with Stripe billing
+- 💱 **Multi-Currency Support** - Support for different currencies per pricing option
+- 📅 **Flexible Pricing Intervals** - Daily, weekly, monthly, yearly, or lifetime pricing
 - 🔄 **Periodic Reset Options** - Daily, weekly, monthly, or yearly quota resets
 - 🎪 **Event-Driven Architecture** - React to usage events and quota warnings
 - 🛡️ **Middleware Protection** - Route-level feature and quota enforcement
@@ -60,14 +62,20 @@ After installation, configure the package in `config/plan-usage.php`:
 return [
     'tables' => [
         'billable' => 'accounts', // Your billable model's table
+        'plans' => 'plans',
+        'plan_prices' => 'plan_prices',
+        'features' => 'features',
+        'plan_features' => 'plan_features',
+        'usages' => 'usages',
+        'quotas' => 'quotas',
     ],
-    
+
     'cache' => [
         'enabled' => true,
         'store' => 'redis',
         'ttl' => 3600,
     ],
-    
+
     'quota' => [
         'throw_exception' => true,
         'warning_thresholds' => [80, 100],
@@ -93,6 +101,7 @@ class Account extends Model
 
 ```php
 use Develupers\PlanUsage\Models\Plan;
+use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\PlanFeature;
 
@@ -100,9 +109,31 @@ use Develupers\PlanUsage\Models\PlanFeature;
 $plan = Plan::create([
     'name' => 'Professional',
     'slug' => 'professional',
-    'price' => 49.00,
-    'interval' => 'monthly',
+    'display_name' => 'Professional Plan',
+    'description' => 'Perfect for growing businesses',
+    'stripe_product_id' => 'prod_123456', // Stripe Product ID
+    'trial_days' => 14,
     'type' => 'public',
+]);
+
+// Create pricing options for the plan
+$monthlyPrice = PlanPrice::create([
+    'plan_id' => $plan->id,
+    'stripe_price_id' => 'price_monthly123', // Stripe Price ID
+    'price' => 49.00,
+    'currency' => 'USD',
+    'interval' => 'month',
+    'is_default' => true, // Default pricing option
+    'is_active' => true,
+]);
+
+$yearlyPrice = PlanPrice::create([
+    'plan_id' => $plan->id,
+    'stripe_price_id' => 'price_yearly456',
+    'price' => 490.00, // Discounted yearly price
+    'currency' => 'USD',
+    'interval' => 'year',
+    'is_active' => true,
 ]);
 
 // Create features
@@ -148,6 +179,10 @@ $account->recordUsage('api-calls', 1);
 // Check remaining quota
 $remaining = $account->getRemainingQuota('api-calls');
 echo "API calls remaining: {$remaining}";
+
+// Get detailed usage information
+$usage = $account->getFeatureUsage('api-calls');
+echo "Limit: {$usage['limit']}, Used: {$usage['used']}, Remaining: {$usage['remaining']}";
 ```
 
 ## 🔍 Understanding Feature Checks
@@ -184,6 +219,76 @@ if ($plan->isAvailableForPurchase()) {
 }
 ```
 
+## 💰 Pricing Structure
+
+Plans support multiple pricing options with different intervals and currencies:
+
+### Creating Multiple Prices
+
+```php
+// Plans can have multiple pricing options
+$plan = Plan::find(1);
+
+// Monthly pricing
+$plan->prices()->create([
+    'stripe_price_id' => 'price_monthly',
+    'price' => 29.00,
+    'currency' => 'USD',
+    'interval' => 'month',
+    'is_default' => true,
+]);
+
+// Annual pricing with discount
+$plan->prices()->create([
+    'stripe_price_id' => 'price_yearly',
+    'price' => 290.00, // Save $58!
+    'currency' => 'USD',
+    'interval' => 'year',
+]);
+
+// Lifetime deal
+$plan->prices()->create([
+    'stripe_price_id' => 'price_lifetime',
+    'price' => 999.00,
+    'currency' => 'USD',
+    'interval' => 'lifetime',
+]);
+```
+
+### Working with Prices
+
+```php
+// Get default price
+$defaultPrice = $plan->defaultPrice;
+
+// Get price by interval
+$monthlyPrice = $plan->getMonthlyPrice();
+$yearlyPrice = $plan->getYearlyPrice();
+$customPrice = $plan->getPriceByInterval('week');
+
+// Get all active prices
+$activePrices = $plan->activePrices;
+
+// Find plan by any of its Stripe price IDs
+$plan = Plan::findByStripePriceId('price_monthly123');
+
+// Calculate savings
+$yearlyPrice = $plan->getYearlyPrice();
+$monthlyPrice = $plan->getMonthlyPrice();
+$savings = $yearlyPrice->calculateSavings($monthlyPrice);
+echo "Save {$savings}% with yearly billing!";
+```
+
+### Supported Intervals
+
+| Interval | Description |
+|----------|-------------|
+| `day` | Daily billing |
+| `week` | Weekly billing |
+| `month` | Monthly billing |
+| `year` | Annual billing |
+| `lifetime` | One-time payment |
+
 ## 🎯 Feature Types
 
 The package supports three types of features:
@@ -219,6 +324,24 @@ Route::post('/api/generate', function () {
 ```
 
 ## 📊 Usage Tracking & Analytics
+
+### Feature Usage Details
+
+```php
+// Get comprehensive usage details for a feature
+$usage = $account->getFeatureUsage('api-calls');
+// Returns: ['limit' => 5000, 'used' => 1250, 'remaining' => 3750]
+
+// Get usage percentage
+$percentage = $account->getFeatureUsagePercentage('api-calls');
+echo "You've used {$percentage}% of your API calls";
+
+// Get all features status
+$featuresStatus = $account->getFeaturesStatus();
+foreach ($featuresStatus as $status) {
+    echo "{$status['name']}: {$status['used']}/{$status['limit']}\n";
+}
+```
 
 ### Track Usage
 
@@ -278,6 +401,47 @@ protected $listen = [
         \App\Listeners\HandleQuotaExceeded::class,
     ],
 ];
+```
+
+## 💳 Stripe Integration
+
+The package seamlessly integrates with Laravel Cashier and Stripe:
+
+### Stripe Structure
+
+```php
+// Plans connect to Stripe Products
+$plan->stripe_product_id = 'prod_ABC123'; // Stripe Product ID
+
+// Each price connects to Stripe Prices
+$price->stripe_price_id = 'price_XYZ789'; // Stripe Price ID
+
+// Finding plans by Stripe price ID (from webhooks, etc.)
+$plan = Plan::findByStripePriceId('price_XYZ789');
+
+// Creating subscription with specific price
+$user->newSubscription('default', $price->stripe_price_id)->create();
+```
+
+### Syncing with Stripe
+
+```php
+// When creating plans, sync with your Stripe dashboard
+$plan = Plan::create([
+    'name' => 'Pro Plan',
+    'slug' => 'pro',
+    'stripe_product_id' => 'prod_from_stripe', // From Stripe Dashboard
+]);
+
+// Create corresponding prices
+PlanPrice::create([
+    'plan_id' => $plan->id,
+    'stripe_price_id' => 'price_from_stripe', // From Stripe Dashboard
+    'price' => 49.00,
+    'currency' => 'USD',
+    'interval' => 'month',
+    'is_default' => true,
+]);
 ```
 
 ## 🔄 Plan Comparison

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Models;
 
+use Carbon\CarbonInterface;
 use Develupers\PlanUsage\Enums\Period;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -27,10 +29,10 @@ use Illuminate\Support\Carbon;
  * @property array|null $metadata
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
- * @property-read \Illuminate\Database\Eloquent\Collection<int, Plan> $plans
- * @property-read \Illuminate\Database\Eloquent\Collection<int, PlanFeature> $planFeatures
- * @property-read \Illuminate\Database\Eloquent\Collection<int, Quota> $quotas
- * @property-read \Illuminate\Database\Eloquent\Collection<int, Usage> $usages
+ * @property-read Collection<int, Plan> $plans
+ * @property-read Collection<int, PlanFeature> $planFeatures
+ * @property-read Collection<int, Quota> $quotas
+ * @property-read Collection<int, Usage> $usages
  */
 class Feature extends Model
 {
@@ -152,7 +154,7 @@ class Feature extends Model
     /**
      * Get the next reset date based on the reset period.
      */
-    public function getNextResetDate(?\DateTimeInterface $from = null): ?Carbon
+    public function getNextResetDate(?\DateTimeInterface $from = null): ?CarbonInterface
     {
         if (! $this->reset_period) {
             return null;

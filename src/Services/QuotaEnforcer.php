@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Services;
 
+use Carbon\CarbonInterface;
 use Develupers\PlanUsage\Events\QuotaExceeded;
 use Develupers\PlanUsage\Events\QuotaWarning;
 use Develupers\PlanUsage\Models\Feature;
@@ -303,9 +304,9 @@ class QuotaEnforcer
     }
 
     /**
-     * Calculate next reset time
+     * Calculate the next reset time
      */
-    protected function calculateResetTime(Feature $feature): ?Carbon
+    protected function calculateResetTime(Feature $feature): ?CarbonInterface
     {
         if (! $feature->reset_period) {
             return null;

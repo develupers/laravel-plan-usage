@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Traits;
 
+use Carbon\CarbonInterface;
 use Develupers\PlanUsage\Models\Usage;
+use Develupers\PlanUsage\Services\UsageTracker;
+use Illuminate\Support\Collection;
 
 /**
  * Trait TracksUsage
@@ -17,7 +20,7 @@ trait TracksUsage
     /**
      * Get the usage tracker service instance.
      */
-    protected function usageTracker(): \Develupers\PlanUsage\Services\UsageTracker
+    protected function usageTracker(): UsageTracker
     {
         return app('plan-usage.tracker');
     }
@@ -41,7 +44,7 @@ trait TracksUsage
     /**
      * Get usage for a feature within a period.
      */
-    public function getUsage(string $featureSlug, ?\Carbon\Carbon $from = null, ?\Carbon\Carbon $to = null): float
+    public function getUsage(string $featureSlug, ?CarbonInterface $from = null, ?CarbonInterface $to = null): float
     {
         return $this->usageTracker()->getUsage($this, $featureSlug, $from, $to);
     }
@@ -57,7 +60,7 @@ trait TracksUsage
     /**
      * Get usage history for a feature.
      */
-    public function getUsageHistory(?string $featureSlug = null, ?int $limit = 10): \Illuminate\Support\Collection
+    public function getUsageHistory(?string $featureSlug = null, ?int $limit = 10): Collection
     {
         return $this->usageTracker()->getHistory($this, $featureSlug, $limit);
     }
@@ -65,7 +68,7 @@ trait TracksUsage
     /**
      * Get usage for a specific period.
      */
-    public function getUsageForPeriod(string $featureSlug, \Carbon\Carbon $from, \Carbon\Carbon $to): float
+    public function getUsageForPeriod(string $featureSlug, CarbonInterface $from, CarbonInterface $to): float
     {
         return $this->usageTracker()->getUsage($this, $featureSlug, $from, $to);
     }
@@ -75,17 +78,17 @@ trait TracksUsage
      */
     public function getUsageStatistics(
         string $featureSlug,
-        \Carbon\Carbon $from,
-        \Carbon\Carbon $to,
+        CarbonInterface $from,
+        CarbonInterface $to,
         string $groupBy = 'day'
-    ): \Illuminate\Support\Collection {
+    ): Collection {
         return $this->usageTracker()->getStatistics($this, $featureSlug, $from, $to, $groupBy);
     }
 
     /**
      * Reset usage for a feature.
      */
-    public function resetUsage(string $featureSlug, ?\Carbon\Carbon $periodStart = null): void
+    public function resetUsage(string $featureSlug, ?CarbonInterface $periodStart = null): void
     {
         $this->usageTracker()->resetUsage($this, $featureSlug, $periodStart);
 
