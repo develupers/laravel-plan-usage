@@ -11,6 +11,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\Pivot;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
@@ -25,8 +27,8 @@ use Illuminate\Support\Collection;
  * @property bool $is_active
  * @property string $type
  * @property array|null $metadata
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  * @property-read Collection<int, Feature> $features
  * @property-read Collection<int, PlanFeature> $planFeatures
  * @property-read Collection<int, PlanPrice> $prices
@@ -37,11 +39,11 @@ class Plan extends Model
     use HasFactory;
 
     // Type constants
-    public const TYPE_PUBLIC = 'public';
+    public const string TYPE_PUBLIC = 'public';
 
-    public const TYPE_LEGACY = 'legacy';
+    public const string TYPE_LEGACY = 'legacy';
 
-    public const TYPE_PRIVATE = 'private';
+    public const string TYPE_PRIVATE = 'private';
 
     protected $fillable = [
         'name',
@@ -192,7 +194,7 @@ class Plan extends Model
             return null;
         }
 
-        /** @var \Illuminate\Database\Eloquent\Relations\Pivot $pivot */
+        /** @var Pivot $pivot */
         $pivot = $feature->pivot;
         $value = $pivot->getAttribute('value');
 
@@ -224,7 +226,7 @@ class Plan extends Model
         // Check if any price is 0 or if there are no prices
         $defaultPrice = $this->defaultPrice;
 
-        return $defaultPrice ? $defaultPrice->price == 0 : true;
+        return !$defaultPrice || $defaultPrice->price == 0;
     }
 
     /**
@@ -245,7 +247,7 @@ class Plan extends Model
     }
 
     /**
-     * Scope to plans of a specific type.
+     * Scope to specific plans.
      */
     public function scopeOfType(Builder $query, string $type): Builder
     {

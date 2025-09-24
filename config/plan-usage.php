@@ -14,6 +14,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Billable Model
+    |--------------------------------------------------------------------------
+    |
+    | Specify the billable model class that will use subscriptions.
+    | This is typically your User, Account, or Team model.
+    |
+    */
+    'billable_model' => null, // e.g., App\Models\User::class or App\Models\Account::class
+
+    /*
+    |--------------------------------------------------------------------------
     | Models
     |--------------------------------------------------------------------------
     |
@@ -195,6 +206,47 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Subscription Settings
+    |--------------------------------------------------------------------------
+    |
+    | Configure subscription-related settings for your application.
+    |
+    */
+    'subscription' => [
+        // Default plan ID to assign when subscription is deleted
+        'default_plan_id' => null,
+
+        // Clear usage records when subscription is deleted
+        'clear_usage_on_delete' => false,
+
+        // Clear Stripe customer data when subscription is deleted
+        'clear_stripe_on_delete' => false,
+
+        // Default subscription name
+        'default_name' => 'default',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Checkout Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configure Stripe Checkout settings.
+    |
+    */
+    'checkout' => [
+        // Success URL after checkout (can include {CHECKOUT_SESSION_ID} placeholder)
+        'success_url' => null,
+
+        // Cancel URL for checkout
+        'cancel_url' => null,
+
+        // Allow promotion codes in checkout
+        'allow_promotion_codes' => false,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Stripe Integration
     |--------------------------------------------------------------------------
     |
@@ -210,6 +262,12 @@ return [
 
         // Sync plans from Stripe
         'sync_plans' => false,
+
+        // Webhook tolerance in seconds (for webhook signature verification)
+        'webhook_tolerance' => 300,
+
+        // Webhook secret for signature verification
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
     ],
 
     /*

@@ -6,6 +6,8 @@ namespace Develupers\PlanUsage;
 
 use Develupers\PlanUsage\Commands\PlanUsageCommand;
 use Develupers\PlanUsage\Commands\WarmCacheCommand;
+use Develupers\PlanUsage\Commands\Stripe\PushPlansStripeCommand;
+use Develupers\PlanUsage\Commands\Subscription\ReconcileSubscriptionsCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -40,6 +42,23 @@ class PlanUsageServiceProvider extends PackageServiceProvider
         $this->app->singleton('plan-usage', function ($app) {
             return new \Develupers\PlanUsage\PlanUsage;
         });
+
+        // Register subscription actions as singletons
+        $this->app->singleton(
+            \Develupers\PlanUsage\Actions\Subscription\CancelSubscriptionAction::class
+        );
+
+        $this->app->singleton(
+            \Develupers\PlanUsage\Actions\Subscription\CreateStripeCheckoutSessionAction::class
+        );
+
+        $this->app->singleton(
+            \Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction::class
+        );
+
+        $this->app->singleton(
+            \Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction::class
+        );
     }
 
     /**
@@ -67,6 +86,8 @@ class PlanUsageServiceProvider extends PackageServiceProvider
             ->hasCommands([
                 PlanUsageCommand::class,
                 WarmCacheCommand::class,
+                ReconcileSubscriptionsCommand::class,
+                PushPlansStripeCommand::class,
             ]);
     }
 
@@ -77,7 +98,12 @@ class PlanUsageServiceProvider extends PackageServiceProvider
     {
         parent::boot();
 
-        // Additional boot logic can go here if needed
-        // Migrations are handled by Spatie Package Tools via hasMigrations()
+        // Register event listeners if Laravel Cashier is installed
+        if (class_exists('Laravel\Cashier\Events\WebhookHandled')) {
+            \Event::listen(
+                \Laravel\Cashier\Events\WebhookHandled::class,
+                \Develupers\PlanUsage\Listeners\SyncBillablePlanFromStripe::class
+            );
+        }
     }
 }
