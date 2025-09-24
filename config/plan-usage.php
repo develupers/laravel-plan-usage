@@ -14,25 +14,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Billable Model
-    |--------------------------------------------------------------------------
-    |
-    | Specify the billable model class that will use subscriptions.
-    | This is typically your User, Account, or Team model.
-    |
-    */
-    'billable_model' => null, // e.g., App\Models\User::class or App\Models\Account::class
-
-    /*
-    |--------------------------------------------------------------------------
     | Models
     |--------------------------------------------------------------------------
     |
     | You can specify custom model classes if you need to extend the default
     | models provided by the package.
     |
+    | The 'billable' model is your User, Account, Team, or Organization model
+    | that will have subscriptions and be charged.
+    |
     */
     'models' => [
+        'billable' => null, // e.g., App\Models\User::class or App\Models\Account::class
         'plan' => \Develupers\PlanUsage\Models\Plan::class,
         'plan_price' => \Develupers\PlanUsage\Models\PlanPrice::class,
         'feature' => \Develupers\PlanUsage\Models\Feature::class,

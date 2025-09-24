@@ -170,19 +170,13 @@ class WarmCacheCommand extends Command
         $quotaEnforcer = app('plan-usage.quota');
 
         // Get billable model class from config
-        $billableTable = config('plan-usage.tables.billable', 'users');
-
-        // Try to determine the model class from the table name
-        $modelClass = match ($billableTable) {
-            'users' => '\\App\\Models\\User',
-            'teams' => '\\App\\Models\\Team',
-            'accounts' => '\\App\\Models\\Account',
-            default => null
-        };
+        $modelClass = config('plan-usage.models.billable')
+            ?? config('cashier.model');
 
         if (! $modelClass || ! class_exists($modelClass)) {
-            $this->warn("Could not determine billable model class for table '{$billableTable}'.");
-            $this->warn('Skipping quota cache warming. You may need to warm quota cache manually.');
+            $this->warn('Billable model not configured or class does not exist.');
+            $this->warn('Please set "models.billable" in config/plan-usage.php');
+            $this->warn('Skipping quota cache warming.');
 
             return;
         }

@@ -169,8 +169,7 @@ class SyncBillablePlanFromStripe
     private function findBillableByStripeId(string $stripeId)
     {
         // Get the billable model class from config
-        $billableClass = config('plan-usage.billable_model')
-            ?? config('plan-usage.models.billable')
+        $billableClass = config('plan-usage.models.billable')
             ?? config('cashier.model');
 
         if (! $billableClass || ! class_exists($billableClass)) {

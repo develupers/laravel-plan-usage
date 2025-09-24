@@ -17,8 +17,13 @@ class QuotaFactory extends Factory
     {
         $limit = $this->faker->boolean(80) ? $this->faker->randomFloat(0, 100, 10000) : null;
 
+        // Use configured billable model or a generic test default
+        $billableType = config('plan-usage.models.billable')
+            ?? config('cashier.model')
+            ?? 'App\\Models\\User';
+
         return [
-            'billable_type' => 'App\\Models\\Account',
+            'billable_type' => $billableType,
             'billable_id' => $this->faker->numberBetween(1, 100),
             'feature_id' => Feature::factory(),
             'limit' => $limit,

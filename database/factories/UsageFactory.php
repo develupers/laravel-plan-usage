@@ -18,8 +18,13 @@ class UsageFactory extends Factory
         $periodStart = $this->faker->dateTimeBetween('-30 days', 'now');
         $periodEnd = Carbon::instance($periodStart)->addDay();
 
+        // Use configured billable model or a generic test default
+        $billableType = config('plan-usage.models.billable')
+            ?? config('cashier.model')
+            ?? 'App\\Models\\User';
+
         return [
-            'billable_type' => 'App\\Models\\Account',
+            'billable_type' => $billableType,
             'billable_id' => $this->faker->numberBetween(1, 100),
             'feature_id' => Feature::factory(),
             'used' => $this->faker->randomFloat(2, 0.01, 100),

@@ -64,7 +64,12 @@ function createBillable(array $attributes = []): \Illuminate\Database\Eloquent\M
 
         public function getMorphClass(): string
         {
-            return $this->attributes['morph_class'] ?? 'App\\Models\\Account';
+            // Use configured billable model or a generic test default
+            $defaultClass = config('plan-usage.models.billable')
+                ?? config('cashier.model')
+                ?? 'Test\\Billable\\Model';
+
+            return $this->attributes['morph_class'] ?? $defaultClass;
         }
 
         public function getKey(): int

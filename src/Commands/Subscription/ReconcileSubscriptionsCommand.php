@@ -44,7 +44,7 @@ class ReconcileSubscriptionsCommand extends Command
         $billableClass = $this->getBillableClass();
 
         if (! $billableClass) {
-            $this->error('Billable model class not configured. Please set plan-usage.billable_model in config.');
+            $this->error('Billable model class not configured. Please set plan-usage.models.billable in config.');
             return Command::FAILURE;
         }
 
@@ -256,8 +256,7 @@ class ReconcileSubscriptionsCommand extends Command
     protected function getBillableClass(): ?string
     {
         // Try multiple config locations for flexibility
-        $class = config('plan-usage.billable_model')
-            ?? config('plan-usage.models.billable')
+        $class = config('plan-usage.models.billable')
             ?? config('cashier.model');
 
         if (! $class) {
