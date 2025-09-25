@@ -18,7 +18,7 @@ class PushPlansStripeCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'plan-usage:stripe-push
+    protected $signature = 'stripe:push-plans
                             {--force : Force update existing products}
                             {--dry-run : Show what would be created without actually creating}';
 

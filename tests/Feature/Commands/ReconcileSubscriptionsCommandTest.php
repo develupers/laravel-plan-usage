@@ -12,7 +12,7 @@ it('shows error when billable model not configured', function () {
     Config::set('plan-usage.models.billable', null);
     Config::set('cashier.model', null);
 
-    $this->artisan('plan-usage:reconcile-subscriptions')
+    $this->artisan('subscriptions:reconcile')
         ->expectsOutput('Billable model class not configured. Please set plan-usage.models.billable in config.')
         ->assertExitCode(1);
 });
@@ -25,7 +25,7 @@ it('reports no expired subscriptions found', function () {
     $query->shouldReceive('whereHas')->andReturn($query);
     $billableClass->shouldReceive('whereNotNull')->with('plan_id')->once()->andReturn($query);
 
-    $this->artisan('plan-usage:reconcile-subscriptions')
+    $this->artisan('subscriptions:reconcile')
         ->expectsOutput('✅ No expired subscriptions found that need reconciliation')
         ->assertSuccessful();
 });
@@ -39,7 +39,7 @@ it('asks for confirmation without force flag', function () {
     $billableClass = Mockery::mock('alias:Test\\Billable\\Model');
     $billableClass->shouldReceive('whereNotNull')->with('plan_id')->once()->andReturn($query);
 
-    $this->artisan('plan-usage:reconcile-subscriptions')
+    $this->artisan('subscriptions:reconcile')
         ->expectsQuestion('Do you want to reconcile 2 subscription(s)?', false)
         ->expectsOutput('Reconciliation cancelled')
         ->assertSuccessful();

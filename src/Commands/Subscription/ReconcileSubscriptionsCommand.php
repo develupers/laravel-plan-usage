@@ -16,7 +16,7 @@ class ReconcileSubscriptionsCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'plan-usage:reconcile-subscriptions
+    protected $signature = 'subscriptions:reconcile
                             {--dry-run : Show what would happen without making changes}
                             {--force : Skip confirmation prompt}';
 

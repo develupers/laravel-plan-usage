@@ -11,13 +11,13 @@ beforeEach(function () {
 it('shows error when stripe secret not configured', function () {
     Config::set('cashier.secret', null);
 
-    $this->artisan('plan-usage:stripe-push')
+    $this->artisan('stripe:push-plans')
         ->expectsOutput('Stripe secret key not configured. Please set STRIPE_SECRET in your .env file.')
         ->assertExitCode(1);
 });
 
 it('shows error when no plans exist', function () {
-    $this->artisan('plan-usage:stripe-push')
+    $this->artisan('stripe:push-plans')
         ->expectsOutput('No plans found in database. Please create some plans first.')
         ->assertExitCode(1);
 });
