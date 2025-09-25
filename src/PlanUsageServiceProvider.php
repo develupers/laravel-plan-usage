@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Develupers\PlanUsage;
 
 use Develupers\PlanUsage\Commands\PlanUsageCommand;
-use Develupers\PlanUsage\Commands\WarmCacheCommand;
 use Develupers\PlanUsage\Commands\Stripe\PushPlansStripeCommand;
 use Develupers\PlanUsage\Commands\Subscription\ReconcileSubscriptionsCommand;
+use Develupers\PlanUsage\Commands\WarmCacheCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 

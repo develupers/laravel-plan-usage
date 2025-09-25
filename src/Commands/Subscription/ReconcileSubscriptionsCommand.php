@@ -6,7 +6,6 @@ namespace Develupers\PlanUsage\Commands\Subscription;
 
 use Carbon\Carbon;
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
-use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -45,6 +44,7 @@ class ReconcileSubscriptionsCommand extends Command
 
         if (! $billableClass) {
             $this->error('Billable model class not configured. Please set plan-usage.models.billable in config.');
+
             return Command::FAILURE;
         }
 
@@ -59,6 +59,7 @@ class ReconcileSubscriptionsCommand extends Command
 
         if ($count === 0) {
             $this->info('✅ No expired subscriptions found that need reconciliation');
+
             return Command::SUCCESS;
         }
 
@@ -67,6 +68,7 @@ class ReconcileSubscriptionsCommand extends Command
         if (! $dryRun && ! $force) {
             if (! $this->confirm("Do you want to reconcile {$count} subscription(s)?")) {
                 $this->info('Reconciliation cancelled');
+
                 return Command::SUCCESS;
             }
         }
@@ -103,6 +105,7 @@ class ReconcileSubscriptionsCommand extends Command
                     }
 
                     $removed++;
+
                     return;
                 }
 
@@ -113,7 +116,7 @@ class ReconcileSubscriptionsCommand extends Command
                 $stripeSubscription = $subscription->asStripeSubscription();
 
                 $this->info("  Stripe status: {$stripeSubscription->status}");
-                $this->info('  Cancel at period end: ' . ($stripeSubscription->cancel_at_period_end ? 'Yes' : 'No'));
+                $this->info('  Cancel at period end: '.($stripeSubscription->cancel_at_period_end ? 'Yes' : 'No'));
 
                 // Handle based on Stripe status
                 if (in_array($stripeSubscription->status, ['canceled', 'incomplete_expired'])) {
@@ -250,8 +253,6 @@ class ReconcileSubscriptionsCommand extends Command
 
     /**
      * Get the billable model class from configuration.
-     *
-     * @return string|null
      */
     protected function getBillableClass(): ?string
     {
@@ -266,6 +267,7 @@ class ReconcileSubscriptionsCommand extends Command
         // Validate the class exists
         if (! class_exists($class)) {
             $this->error("Billable class {$class} does not exist.");
+
             return null;
         }
 
@@ -276,7 +278,6 @@ class ReconcileSubscriptionsCommand extends Command
      * Get a human-readable identifier for the billable.
      *
      * @param  mixed  $billable
-     * @return string
      */
     protected function getBillableIdentifier($billable): string
     {

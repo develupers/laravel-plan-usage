@@ -226,7 +226,7 @@ class Plan extends Model
         // Check if any price is 0 or if there are no prices
         $defaultPrice = $this->defaultPrice;
 
-        return !$defaultPrice || $defaultPrice->price == 0;
+        return ! $defaultPrice || $defaultPrice->price == 0;
     }
 
     /**

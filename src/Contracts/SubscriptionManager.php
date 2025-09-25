@@ -64,7 +64,6 @@ interface SubscriptionManager
      *
      * @param  Billable  $billable  The billable entity
      * @param  string  $type  The subscription type/name
-     * @return bool
      */
     public function hasActiveSubscription(Billable $billable, string $type = 'default'): bool;
 

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Develupers\PlanUsage\Contracts;
 
 use Develupers\PlanUsage\Models\Plan;
-use Develupers\PlanUsage\Models\PlanPrice;
 
 /**
  * Interface for models that can have subscriptions and plans.
@@ -41,7 +40,6 @@ interface Billable
      *
      * @param  Plan  $plan  The plan to subscribe to
      * @param  array  $options  Options for subscription (price_id, payment_method, etc.)
-     * @return self
      */
     public function subscribeToPlan(Plan $plan, array $options = []): self;
 

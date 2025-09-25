@@ -18,8 +18,8 @@ class CreateStripeCheckoutSessionAction
      * @param  string  $priceId  The Stripe price ID
      * @param  array  $sessionOptions  Additional checkout session options
      * @param  string  $subscriptionName  The subscription name (default: 'default')
+     *
      * @throws ValidationException
-     * @return Checkout
      */
     public function execute(
         Billable $billable,
@@ -27,13 +27,6 @@ class CreateStripeCheckoutSessionAction
         array $sessionOptions = [],
         string $subscriptionName = 'default'
     ): Checkout {
-        // Check if the billable has Cashier's Billable trait methods
-        if (! method_exists($billable, 'subscribed')) {
-            throw ValidationException::withMessages([
-                'subscription' => ['The billable model must use Laravel Cashier\'s Billable trait.'],
-            ]);
-        }
-
         // Check if billable already has an active subscription
         if ($billable->subscribed($subscriptionName)) {
             throw ValidationException::withMessages([
@@ -98,7 +91,6 @@ class CreateStripeCheckoutSessionAction
      * @param  PlanPrice  $planPrice  The plan price model
      * @param  array  $sessionOptions  Additional checkout session options
      * @param  string  $subscriptionName  The subscription name
-     * @return Checkout
      */
     public function executeForPlanPrice(
         Billable $billable,
@@ -121,7 +113,6 @@ class CreateStripeCheckoutSessionAction
      * @param  Billable  $billable  The billable entity
      * @param  string  $priceId  The Stripe price ID
      * @param  array  $sessionOptions  Additional checkout session options
-     * @return Checkout
      */
     public function executeOneTime(
         Billable $billable,
@@ -155,7 +146,6 @@ class CreateStripeCheckoutSessionAction
      * Get the success URL for the checkout session.
      *
      * @param  array  $options  Session options
-     * @return string
      */
     protected function getSuccessUrl(array $options): string
     {
@@ -166,12 +156,12 @@ class CreateStripeCheckoutSessionAction
         // Try to use configured URLs
         $baseUrl = config('plan-usage.checkout.success_url');
         if ($baseUrl) {
-            return $baseUrl . '?session_id={CHECKOUT_SESSION_ID}';
+            return $baseUrl.'?session_id={CHECKOUT_SESSION_ID}';
         }
 
         // Default to a generic route if available
         if (function_exists('route') && \Route::has('subscription.success')) {
-            return route('subscription.success') . '?session_id={CHECKOUT_SESSION_ID}';
+            return route('subscription.success').'?session_id={CHECKOUT_SESSION_ID}';
         }
 
         return url('/subscription/success?session_id={CHECKOUT_SESSION_ID}');
@@ -181,7 +171,6 @@ class CreateStripeCheckoutSessionAction
      * Get the cancel URL for the checkout session.
      *
      * @param  array  $options  Session options
-     * @return string
      */
     protected function getCancelUrl(array $options): string
     {

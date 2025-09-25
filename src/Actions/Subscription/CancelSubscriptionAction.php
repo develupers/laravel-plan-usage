@@ -15,17 +15,11 @@ class CancelSubscriptionAction
      * @param  Billable  $billable  The billable entity
      * @param  bool  $immediately  Whether to cancel immediately or at period end
      * @param  string  $subscriptionName  The subscription name (default: 'default')
+     *
      * @throws ValidationException
      */
     public function execute(Billable $billable, bool $immediately = false, string $subscriptionName = 'default'): void
     {
-        // Check if the billable has Cashier's Billable trait methods
-        if (! method_exists($billable, 'subscription')) {
-            throw ValidationException::withMessages([
-                'subscription' => ['The billable model must use Laravel Cashier\'s Billable trait.'],
-            ]);
-        }
-
         $subscription = $billable->subscription($subscriptionName);
 
         if (! $subscription) {
@@ -53,17 +47,11 @@ class CancelSubscriptionAction
      *
      * @param  Billable  $billable  The billable entity
      * @param  bool  $immediately  Whether to cancel immediately or at period end
+     *
      * @throws ValidationException
      */
     public function cancelAll(Billable $billable, bool $immediately = false): void
     {
-        // Check if the billable has Cashier's Billable trait methods
-        if (! method_exists($billable, 'subscriptions')) {
-            throw ValidationException::withMessages([
-                'subscription' => ['The billable model must use Laravel Cashier\'s Billable trait.'],
-            ]);
-        }
-
         $subscriptions = $billable->subscriptions()->active()->get();
 
         if ($subscriptions->isEmpty()) {
@@ -88,17 +76,11 @@ class CancelSubscriptionAction
      *
      * @param  Billable  $billable  The billable entity
      * @param  string  $subscriptionName  The subscription name (default: 'default')
+     *
      * @throws ValidationException
      */
     public function resume(Billable $billable, string $subscriptionName = 'default'): void
     {
-        // Check if the billable has Cashier's Billable trait methods
-        if (! method_exists($billable, 'subscription')) {
-            throw ValidationException::withMessages([
-                'subscription' => ['The billable model must use Laravel Cashier\'s Billable trait.'],
-            ]);
-        }
-
         $subscription = $billable->subscription($subscriptionName);
 
         if (! $subscription) {

@@ -38,6 +38,7 @@ class PushPlansStripeCommand extends Command
         $stripeSecret = config('cashier.secret');
         if (! $stripeSecret) {
             $this->error('Stripe secret key not configured. Please set STRIPE_SECRET in your .env file.');
+
             return 1;
         }
 
@@ -48,17 +49,18 @@ class PushPlansStripeCommand extends Command
 
         if ($plans->isEmpty()) {
             $this->error('No plans found in database. Please create some plans first.');
+
             return 1;
         }
 
-        $this->info('Syncing ' . $plans->count() . ' plans to Stripe...');
+        $this->info('Syncing '.$plans->count().' plans to Stripe...');
 
         if ($dryRun) {
             $this->warn('DRY RUN MODE - No changes will be made to Stripe');
         }
 
         foreach ($plans as $plan) {
-            $this->info("\n" . str_repeat('=', 50));
+            $this->info("\n".str_repeat('=', 50));
             $this->info("Processing: {$plan->name} ({$plan->slug})");
             $this->info(str_repeat('=', 50));
 
@@ -118,6 +120,7 @@ class PushPlansStripeCommand extends Command
 
                 if ($plan->prices->isEmpty()) {
                     $this->warn('No price variants configured for this plan. Skipping price sync.');
+
                     continue;
                 }
 
@@ -206,7 +209,7 @@ class PushPlansStripeCommand extends Command
                                 ['Product ID', $plan->stripe_product_id],
                                 ['Price Interval', $planPrice->interval->value],
                                 ['Price ID', $planPrice->stripe_price_id ?? 'pending'],
-                                ['Amount', '$' . $planPrice->price . ' ' . $planPrice->currency],
+                                ['Amount', '$'.$planPrice->price.' '.$planPrice->currency],
                                 ['Active', $planPrice->is_active ? 'Yes' : 'No'],
                             ]
                         );
@@ -214,7 +217,7 @@ class PushPlansStripeCommand extends Command
                 }
 
             } catch (ApiErrorException $e) {
-                $this->error("Error processing {$plan->name}: " . $e->getMessage());
+                $this->error("Error processing {$plan->name}: ".$e->getMessage());
                 if (! $force) {
                     return 1;
                 }

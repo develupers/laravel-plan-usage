@@ -28,17 +28,21 @@ trait TracksUsage
     /**
      * Record usage for a feature.
      */
-    public function recordUsage(string $featureSlug, float $amount = 1, ?array $metadata = null): Usage
+    public function recordUsage(string $featureSlug, float $quantity = 1.0, array $metadata = []): bool
     {
-        // Record usage through service
-        $usage = $this->usageTracker()->record($this, $featureSlug, $amount, $metadata);
+        try {
+            // Record usage through service
+            $usage = $this->usageTracker()->record($this, $featureSlug, $quantity, $metadata);
 
-        // Also update quota through the quota enforcer
-        if (method_exists($this, 'incrementQuotaUsage')) {
-            $this->incrementQuotaUsage($featureSlug, $amount);
+            // Also update quota through the quota enforcer
+            if (method_exists($this, 'incrementQuotaUsage')) {
+                $this->incrementQuotaUsage($featureSlug, $quantity);
+            }
+
+            return $usage !== null;
+        } catch (\Exception $e) {
+            return false;
         }
-
-        return $usage;
     }
 
     /**

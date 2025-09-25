@@ -51,7 +51,7 @@ class SyncPlanWithBillableAction
                 'billable_type' => get_class($billable),
                 'billable_id' => $billable->getKey(),
                 'identifier' => $planOrPrice instanceof Plan || $planOrPrice instanceof PlanPrice
-                    ? get_class($planOrPrice) . ':' . $planOrPrice->id
+                    ? get_class($planOrPrice).':'.$planOrPrice->id
                     : $planOrPrice,
             ]);
 
@@ -86,12 +86,12 @@ class SyncPlanWithBillableAction
                 PlanUsage::quotas()->syncWithPlan($billable);
             }
 
-            Log::info("Successfully synced quotas for billable", [
+            Log::info('Successfully synced quotas for billable', [
                 'billable_type' => get_class($billable),
                 'billable_id' => $billable->getKey(),
             ]);
         } catch (\Exception $e) {
-            Log::error("Failed to sync quotas for billable: " . $e->getMessage(), [
+            Log::error('Failed to sync quotas for billable: '.$e->getMessage(), [
                 'billable_type' => get_class($billable),
                 'billable_id' => $billable->getKey(),
                 'exception' => $e,
@@ -127,9 +127,6 @@ class SyncPlanWithBillableAction
 
     /**
      * Get the plan ID from the billable entity.
-     *
-     * @param  Billable  $billable
-     * @return int|null
      */
     protected function getBillablePlanId(Billable $billable): ?int
     {
@@ -146,9 +143,6 @@ class SyncPlanWithBillableAction
 
     /**
      * Get the plan price ID from the billable entity.
-     *
-     * @param  Billable  $billable
-     * @return int|null
      */
     protected function getBillablePlanPriceId(Billable $billable): ?int
     {
@@ -165,10 +159,6 @@ class SyncPlanWithBillableAction
 
     /**
      * Update the billable's plan and plan price.
-     *
-     * @param  Billable  $billable
-     * @param  Plan  $plan
-     * @param  PlanPrice  $planPrice
      */
     protected function updateBillablePlan(Billable $billable, Plan $plan, PlanPrice $planPrice): void
     {

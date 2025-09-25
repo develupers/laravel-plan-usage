@@ -100,9 +100,6 @@ class DeleteSubscriptionAction
 
     /**
      * Get the plan ID from the billable entity.
-     *
-     * @param  Billable  $billable
-     * @return int|null
      */
     protected function getBillablePlanId(Billable $billable): ?int
     {
@@ -119,9 +116,6 @@ class DeleteSubscriptionAction
 
     /**
      * Get the plan price ID from the billable entity.
-     *
-     * @param  Billable  $billable
-     * @return int|null
      */
     protected function getBillablePlanPriceId(Billable $billable): ?int
     {
@@ -138,8 +132,6 @@ class DeleteSubscriptionAction
 
     /**
      * Clear the plan from the billable entity.
-     *
-     * @param  Billable  $billable
      */
     protected function clearBillablePlan(Billable $billable): void
     {
