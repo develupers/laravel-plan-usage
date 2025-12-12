@@ -14,7 +14,8 @@ return new class extends Migration
             $table->string('slug')->unique();
             $table->string('display_name')->nullable();
             $table->text('description')->nullable();
-            $table->string('stripe_product_id')->nullable()->index(); // Stripe Product, not Price
+            $table->string('stripe_product_id')->nullable()->index(); // Stripe Product ID
+            $table->string('paddle_product_id')->nullable()->index(); // Paddle Product ID
             $table->integer('trial_days')->default(0); // Trial period applies to the plan
             $table->integer('sort_order')->default(0);
             $table->boolean('is_active')->default(true);

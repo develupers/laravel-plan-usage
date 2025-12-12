@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Develupers\PlanUsage\Listeners;
+namespace Develupers\PlanUsage\Providers\Stripe;
 
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
@@ -10,10 +10,12 @@ use Illuminate\Support\Facades\Log;
 use Laravel\Cashier\Events\WebhookHandled;
 
 /**
- * @deprecated Use \Develupers\PlanUsage\Providers\Stripe\StripeWebhookListener instead.
- *             This class will be removed in a future version.
+ * Handles Stripe webhook events for plan synchronization.
+ *
+ * This listener processes subscription-related webhook events from Stripe
+ * and syncs the local plan/price associations.
  */
-class SyncBillablePlanFromStripe
+class StripeWebhookListener
 {
     /**
      * Create the event listener.

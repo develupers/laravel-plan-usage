@@ -13,7 +13,8 @@ return new class extends Migration
             $table->foreignId('plan_id')
                 ->constrained(config('plan-usage.tables.plans', 'plans'))
                 ->cascadeOnDelete();
-            $table->string('stripe_price_id')->nullable()->unique();
+            $table->string('stripe_price_id')->nullable()->unique(); // Stripe Price ID
+            $table->string('paddle_price_id')->nullable()->unique(); // Paddle Price ID
             $table->decimal('price', 10, 2)->default(0);
             $table->string('currency', 3)->default('USD');
             $table->string('interval'); // day, week, month, year, lifetime
@@ -25,6 +26,7 @@ return new class extends Migration
             // Indexes for performance
             $table->index(['plan_id', 'is_active']);
             $table->index(['stripe_price_id']);
+            $table->index(['paddle_price_id']);
             $table->index(['interval']);
             $table->index(['currency', 'is_active']);
             

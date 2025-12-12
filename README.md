@@ -6,7 +6,7 @@
 [![Total Downloads](https://img.shields.io/packagist/dt/develupers/laravel-plan-usage.svg?style=flat-square)](https://packagist.org/packages/develupers/laravel-plan-usage)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A powerful Laravel package for managing subscription plans, features, quotas, and usage tracking. Perfect for SaaS applications that need flexible plan management with feature access control and usage monitoring. Seamlessly integrates with Laravel Cashier for billing.
+A powerful Laravel package for managing subscription plans, features, quotas, and usage tracking. Perfect for SaaS applications that need flexible plan management with feature access control and usage monitoring. Seamlessly integrates with Laravel Cashier for billing with support for **both Stripe and Paddle**.
 
 ## ✨ Features
 
@@ -14,7 +14,8 @@ A powerful Laravel package for managing subscription plans, features, quotas, an
 - 🎯 **Feature Access Control** - Define boolean, limit, and quota-based features
 - 📈 **Usage Tracking** - Monitor and track feature consumption in real-time
 - 🚦 **Quota Enforcement** - Automatic quota limits with configurable warning thresholds
-- 💳 **Laravel Cashier Integration** - Seamless integration with Stripe billing
+- 💳 **Multi-Provider Billing** - Support for both Stripe and Paddle billing providers
+- 🌍 **Paddle MoR Support** - Use Paddle as Merchant of Record for simplified tax/VAT handling
 - 💱 **Multi-Currency Support** - Support for different currencies per pricing option
 - 📅 **Flexible Pricing Intervals** - Daily, weekly, monthly, yearly, or lifetime pricing
 - 🔄 **Periodic Reset Options** - Daily, weekly, monthly, or yearly quota resets
@@ -27,7 +28,9 @@ A powerful Laravel package for managing subscription plans, features, quotas, an
 
 - PHP 8.3+
 - Laravel 11.x or 12.x
-- Laravel Cashier 15.x (for Stripe integration)
+- **One of the following billing packages:**
+  - Laravel Cashier 15.x (for Stripe)
+  - Laravel Cashier Paddle 2.x (for Paddle Billing)
 
 ## 🚀 Installation
 
@@ -80,16 +83,91 @@ return [
         'throw_exception' => true,
         'warning_thresholds' => [80, 100],
     ],
+
+    // Billing provider configuration
+    'billing' => [
+        // 'auto' = detect from installed package
+        // 'stripe' = force Stripe provider
+        // 'paddle' = force Paddle provider
+        'provider' => env('BILLING_PROVIDER', 'auto'),
+    ],
+
+    // Paddle-specific configuration (only needed if using Paddle)
+    'paddle' => [
+        'sandbox' => env('PADDLE_SANDBOX', true),
+        'seller_id' => env('PADDLE_SELLER_ID'),
+        'api_key' => env('PADDLE_API_KEY'),
+        'webhook_secret' => env('PADDLE_WEBHOOK_SECRET'),
+        'client_side_token' => env('PADDLE_CLIENT_SIDE_TOKEN'),
+    ],
 ];
 ```
+
+## 💳 Billing Provider Setup
+
+This package supports both **Stripe** and **Paddle** as billing providers. You can only use one provider at a time.
+
+### Option 1: Stripe (Default)
+
+Install Laravel Cashier for Stripe:
+
+```bash
+composer require laravel/cashier
+```
+
+Add to your `.env`:
+
+```env
+BILLING_PROVIDER=stripe
+STRIPE_KEY=your-stripe-key
+STRIPE_SECRET=your-stripe-secret
+STRIPE_WEBHOOK_SECRET=your-webhook-secret
+```
+
+### Option 2: Paddle (Merchant of Record)
+
+Paddle acts as Merchant of Record, handling all tax/VAT compliance for you. This is ideal if you want to avoid dealing with tax regulations across different countries.
+
+Install Laravel Cashier for Paddle:
+
+```bash
+composer require laravel/cashier-paddle
+```
+
+Add to your `.env`:
+
+```env
+BILLING_PROVIDER=paddle
+PADDLE_SANDBOX=true
+PADDLE_SELLER_ID=your-seller-id
+PADDLE_API_KEY=your-api-key
+PADDLE_WEBHOOK_SECRET=your-webhook-secret
+PADDLE_CLIENT_SIDE_TOKEN=your-client-token
+```
+
+### Auto-Detection
+
+If `BILLING_PROVIDER` is set to `auto` (or not set), the package will automatically detect which Cashier package is installed and use the appropriate provider.
 
 ## 🏁 Quick Start
 
 ### 1. Add Traits to Your Billable Model
 
+**For Stripe:**
 ```php
 use Develupers\PlanUsage\Traits\HasPlanFeatures;
 use Laravel\Cashier\Billable;
+
+class Account extends Model
+{
+    use Billable, HasPlanFeatures;
+}
+```
+
+**For Paddle:**
+```php
+use Develupers\PlanUsage\Traits\HasPlanFeatures;
+use Laravel\Paddle\Billable;
 
 class Account extends Model
 {
@@ -111,7 +189,8 @@ $plan = Plan::create([
     'slug' => 'professional',
     'display_name' => 'Professional Plan',
     'description' => 'Perfect for growing businesses',
-    'stripe_product_id' => 'prod_123456', // Stripe Product ID
+    'stripe_product_id' => 'prod_123456',   // Stripe Product ID (if using Stripe)
+    'paddle_product_id' => 'pro_01abc123',  // Paddle Product ID (if using Paddle)
     'trial_days' => 14,
     'type' => 'public',
 ]);
@@ -120,6 +199,7 @@ $plan = Plan::create([
 $monthlyPrice = PlanPrice::create([
     'plan_id' => $plan->id,
     'stripe_price_id' => 'price_monthly123', // Stripe Price ID
+    'paddle_price_id' => 'pri_01xyz789',     // Paddle Price ID
     'price' => 49.00,
     'currency' => 'USD',
     'interval' => 'month',
@@ -130,6 +210,7 @@ $monthlyPrice = PlanPrice::create([
 $yearlyPrice = PlanPrice::create([
     'plan_id' => $plan->id,
     'stripe_price_id' => 'price_yearly456',
+    'paddle_price_id' => 'pri_01abc456',
     'price' => 490.00, // Discounted yearly price
     'currency' => 'USD',
     'interval' => 'year',
@@ -403,45 +484,80 @@ protected $listen = [
 ];
 ```
 
-## 💳 Stripe Integration
+## 💳 Billing Provider Integration
 
-The package seamlessly integrates with Laravel Cashier and Stripe:
+The package seamlessly integrates with Laravel Cashier for both Stripe and Paddle:
 
-### Stripe Structure
+### Provider-Agnostic Methods
+
+```php
+// Get the current provider's price ID for a plan price
+$priceId = $planPrice->getProviderPriceId();
+
+// Find a plan by its provider's price ID (works with both Stripe and Paddle)
+$plan = Plan::findByProviderPriceId($priceId);
+
+// Get/set the provider's product ID
+$productId = $plan->getProviderProductId();
+$plan->setProviderProductId('prod_ABC123');
+
+// Creating subscription (works with both providers)
+$billable->newSubscription('default', $planPrice->getProviderPriceId())->create();
+```
+
+### Syncing Plans to Billing Provider
+
+Use the unified `plans:push` command to sync your local plans to the billing provider:
+
+```bash
+# Sync to configured provider (auto-detected)
+php artisan plans:push
+
+# Sync to specific provider
+php artisan plans:push --provider=stripe
+php artisan plans:push --provider=paddle
+
+# Preview what would be synced (no changes made)
+php artisan plans:push --dry-run
+
+# Force update existing products
+php artisan plans:push --force
+```
+
+### Reconciling Subscriptions
+
+If webhooks are missed, you can reconcile local subscription status with the billing provider:
+
+```bash
+# Reconcile with configured provider
+php artisan subscriptions:reconcile
+
+# Reconcile with specific provider
+php artisan subscriptions:reconcile --provider=stripe
+php artisan subscriptions:reconcile --provider=paddle
+
+# Preview changes
+php artisan subscriptions:reconcile --dry-run
+```
+
+### Stripe-Specific
 
 ```php
 // Plans connect to Stripe Products
-$plan->stripe_product_id = 'prod_ABC123'; // Stripe Product ID
+$plan->stripe_product_id = 'prod_ABC123';
 
 // Each price connects to Stripe Prices
-$price->stripe_price_id = 'price_XYZ789'; // Stripe Price ID
-
-// Finding plans by Stripe price ID (from webhooks, etc.)
-$plan = Plan::findByStripePriceId('price_XYZ789');
-
-// Creating subscription with specific price
-$user->newSubscription('default', $price->stripe_price_id)->create();
+$price->stripe_price_id = 'price_XYZ789';
 ```
 
-### Syncing with Stripe
+### Paddle-Specific
 
 ```php
-// When creating plans, sync with your Stripe dashboard
-$plan = Plan::create([
-    'name' => 'Pro Plan',
-    'slug' => 'pro',
-    'stripe_product_id' => 'prod_from_stripe', // From Stripe Dashboard
-]);
+// Plans connect to Paddle Products
+$plan->paddle_product_id = 'pro_01ABC123';
 
-// Create corresponding prices
-PlanPrice::create([
-    'plan_id' => $plan->id,
-    'stripe_price_id' => 'price_from_stripe', // From Stripe Dashboard
-    'price' => 49.00,
-    'currency' => 'USD',
-    'interval' => 'month',
-    'is_default' => true,
-]);
+// Each price connects to Paddle Prices
+$price->paddle_price_id = 'pri_01XYZ789';
 ```
 
 ## 🔄 Plan Comparison

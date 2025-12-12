@@ -31,6 +31,11 @@ return new class extends Migration
                 $table->timestamp('trial_ends_at')->nullable();
             }
 
+            // Laravel Cashier Paddle columns
+            if (! Schema::hasColumn($tableName, 'paddle_id')) {
+                $table->string('paddle_id')->nullable()->index();
+            }
+
             // Plan tracking
             if (! Schema::hasColumn($tableName, 'plan_id')) {
                 $table->foreignId('plan_id')->nullable()
@@ -84,6 +89,7 @@ return new class extends Migration
                 'pm_type',
                 'pm_last_four',
                 'trial_ends_at',
+                'paddle_id',
                 'plan_id',
                 'plan_price_id',
                 'plan_changed_at',

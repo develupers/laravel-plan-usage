@@ -13,10 +13,10 @@ use Illuminate\Support\Facades\Log;
 class SyncPlanWithBillableAction
 {
     /**
-     * Sync the Stripe subscription with the local plan.
+     * Sync the billing provider subscription with the local plan.
      *
      * @param  Billable  $billable  The billable entity to sync
-     * @param  string|Plan|PlanPrice  $planOrPrice  The Plan, PlanPrice, or Stripe price ID
+     * @param  string|Plan|PlanPrice  $planOrPrice  The Plan, PlanPrice, or provider price ID
      * @return bool True if successfully synced, false if plan/price not found
      */
     public function execute(Billable $billable, string|Plan|PlanPrice $planOrPrice): bool
@@ -40,8 +40,8 @@ class SyncPlanWithBillableAction
                 break;
 
             case is_string($planOrPrice):
-                // Assume it's a Stripe price ID
-                $planPrice = PlanPrice::where('stripe_price_id', $planOrPrice)->first();
+                // Use provider-agnostic lookup for price ID
+                $planPrice = PlanPrice::findByProviderPriceId($planOrPrice);
                 $plan = $planPrice?->plan;
                 break;
         }

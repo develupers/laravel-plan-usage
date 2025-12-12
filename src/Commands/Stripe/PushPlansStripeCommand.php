@@ -11,6 +11,9 @@ use Stripe\Exception\ApiErrorException;
 use Stripe\Price;
 use Stripe\Product;
 
+/**
+ * @deprecated Use `plans:push --provider=stripe` instead. This command will be removed in a future version.
+ */
 class PushPlansStripeCommand extends Command
 {
     /**
@@ -27,13 +30,15 @@ class PushPlansStripeCommand extends Command
      *
      * @var string
      */
-    protected $description = 'Sync local plans to Stripe products and prices';
+    protected $description = '[DEPRECATED] Use plans:push instead. Sync local plans to Stripe products and prices';
 
     /**
      * Execute the console command.
      */
     public function handle(): int
     {
+        $this->warn('⚠️  This command is deprecated. Please use `php artisan plans:push --provider=stripe` instead.');
+        $this->newLine();
         // Set Stripe API key
         $stripeSecret = config('cashier.secret');
         if (! $stripeSecret) {

@@ -24,6 +24,7 @@ use Illuminate\Support\Carbon;
  * @property string $aggregation_method
  * @property Period|null $reset_period
  * @property string|null $stripe_meter_id
+ * @property string|null $paddle_meter_id
  * @property bool $is_consumable
  * @property int $sort_order
  * @property array|null $metadata
@@ -47,6 +48,7 @@ class Feature extends Model
         'aggregation_method',
         'reset_period',
         'stripe_meter_id',
+        'paddle_meter_id',
         'is_consumable',
         'sort_order',
         'metadata',
@@ -181,5 +183,41 @@ class Feature extends Model
         }
 
         return $this->reset_period->label();
+    }
+
+    /**
+     * Get the meter ID for the currently configured billing provider.
+     */
+    public function getProviderMeterId(): ?string
+    {
+        $provider = config('plan-usage.billing.provider', 'auto');
+
+        // If auto, detect from installed package
+        if ($provider === 'auto') {
+            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
+        }
+
+        return match ($provider) {
+            'paddle' => $this->paddle_meter_id,
+            default => $this->stripe_meter_id,
+        };
+    }
+
+    /**
+     * Set the meter ID for the currently configured billing provider.
+     */
+    public function setProviderMeterId(string $meterId): void
+    {
+        $provider = config('plan-usage.billing.provider', 'auto');
+
+        // If auto, detect from installed package
+        if ($provider === 'auto') {
+            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
+        }
+
+        match ($provider) {
+            'paddle' => $this->paddle_meter_id = $meterId,
+            default => $this->stripe_meter_id = $meterId,
+        };
     }
 }

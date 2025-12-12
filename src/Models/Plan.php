@@ -22,6 +22,7 @@ use Illuminate\Support\Collection;
  * @property string|null $display_name
  * @property string|null $description
  * @property string|null $stripe_product_id
+ * @property string|null $paddle_product_id
  * @property int $trial_days
  * @property int $sort_order
  * @property bool $is_active
@@ -51,6 +52,7 @@ class Plan extends Model
         'display_name',
         'description',
         'stripe_product_id',
+        'paddle_product_id',
         'trial_days',
         'sort_order',
         'is_active',
@@ -149,13 +151,51 @@ class Plan extends Model
     }
 
     /**
-     * Find plan by any of its Stripe price IDs.
+     * Find plan by any of its provider price IDs.
+     *
+     * Uses the currently configured billing provider to determine which column to search.
      */
-    public static function findByStripePriceId(string $stripePriceId): ?self
+    public static function findByProviderPriceId(string $priceId): ?self
     {
-        $planPrice = PlanPrice::where('stripe_price_id', $stripePriceId)->first();
+        $planPrice = PlanPrice::findByProviderPriceId($priceId);
 
-        return $planPrice ? $planPrice->plan : null;
+        return $planPrice?->plan;
+    }
+
+    /**
+     * Get the product ID for the currently configured billing provider.
+     */
+    public function getProviderProductId(): ?string
+    {
+        $provider = config('plan-usage.billing.provider', 'auto');
+
+        // If auto, detect from installed package
+        if ($provider === 'auto') {
+            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
+        }
+
+        return match ($provider) {
+            'paddle' => $this->paddle_product_id,
+            default => $this->stripe_product_id,
+        };
+    }
+
+    /**
+     * Set the product ID for the currently configured billing provider.
+     */
+    public function setProviderProductId(string $productId): void
+    {
+        $provider = config('plan-usage.billing.provider', 'auto');
+
+        // If auto, detect from installed package
+        if ($provider === 'auto') {
+            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
+        }
+
+        match ($provider) {
+            'paddle' => $this->paddle_product_id = $productId,
+            default => $this->stripe_product_id = $productId,
+        };
     }
 
     /**

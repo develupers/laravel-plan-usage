@@ -8,9 +8,27 @@ return [
     |
     | This file contains the configuration options for the Laravel Plan Feature
     | Usage package, which manages subscription plans, features, quotas, and
-    | usage tracking with Laravel Cashier integration.
+    | usage tracking with billing provider integration (Stripe or Paddle).
     |
     */
+
+    /*
+    |--------------------------------------------------------------------------
+    | Billing Provider
+    |--------------------------------------------------------------------------
+    |
+    | Configure which billing provider to use. Supports 'stripe', 'paddle',
+    | or 'auto' to auto-detect based on installed Cashier package.
+    |
+    | When set to 'auto', the package will check for installed packages:
+    | - If laravel/cashier-paddle is installed, Paddle will be used
+    | - If laravel/cashier is installed, Stripe will be used
+    | - If neither is installed, an error will be thrown
+    |
+    */
+    'billing' => [
+        'provider' => env('BILLING_PROVIDER', 'auto'),
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -212,8 +230,8 @@ return [
         // Clear usage records when subscription is deleted
         'clear_usage_on_delete' => false,
 
-        // Clear Stripe customer data when subscription is deleted
-        'clear_stripe_on_delete' => false,
+        // Clear provider customer data when subscription is deleted
+        'clear_provider_data_on_delete' => false,
 
         // Default subscription name
         'default_name' => 'default',
@@ -224,7 +242,7 @@ return [
     | Checkout Configuration
     |--------------------------------------------------------------------------
     |
-    | Configure Stripe Checkout settings.
+    | Configure checkout settings for the billing provider.
     |
     */
     'checkout' => [
@@ -244,6 +262,8 @@ return [
     |--------------------------------------------------------------------------
     |
     | Configure Stripe integration for metered billing and usage reporting.
+    | These settings are only used when billing.provider is 'stripe' or 'auto'
+    | and laravel/cashier is installed.
     |
     */
     'stripe' => [
@@ -261,6 +281,38 @@ return [
 
         // Webhook secret for signature verification
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Paddle Integration
+    |--------------------------------------------------------------------------
+    |
+    | Configure Paddle Billing integration for subscriptions and payments.
+    | These settings are only used when billing.provider is 'paddle' or 'auto'
+    | and laravel/cashier-paddle is installed.
+    |
+    | Note: Paddle acts as Merchant of Record, handling all tax/VAT compliance.
+    |
+    */
+    'paddle' => [
+        // Use Paddle sandbox environment
+        'sandbox' => env('PADDLE_SANDBOX', true),
+
+        // Paddle seller ID
+        'seller_id' => env('PADDLE_SELLER_ID'),
+
+        // Paddle API key
+        'api_key' => env('PADDLE_API_KEY'),
+
+        // Webhook secret for signature verification
+        'webhook_secret' => env('PADDLE_WEBHOOK_SECRET'),
+
+        // Client-side token for Paddle.js
+        'client_side_token' => env('PADDLE_CLIENT_SIDE_TOKEN'),
+
+        // Retain pricing from Paddle (vs using local prices)
+        'retain_paddle_pricing' => true,
     ],
 
     /*

@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('aggregation_method')->default('sum'); // sum, count, max, last
             $table->string('reset_period')->nullable(); // hour, day, week, month, year
             $table->string('stripe_meter_id')->nullable(); // For Stripe metered billing
+            $table->string('paddle_meter_id')->nullable(); // For Paddle metered billing
             $table->boolean('is_consumable')->default(false); // Whether usage is consumed (true) or just counted
             $table->integer('sort_order')->default(0);
             $table->json('metadata')->nullable();

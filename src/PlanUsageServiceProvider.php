@@ -5,9 +5,13 @@ declare(strict_types=1);
 namespace Develupers\PlanUsage;
 
 use Develupers\PlanUsage\Commands\PlanUsageCommand;
+use Develupers\PlanUsage\Commands\PushPlansCommand;
 use Develupers\PlanUsage\Commands\Stripe\PushPlansStripeCommand;
 use Develupers\PlanUsage\Commands\Subscription\ReconcileSubscriptionsCommand;
 use Develupers\PlanUsage\Commands\WarmCacheCommand;
+use Develupers\PlanUsage\Contracts\BillingProvider;
+use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
+use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -24,6 +28,9 @@ class PlanUsageServiceProvider extends PackageServiceProvider
         $this->mergeConfigFrom(
             __DIR__.'/../config/plan-usage.php', 'plan-usage'
         );
+
+        // Register the billing provider
+        $this->registerBillingProvider();
 
         // Register service bindings
         $this->app->singleton('plan-usage.manager', function ($app) {
@@ -62,6 +69,81 @@ class PlanUsageServiceProvider extends PackageServiceProvider
     }
 
     /**
+     * Register the billing provider based on configuration or auto-detection.
+     */
+    protected function registerBillingProvider(): void
+    {
+        $this->app->singleton(BillingProvider::class, function ($app) {
+            $configured = config('plan-usage.billing.provider', 'auto');
+
+            // If explicitly configured, use that provider
+            if ($configured && $configured !== 'auto') {
+                return $this->resolveProvider($configured);
+            }
+
+            // Auto-detect based on installed package
+            // Check for Paddle first (since it's the newer option)
+            if (class_exists(\Laravel\Paddle\Cashier::class)) {
+                return new PaddleProvider();
+            }
+
+            if (class_exists(\Laravel\Cashier\Cashier::class)) {
+                return new StripeProvider();
+            }
+
+            // No billing provider installed - return a null provider that throws on use
+            throw new \RuntimeException(
+                'No billing provider installed. Please install either laravel/cashier (for Stripe) or laravel/cashier-paddle (for Paddle), ' .
+                'or set BILLING_PROVIDER in your .env file to explicitly configure the provider.'
+            );
+        });
+    }
+
+    /**
+     * Resolve a specific billing provider by name.
+     */
+    protected function resolveProvider(string $provider): BillingProvider
+    {
+        return match ($provider) {
+            'stripe' => $this->resolveStripeProvider(),
+            'paddle' => $this->resolvePaddleProvider(),
+            default => throw new \InvalidArgumentException(
+                "Unknown billing provider: {$provider}. Supported providers are: stripe, paddle"
+            ),
+        };
+    }
+
+    /**
+     * Resolve the Stripe provider with validation.
+     */
+    protected function resolveStripeProvider(): StripeProvider
+    {
+        if (! class_exists(\Laravel\Cashier\Cashier::class)) {
+            throw new \RuntimeException(
+                'Stripe provider configured but laravel/cashier is not installed. ' .
+                'Install it with: composer require laravel/cashier'
+            );
+        }
+
+        return new StripeProvider();
+    }
+
+    /**
+     * Resolve the Paddle provider with validation.
+     */
+    protected function resolvePaddleProvider(): PaddleProvider
+    {
+        if (! class_exists(\Laravel\Paddle\Cashier::class)) {
+            throw new \RuntimeException(
+                'Paddle provider configured but laravel/cashier-paddle is not installed. ' .
+                'Install it with: composer require laravel/cashier-paddle'
+            );
+        }
+
+        return new PaddleProvider();
+    }
+
+    /**
      * Configure the package.
      */
     public function configurePackage(Package $package): void
@@ -87,7 +169,8 @@ class PlanUsageServiceProvider extends PackageServiceProvider
                 PlanUsageCommand::class,
                 WarmCacheCommand::class,
                 ReconcileSubscriptionsCommand::class,
-                PushPlansStripeCommand::class,
+                PushPlansCommand::class,
+                PushPlansStripeCommand::class, // Deprecated, kept for backward compatibility
             ]);
     }
 
@@ -98,11 +181,44 @@ class PlanUsageServiceProvider extends PackageServiceProvider
     {
         parent::boot();
 
-        // Register event listeners if Laravel Cashier is installed
-        if (class_exists('Laravel\Cashier\Events\WebhookHandled')) {
+        // Register webhook listeners based on the configured provider
+        $this->registerWebhookListeners();
+    }
+
+    /**
+     * Register webhook listeners based on installed/configured provider.
+     */
+    protected function registerWebhookListeners(): void
+    {
+        $provider = config('plan-usage.billing.provider', 'auto');
+
+        // Determine which providers to listen for
+        $listenStripe = false;
+        $listenPaddle = false;
+
+        if ($provider === 'auto') {
+            // Auto-detect: listen for whichever package is installed
+            $listenStripe = class_exists(\Laravel\Cashier\Events\WebhookHandled::class);
+            $listenPaddle = class_exists(\Laravel\Paddle\Events\WebhookReceived::class);
+        } elseif ($provider === 'stripe') {
+            $listenStripe = class_exists(\Laravel\Cashier\Events\WebhookHandled::class);
+        } elseif ($provider === 'paddle') {
+            $listenPaddle = class_exists(\Laravel\Paddle\Events\WebhookReceived::class);
+        }
+
+        // Register Stripe webhook listener
+        if ($listenStripe) {
             \Event::listen(
                 \Laravel\Cashier\Events\WebhookHandled::class,
-                \Develupers\PlanUsage\Listeners\SyncBillablePlanFromStripe::class
+                \Develupers\PlanUsage\Providers\Stripe\StripeWebhookListener::class
+            );
+        }
+
+        // Register Paddle webhook listener (will be implemented in US3)
+        if ($listenPaddle) {
+            \Event::listen(
+                \Laravel\Paddle\Events\WebhookReceived::class,
+                \Develupers\PlanUsage\Providers\Paddle\PaddleWebhookListener::class
             );
         }
     }

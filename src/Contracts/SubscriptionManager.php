@@ -6,13 +6,12 @@ namespace Develupers\PlanUsage\Contracts;
 
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanPrice;
-use Laravel\Cashier\Checkout;
 
 /**
  * Interface for managing subscriptions.
  *
  * This interface defines the contract for subscription management
- * with Laravel Cashier and Stripe integration.
+ * with provider-agnostic billing integration.
  */
 interface SubscriptionManager
 {
@@ -25,14 +24,14 @@ interface SubscriptionManager
     public function cancel(Billable $billable, bool $immediately = false): void;
 
     /**
-     * Create a Stripe checkout session.
+     * Create a checkout session.
      *
      * @param  Billable  $billable  The billable entity
-     * @param  string  $priceId  The Stripe price ID
+     * @param  string  $priceId  The provider's price ID
      * @param  array  $sessionOptions  Additional checkout session options
-     * @return Checkout The checkout session
+     * @return CheckoutSession The checkout session
      */
-    public function createCheckoutSession(Billable $billable, string $priceId, array $sessionOptions = []): Checkout;
+    public function createCheckoutSession(Billable $billable, string $priceId, array $sessionOptions = []): CheckoutSession;
 
     /**
      * Delete a subscription and clean up related data.
@@ -46,13 +45,13 @@ interface SubscriptionManager
      * Sync a plan with a billable entity.
      *
      * @param  Billable  $billable  The billable entity
-     * @param  string|Plan|PlanPrice  $planOrPrice  The plan, price, or Stripe price ID
+     * @param  string|Plan|PlanPrice  $planOrPrice  The plan, price, or provider price ID
      * @return bool True if successfully synced
      */
     public function syncPlan(Billable $billable, string|Plan|PlanPrice $planOrPrice): bool;
 
     /**
-     * Reconcile local subscriptions with Stripe.
+     * Reconcile local subscriptions with the billing provider.
      *
      * @param  Billable|null  $billable  Optional specific billable to reconcile
      * @return array Results of the reconciliation
@@ -80,7 +79,7 @@ interface SubscriptionManager
      * Update a subscription to a new plan/price.
      *
      * @param  Billable  $billable  The billable entity
-     * @param  string  $priceId  The new Stripe price ID
+     * @param  string  $priceId  The new provider price ID
      * @return mixed The updated subscription
      */
     public function updateSubscription(Billable $billable, string $priceId);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Traits;
 
+use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\Quota;
@@ -12,11 +13,24 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
-use Laravel\Cashier\Billable;
 
+/**
+ * Trait for models that can subscribe to plans and use features.
+ *
+ * IMPORTANT: You must also add the appropriate Cashier Billable trait to your model:
+ * - For Stripe: use Laravel\Cashier\Billable;
+ * - For Paddle: use Laravel\Paddle\Billable;
+ *
+ * Example:
+ * ```php
+ * class Account extends Model {
+ *     use \Laravel\Cashier\Billable;  // or \Laravel\Paddle\Billable
+ *     use \Develupers\PlanUsage\Traits\HasPlanFeatures;
+ * }
+ * ```
+ */
 trait HasPlanFeatures
 {
-    use Billable;
     use EnforcesQuotas;
     use TracksUsage;
 
@@ -46,6 +60,10 @@ trait HasPlanFeatures
 
     /**
      * Subscribe to a plan.
+     *
+     * This method updates the local plan association. For billing provider
+     * subscription management, use the appropriate Cashier methods directly
+     * or through the BillingProvider abstraction.
      */
     public function subscribeToPlan(Plan $plan, array $options = []): self
     {
@@ -58,9 +76,22 @@ trait HasPlanFeatures
                 ->firstWhere('id', (int) $options['plan_price_id']);
         }
 
+        // Check for provider-specific price ID option
+        if (! $selectedPlanPrice && isset($options['price_id'])) {
+            $selectedPlanPrice = $plan->prices
+                ->first(fn ($price) => $price->getProviderPriceId() === $options['price_id']);
+        }
+
+        // Legacy support for stripe_price_id option
         if (! $selectedPlanPrice && isset($options['stripe_price_id'])) {
             $selectedPlanPrice = $plan->prices
                 ->firstWhere('stripe_price_id', $options['stripe_price_id']);
+        }
+
+        // Legacy support for paddle_price_id option
+        if (! $selectedPlanPrice && isset($options['paddle_price_id'])) {
+            $selectedPlanPrice = $plan->prices
+                ->firstWhere('paddle_price_id', $options['paddle_price_id']);
         }
 
         $defaultPlanPrice = $plan->defaultPrice
@@ -83,17 +114,18 @@ trait HasPlanFeatures
         // Initialize quotas for the new plan
         $this->initializeQuotasForPlan($plan);
 
-        // If Stripe integration is enabled and plan has prices
-        if (config('plan-usage.stripe.enabled')) {
-            // Get the default price or specified price
-            $priceId = $options['stripe_price_id'] ?? null;
+        // Handle billing provider subscription if configured
+        $billingEnabled = config('plan-usage.stripe.enabled', false)
+            || config('plan-usage.billing.provider') !== null;
 
-            if (! $priceId && $planPriceToAssign) {
-                $priceId = $planPriceToAssign->stripe_price_id;
-            }
+        if ($billingEnabled && $planPriceToAssign) {
+            $priceId = $options['price_id']
+                ?? $options['stripe_price_id']
+                ?? $options['paddle_price_id']
+                ?? $planPriceToAssign->getProviderPriceId();
 
-            if ($priceId) {
-                // Create or update Stripe subscription
+            if ($priceId && method_exists($this, 'subscribed')) {
+                // Create or update subscription using Cashier methods
                 if ($this->subscribed()) {
                     $this->subscription()->swap($priceId);
                 } else {

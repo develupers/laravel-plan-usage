@@ -182,20 +182,60 @@ class DeleteSubscriptionAction
             }
         }
 
-        // Clear Stripe customer ID if configured to do so
-        if (config('plan-usage.subscription.clear_stripe_on_delete', false)) {
-            if (property_exists($billable, 'stripe_id') || method_exists($billable, '__set')) {
-                $billable->stripe_id = null;
-                $billable->pm_type = null;
-                $billable->pm_last_four = null;
-                $billable->trial_ends_at = null;
-                $billable->save();
+        // Clear billing provider customer data if configured to do so
+        if (config('plan-usage.subscription.clear_provider_data_on_delete', false)
+            || config('plan-usage.subscription.clear_stripe_on_delete', false)) {
+            $this->clearProviderData($billable);
+        }
+    }
 
-                Log::info('Cleared Stripe customer data for billable', [
-                    'billable_type' => get_class($billable),
-                    'billable_id' => $billable->getKey(),
-                ]);
+    /**
+     * Clear billing provider customer data from the billable.
+     *
+     * This handles both Stripe and Paddle customer data.
+     */
+    protected function clearProviderData(Billable $billable): void
+    {
+        $clearedProviders = [];
+
+        // Clear Stripe customer data
+        if (property_exists($billable, 'stripe_id') || method_exists($billable, '__set')) {
+            $hadStripeData = ! empty($billable->stripe_id);
+            $billable->stripe_id = null;
+
+            if (property_exists($billable, 'pm_type') || method_exists($billable, '__set')) {
+                $billable->pm_type = null;
             }
+            if (property_exists($billable, 'pm_last_four') || method_exists($billable, '__set')) {
+                $billable->pm_last_four = null;
+            }
+            if (property_exists($billable, 'trial_ends_at') || method_exists($billable, '__set')) {
+                $billable->trial_ends_at = null;
+            }
+
+            if ($hadStripeData) {
+                $clearedProviders[] = 'stripe';
+            }
+        }
+
+        // Clear Paddle customer data
+        if (property_exists($billable, 'paddle_id') || method_exists($billable, '__set')) {
+            $hadPaddleData = ! empty($billable->paddle_id);
+            $billable->paddle_id = null;
+
+            if ($hadPaddleData) {
+                $clearedProviders[] = 'paddle';
+            }
+        }
+
+        if (! empty($clearedProviders)) {
+            $billable->save();
+
+            Log::info('Cleared billing provider customer data for billable', [
+                'billable_type' => get_class($billable),
+                'billable_id' => $billable->getKey(),
+                'cleared_providers' => $clearedProviders,
+            ]);
         }
     }
 }

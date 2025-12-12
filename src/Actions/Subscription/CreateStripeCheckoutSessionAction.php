@@ -5,16 +5,32 @@ declare(strict_types=1);
 namespace Develupers\PlanUsage\Actions\Subscription;
 
 use Develupers\PlanUsage\Contracts\Billable;
+use Develupers\PlanUsage\Contracts\CheckoutSession;
 use Develupers\PlanUsage\Models\PlanPrice;
+use Develupers\PlanUsage\Providers\Stripe\StripeCheckoutSession;
+use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\ValidationException;
 use Laravel\Cashier\Checkout;
 
+/**
+ * Stripe-specific checkout session action.
+ *
+ * @deprecated Use CreateCheckoutSessionAction with the BillingProvider interface for provider-agnostic checkout.
+ */
 class CreateStripeCheckoutSessionAction
 {
+    protected StripeProvider $provider;
+
+    public function __construct()
+    {
+        $this->provider = new StripeProvider();
+    }
+
     /**
      * Create a new Stripe Checkout session for subscription.
      *
-     * @param  Billable  $billable  The billable entity
+     * @param  Model&Billable  $billable  The billable entity
      * @param  string  $priceId  The Stripe price ID
      * @param  array  $sessionOptions  Additional checkout session options
      * @param  string  $subscriptionName  The subscription name (default: 'default')
@@ -22,11 +38,11 @@ class CreateStripeCheckoutSessionAction
      * @throws ValidationException
      */
     public function execute(
-        Billable $billable,
+        $billable,
         string $priceId,
         array $sessionOptions = [],
         string $subscriptionName = 'default'
-    ): Checkout {
+    ): Checkout|CheckoutSession {
         // Check if billable already has an active subscription
         if ($billable->subscribed($subscriptionName)) {
             throw ValidationException::withMessages([
@@ -87,17 +103,17 @@ class CreateStripeCheckoutSessionAction
     /**
      * Create a checkout session for a plan price model.
      *
-     * @param  Billable  $billable  The billable entity
+     * @param  Model&Billable  $billable  The billable entity
      * @param  PlanPrice  $planPrice  The plan price model
      * @param  array  $sessionOptions  Additional checkout session options
      * @param  string  $subscriptionName  The subscription name
      */
     public function executeForPlanPrice(
-        Billable $billable,
+        $billable,
         PlanPrice $planPrice,
         array $sessionOptions = [],
         string $subscriptionName = 'default'
-    ): Checkout {
+    ): Checkout|CheckoutSession {
         if (! $planPrice->stripe_price_id) {
             throw ValidationException::withMessages([
                 'price' => ['The selected price is not configured for Stripe.'],

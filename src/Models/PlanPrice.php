@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $id
  * @property int $plan_id
  * @property string|null $stripe_price_id
+ * @property string|null $paddle_price_id
  * @property float $price
  * @property string $currency
  * @property Interval $interval
@@ -32,6 +33,7 @@ class PlanPrice extends Model
     protected $fillable = [
         'plan_id',
         'stripe_price_id',
+        'paddle_price_id',
         'price',
         'currency',
         'interval',
@@ -183,10 +185,60 @@ class PlanPrice extends Model
     }
 
     /**
-     * Find a plan price by Stripe price ID.
+     * Find a plan price by the provider's price ID.
+     *
+     * Uses the currently configured billing provider to determine which column to search.
      */
-    public static function findByStripePriceId(string $stripePriceId): ?self
+    public static function findByProviderPriceId(string $priceId): ?self
     {
-        return static::where('stripe_price_id', $stripePriceId)->first();
+        $provider = config('plan-usage.billing.provider', 'auto');
+
+        // If auto, detect from installed package
+        if ($provider === 'auto') {
+            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
+        }
+
+        $column = match ($provider) {
+            'paddle' => 'paddle_price_id',
+            default => 'stripe_price_id',
+        };
+
+        return static::where($column, $priceId)->first();
+    }
+
+    /**
+     * Get the price ID for the currently configured billing provider.
+     */
+    public function getProviderPriceId(): ?string
+    {
+        $provider = config('plan-usage.billing.provider', 'auto');
+
+        // If auto, detect from installed package
+        if ($provider === 'auto') {
+            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
+        }
+
+        return match ($provider) {
+            'paddle' => $this->paddle_price_id,
+            default => $this->stripe_price_id,
+        };
+    }
+
+    /**
+     * Set the price ID for the currently configured billing provider.
+     */
+    public function setProviderPriceId(string $priceId): void
+    {
+        $provider = config('plan-usage.billing.provider', 'auto');
+
+        // If auto, detect from installed package
+        if ($provider === 'auto') {
+            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
+        }
+
+        match ($provider) {
+            'paddle' => $this->paddle_price_id = $priceId,
+            default => $this->stripe_price_id = $priceId,
+        };
     }
 }
