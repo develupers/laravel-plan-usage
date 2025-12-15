@@ -96,8 +96,8 @@ class PushPlansCommand extends Command
     {
         try {
             return match ($name) {
-                'stripe' => new \Develupers\PlanUsage\Providers\Stripe\StripeProvider(),
-                'paddle' => new \Develupers\PlanUsage\Providers\Paddle\PaddleProvider(),
+                'stripe' => new \Develupers\PlanUsage\Providers\Stripe\StripeProvider,
+                'paddle' => new \Develupers\PlanUsage\Providers\Paddle\PaddleProvider,
                 default => throw new \InvalidArgumentException("Unknown provider: {$name}"),
             };
         } catch (\InvalidArgumentException $e) {
@@ -124,7 +124,7 @@ class PushPlansCommand extends Command
             $this->info('Created:');
             foreach ($results['created'] as $item) {
                 if (is_array($item)) {
-                    $this->line("  - {$item['plan']}" . ($dryRun ? ' (dry run)' : ''));
+                    $this->line("  - {$item['plan']}".($dryRun ? ' (dry run)' : ''));
                 } else {
                     $this->line("  - {$item}");
                 }
@@ -163,10 +163,10 @@ class PushPlansCommand extends Command
         $this->newLine();
         if ($dryRun) {
             $this->warn('DRY RUN COMPLETE - No changes were made');
-            $this->info('Run without --dry-run to actually sync to ' . $provider->name());
+            $this->info('Run without --dry-run to actually sync to '.$provider->name());
         } else {
             if (empty($results['errors'])) {
-                $this->info('All plans synced successfully to ' . $provider->name() . '!');
+                $this->info('All plans synced successfully to '.$provider->name().'!');
             } else {
                 $this->warn('Sync completed with some errors.');
             }

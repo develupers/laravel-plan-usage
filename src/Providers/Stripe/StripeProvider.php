@@ -112,6 +112,7 @@ class StripeProvider implements BillingProvider
                         'action' => $plan->stripe_product_id ? 'update' : 'create',
                         'dry_run' => true,
                     ];
+
                     continue;
                 }
 
@@ -200,11 +201,11 @@ class StripeProvider implements BillingProvider
         $baseUrl = config('plan-usage.checkout.success_url');
 
         if ($baseUrl) {
-            return $baseUrl . '?session_id={CHECKOUT_SESSION_ID}';
+            return $baseUrl.'?session_id={CHECKOUT_SESSION_ID}';
         }
 
         if (function_exists('route') && \Route::has('subscription.success')) {
-            return route('subscription.success') . '?session_id={CHECKOUT_SESSION_ID}';
+            return route('subscription.success').'?session_id={CHECKOUT_SESSION_ID}';
         }
 
         return url('/subscription/success?session_id={CHECKOUT_SESSION_ID}');
