@@ -64,13 +64,13 @@ describe('Plan Model', function () {
             ->and($plan->getYearlyPrice()?->id)->toBe($yearly->id);
     });
 
-    it('finds plan by Stripe price id', function () {
+    it('finds plan by provider price id', function () {
         $plan = Plan::factory()->create()->refresh();
         // Update the existing default price created by the factory
         $plan->defaultPrice->update(['stripe_price_id' => 'price_test_123']);
         $price = $plan->defaultPrice;
 
-        $found = Plan::findByStripePriceId('price_test_123');
+        $found = Plan::findByProviderPriceId('price_test_123');
 
         expect($found)->not->toBeNull()
             ->and($found->id)->toBe($plan->id)

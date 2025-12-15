@@ -14,6 +14,7 @@ use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Models\Quota;
 use Develupers\PlanUsage\Models\Usage;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Event;
 
 beforeEach(function () {
@@ -124,6 +125,10 @@ describe('PlanUsage Integration', function () {
     });
 
     it('defaults to first active plan price when none provided', function () {
+        // Disable billing to avoid Cashier subscription logic in tests
+        Config::set('plan-usage.stripe.enabled', false);
+        Config::set('plan-usage.billing.provider', null);
+
         $plan = Plan::factory()->create()->refresh();
         // Update the existing default price instead of creating a duplicate
         $plan->defaultPrice->update(['stripe_price_id' => 'price_default_selection']);
@@ -137,6 +142,10 @@ describe('PlanUsage Integration', function () {
     });
 
     it('syncs plan_price_id when subscribing to plan', function () {
+        // Disable billing to avoid Cashier subscription logic in tests
+        Config::set('plan-usage.stripe.enabled', false);
+        Config::set('plan-usage.billing.provider', null);
+
         $plan = Plan::factory()->create()->refresh();
         // Update the existing default price instead of creating a duplicate
         $plan->defaultPrice->update(['stripe_price_id' => 'price_subscribe_test']);

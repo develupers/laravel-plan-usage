@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Develupers\PlanUsage\Models;
 
 use Develupers\PlanUsage\Enums\Interval;
+use Develupers\PlanUsage\Traits\DetectsBillingProvider;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -37,6 +38,7 @@ use Illuminate\Support\Collection;
  */
 class Plan extends Model
 {
+    use DetectsBillingProvider;
     use HasFactory;
 
     // Type constants
@@ -167,14 +169,7 @@ class Plan extends Model
      */
     public function getProviderProductId(): ?string
     {
-        $provider = config('plan-usage.billing.provider', 'auto');
-
-        // If auto, detect from installed package
-        if ($provider === 'auto') {
-            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
-        }
-
-        return match ($provider) {
+        return match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_product_id,
             default => $this->stripe_product_id,
         };
@@ -185,14 +180,7 @@ class Plan extends Model
      */
     public function setProviderProductId(string $productId): void
     {
-        $provider = config('plan-usage.billing.provider', 'auto');
-
-        // If auto, detect from installed package
-        if ($provider === 'auto') {
-            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
-        }
-
-        match ($provider) {
+        match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_product_id = $productId,
             default => $this->stripe_product_id = $productId,
         };

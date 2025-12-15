@@ -6,6 +6,7 @@ namespace Develupers\PlanUsage\Models;
 
 use Develupers\PlanUsage\Database\Factories\PlanPriceFactory;
 use Develupers\PlanUsage\Enums\Interval;
+use Develupers\PlanUsage\Traits\DetectsBillingProvider;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -28,6 +29,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class PlanPrice extends Model
 {
+    use DetectsBillingProvider;
     use HasFactory;
 
     protected $fillable = [
@@ -191,14 +193,8 @@ class PlanPrice extends Model
      */
     public static function findByProviderPriceId(string $priceId): ?self
     {
-        $provider = config('plan-usage.billing.provider', 'auto');
-
-        // If auto, detect from installed package
-        if ($provider === 'auto') {
-            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
-        }
-
-        $column = match ($provider) {
+        $instance = new static;
+        $column = match ($instance->detectBillingProvider()) {
             'paddle' => 'paddle_price_id',
             default => 'stripe_price_id',
         };
@@ -211,14 +207,7 @@ class PlanPrice extends Model
      */
     public function getProviderPriceId(): ?string
     {
-        $provider = config('plan-usage.billing.provider', 'auto');
-
-        // If auto, detect from installed package
-        if ($provider === 'auto') {
-            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
-        }
-
-        return match ($provider) {
+        return match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_price_id,
             default => $this->stripe_price_id,
         };
@@ -229,14 +218,7 @@ class PlanPrice extends Model
      */
     public function setProviderPriceId(string $priceId): void
     {
-        $provider = config('plan-usage.billing.provider', 'auto');
-
-        // If auto, detect from installed package
-        if ($provider === 'auto') {
-            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
-        }
-
-        match ($provider) {
+        match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_price_id = $priceId,
             default => $this->stripe_price_id = $priceId,
         };

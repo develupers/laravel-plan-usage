@@ -2,143 +2,78 @@
 
 declare(strict_types=1);
 
-namespace Develupers\PlanUsage\Tests\Unit\Providers;
-
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
 use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
-use PHPUnit\Framework\TestCase;
 
 /**
  * Test that both providers implement the BillingProvider contract correctly.
  */
-class BillingProviderContractTest extends TestCase
-{
-    /**
-     * @dataProvider providerClassProvider
-     */
-    public function test_provider_implements_billing_provider_interface(string $providerClass): void
-    {
-        $provider = new $providerClass();
-        $this->assertInstanceOf(BillingProvider::class, $provider);
-    }
+describe('BillingProvider Contract', function () {
 
-    /**
-     * @dataProvider providerClassProvider
-     */
-    public function test_provider_name_returns_string(string $providerClass): void
-    {
-        $provider = new $providerClass();
+    dataset('providers', [
+        'Stripe Provider' => [fn () => new StripeProvider()],
+        'Paddle Provider' => [fn () => new PaddleProvider()],
+    ]);
+
+    it('implements BillingProvider interface', function (BillingProvider $provider) {
+        expect($provider)->toBeInstanceOf(BillingProvider::class);
+    })->with('providers');
+
+    it('name returns string', function (BillingProvider $provider) {
         $name = $provider->name();
 
-        $this->assertIsString($name);
-        $this->assertNotEmpty($name);
-    }
+        expect($name)->toBeString()->not->toBeEmpty();
+    })->with('providers');
 
-    /**
-     * @dataProvider providerClassProvider
-     */
-    public function test_provider_column_methods_return_strings(string $providerClass): void
-    {
-        $provider = new $providerClass();
+    it('column methods return strings', function (BillingProvider $provider) {
+        expect($provider->getCustomerIdColumn())->toBeString()->not->toBeEmpty()
+            ->and($provider->getPriceIdColumn())->toBeString()->not->toBeEmpty()
+            ->and($provider->getProductIdColumn())->toBeString()->not->toBeEmpty();
+    })->with('providers');
 
-        $this->assertIsString($provider->getCustomerIdColumn());
-        $this->assertIsString($provider->getPriceIdColumn());
-        $this->assertIsString($provider->getProductIdColumn());
-
-        $this->assertNotEmpty($provider->getCustomerIdColumn());
-        $this->assertNotEmpty($provider->getPriceIdColumn());
-        $this->assertNotEmpty($provider->getProductIdColumn());
-    }
-
-    /**
-     * @dataProvider providerClassProvider
-     */
-    public function test_provider_webhook_event_class_is_valid_class_string(string $providerClass): void
-    {
-        $provider = new $providerClass();
+    it('webhook event class is valid class string', function (BillingProvider $provider) {
         $eventClass = $provider->getWebhookEventClass();
 
-        $this->assertIsString($eventClass);
-        // The class may not exist if the package isn't installed, but should be a valid class name format
-        $this->assertMatchesRegularExpression('/^[A-Za-z_\\\\]+$/', $eventClass);
-    }
+        expect($eventClass)->toBeString()
+            ->and($eventClass)->toMatch('/^[A-Za-z_\\\\]+$/');
+    })->with('providers');
 
-    /**
-     * @dataProvider providerClassProvider
-     */
-    public function test_provider_is_installed_returns_boolean(string $providerClass): void
-    {
-        $provider = new $providerClass();
-        $this->assertIsBool($provider->isInstalled());
-    }
+    it('isInstalled returns boolean', function (BillingProvider $provider) {
+        expect($provider->isInstalled())->toBeBool();
+    })->with('providers');
 
-    /**
-     * @dataProvider providerClassProvider
-     */
-    public function test_provider_sync_products_with_empty_collection(string $providerClass): void
-    {
-        $provider = new $providerClass();
+    it('syncProducts with empty collection returns proper structure', function (BillingProvider $provider) {
         $result = $provider->syncProducts([], ['dry_run' => true]);
 
-        $this->assertIsArray($result);
-        $this->assertArrayHasKey('created', $result);
-        $this->assertArrayHasKey('updated', $result);
-        $this->assertArrayHasKey('errors', $result);
-    }
+        expect($result)->toBeArray()
+            ->toHaveKey('created')
+            ->toHaveKey('updated')
+            ->toHaveKey('errors');
+    })->with('providers');
 
-    /**
-     * @dataProvider providerClassProvider
-     */
-    public function test_provider_find_billable_with_invalid_id_returns_null(string $providerClass): void
-    {
-        $provider = new $providerClass();
-
+    it('findBillableByCustomerId with invalid id returns null', function (BillingProvider $provider) {
         // Without proper app setup, this should return null gracefully
         $result = $provider->findBillableByCustomerId('invalid_id_12345');
 
-        $this->assertNull($result);
-    }
+        expect($result)->toBeNull();
+    })->with('providers');
 
-    public static function providerClassProvider(): array
-    {
-        return [
-            'Stripe Provider' => [StripeProvider::class],
-            'Paddle Provider' => [PaddleProvider::class],
-        ];
-    }
-
-    public function test_stripe_and_paddle_have_different_column_names(): void
-    {
+    it('stripe and paddle have different column names', function () {
         $stripe = new StripeProvider();
         $paddle = new PaddleProvider();
 
-        // Customer ID columns should be different
-        $this->assertNotEquals(
-            $stripe->getCustomerIdColumn(),
-            $paddle->getCustomerIdColumn()
-        );
+        expect($stripe->getCustomerIdColumn())->not->toBe($paddle->getCustomerIdColumn())
+            ->and($stripe->getPriceIdColumn())->not->toBe($paddle->getPriceIdColumn())
+            ->and($stripe->getProductIdColumn())->not->toBe($paddle->getProductIdColumn());
+    });
 
-        // Price ID columns should be different
-        $this->assertNotEquals(
-            $stripe->getPriceIdColumn(),
-            $paddle->getPriceIdColumn()
-        );
-
-        // Product ID columns should be different
-        $this->assertNotEquals(
-            $stripe->getProductIdColumn(),
-            $paddle->getProductIdColumn()
-        );
-    }
-
-    public function test_stripe_and_paddle_have_different_names(): void
-    {
+    it('stripe and paddle have different names', function () {
         $stripe = new StripeProvider();
         $paddle = new PaddleProvider();
 
-        $this->assertNotEquals($stripe->name(), $paddle->name());
-        $this->assertEquals('stripe', $stripe->name());
-        $this->assertEquals('paddle', $paddle->name());
-    }
-}
+        expect($stripe->name())->not->toBe($paddle->name())
+            ->and($stripe->name())->toBe('stripe')
+            ->and($paddle->name())->toBe('paddle');
+    });
+});

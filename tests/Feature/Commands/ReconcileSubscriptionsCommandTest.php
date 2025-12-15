@@ -26,7 +26,7 @@ it('reports no expired subscriptions found', function () {
     $billableClass->shouldReceive('whereNotNull')->with('plan_id')->once()->andReturn($query);
 
     $this->artisan('subscriptions:reconcile')
-        ->expectsOutput('✅ No expired subscriptions found that need reconciliation')
+        ->expectsOutput('No expired subscriptions found that need reconciliation')
         ->assertSuccessful();
 });
 
