@@ -7,7 +7,6 @@ namespace Develupers\PlanUsage\Actions\Subscription;
 use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Contracts\CheckoutSession;
 use Develupers\PlanUsage\Models\PlanPrice;
-use Develupers\PlanUsage\Providers\Stripe\StripeCheckoutSession;
 use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\ValidationException;
@@ -24,7 +23,7 @@ class CreateStripeCheckoutSessionAction
 
     public function __construct()
     {
-        $this->provider = new StripeProvider();
+        $this->provider = new StripeProvider;
     }
 
     /**

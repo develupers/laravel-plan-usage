@@ -30,8 +30,6 @@ interface CheckoutSession
 
     /**
      * Create a redirect response to the checkout.
-     *
-     * @return RedirectResponse
      */
     public function redirect(): RedirectResponse;
 

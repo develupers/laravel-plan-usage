@@ -84,16 +84,16 @@ class PlanUsageServiceProvider extends PackageServiceProvider
             // Auto-detect based on installed package
             // Check for Paddle first (since it's the newer option)
             if (class_exists(\Laravel\Paddle\Cashier::class)) {
-                return new PaddleProvider();
+                return new PaddleProvider;
             }
 
             if (class_exists(\Laravel\Cashier\Cashier::class)) {
-                return new StripeProvider();
+                return new StripeProvider;
             }
 
             // No billing provider installed - return a null provider that throws on use
             throw new \RuntimeException(
-                'No billing provider installed. Please install either laravel/cashier (for Stripe) or laravel/cashier-paddle (for Paddle), ' .
+                'No billing provider installed. Please install either laravel/cashier (for Stripe) or laravel/cashier-paddle (for Paddle), '.
                 'or set BILLING_PROVIDER in your .env file to explicitly configure the provider.'
             );
         });
@@ -120,12 +120,12 @@ class PlanUsageServiceProvider extends PackageServiceProvider
     {
         if (! class_exists(\Laravel\Cashier\Cashier::class)) {
             throw new \RuntimeException(
-                'Stripe provider configured but laravel/cashier is not installed. ' .
+                'Stripe provider configured but laravel/cashier is not installed. '.
                 'Install it with: composer require laravel/cashier'
             );
         }
 
-        return new StripeProvider();
+        return new StripeProvider;
     }
 
     /**
@@ -135,12 +135,12 @@ class PlanUsageServiceProvider extends PackageServiceProvider
     {
         if (! class_exists(\Laravel\Paddle\Cashier::class)) {
             throw new \RuntimeException(
-                'Paddle provider configured but laravel/cashier-paddle is not installed. ' .
+                'Paddle provider configured but laravel/cashier-paddle is not installed. '.
                 'Install it with: composer require laravel/cashier-paddle'
             );
         }
 
-        return new PaddleProvider();
+        return new PaddleProvider;
     }
 
     /**

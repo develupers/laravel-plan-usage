@@ -46,7 +46,7 @@ class PaddleCheckoutSession implements CheckoutSession
         }
 
         // Generate a unique ID if none available
-        return 'paddle_' . uniqid();
+        return 'paddle_'.uniqid();
     }
 
     /**

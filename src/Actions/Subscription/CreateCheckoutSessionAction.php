@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Actions\Subscription;
 
-use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Contracts\Billable;
+use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Contracts\CheckoutSession;
 use Develupers\PlanUsage\Models\PlanPrice;
 use Illuminate\Database\Eloquent\Model;

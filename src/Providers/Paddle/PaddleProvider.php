@@ -284,7 +284,7 @@ class PaddleProvider implements BillingProvider
 
         $payload = [
             'product_id' => $plan->paddle_product_id,
-            'description' => ucfirst($planPrice->interval->value) . ' subscription',
+            'description' => ucfirst($planPrice->interval->value).' subscription',
             'unit_price' => [
                 'amount' => $amount,
                 'currency_code' => strtoupper($planPrice->currency ?? 'USD'),
@@ -351,7 +351,7 @@ class PaddleProvider implements BillingProvider
         $ch = curl_init();
 
         $headers = [
-            'Authorization: Bearer ' . $apiKey,
+            'Authorization: Bearer '.$apiKey,
             'Content-Type: application/json',
         ];
 

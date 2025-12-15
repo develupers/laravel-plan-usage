@@ -20,7 +20,7 @@ class PaddleProviderTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->provider = new PaddleProvider();
+        $this->provider = new PaddleProvider;
     }
 
     public function test_implements_billing_provider_interface(): void

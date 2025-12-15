@@ -20,7 +20,7 @@ class StripeProviderTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->provider = new StripeProvider();
+        $this->provider = new StripeProvider;
     }
 
     public function test_implements_billing_provider_interface(): void
