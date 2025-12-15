@@ -1,0 +1,90 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * This migration adds Paddle Cashier billable columns to your billable model's table.
+     * Configure the billable table name in config/plan-usage.php under 'tables.billable'
+     *
+     * For Paddle Cashier, ensure you have also run the Cashier Paddle migrations:
+     * php artisan vendor:publish --tag="cashier-paddle-migrations"
+     */
+    public function up(): void
+    {
+        $tableName = config('plan-usage.tables.billable', 'users');
+
+        Schema::table($tableName, function (Blueprint $table) use ($tableName) {
+            // Laravel Cashier Paddle column
+            // Note: Paddle uses a separate 'customers' table with polymorphic relation,
+            // but we still add paddle_id here for convenience
+            if (! Schema::hasColumn($tableName, 'paddle_id')) {
+                $table->string('paddle_id')->nullable()->index();
+            }
+
+            // Trial tracking (Paddle handles this differently but we keep for consistency)
+            if (! Schema::hasColumn($tableName, 'trial_ends_at')) {
+                $table->timestamp('trial_ends_at')->nullable();
+            }
+
+            // Plan tracking columns
+            if (! Schema::hasColumn($tableName, 'plan_id')) {
+                $table->foreignId('plan_id')->nullable()
+                    ->constrained(config('plan-usage.tables.plans', 'plans'))
+                    ->nullOnDelete();
+            }
+
+            if (! Schema::hasColumn($tableName, 'plan_price_id')) {
+                $table->foreignId('plan_price_id')->nullable()
+                    ->constrained(config('plan-usage.tables.plan_prices', 'plan_prices'))
+                    ->nullOnDelete();
+            }
+
+            // Track plan changes
+            if (! Schema::hasColumn($tableName, 'plan_changed_at')) {
+                $table->timestamp('plan_changed_at')->nullable();
+            }
+        });
+    }
+
+    public function down(): void
+    {
+        $tableName = config('plan-usage.tables.billable', 'users');
+
+        Schema::table($tableName, function (Blueprint $table) use ($tableName) {
+            $columnsToRemove = [];
+            $checkColumns = [
+                'paddle_id',
+                'trial_ends_at',
+                'plan_id',
+                'plan_price_id',
+                'plan_changed_at',
+            ];
+
+            foreach ($checkColumns as $column) {
+                if (Schema::hasColumn($tableName, $column)) {
+                    $columnsToRemove[] = $column;
+                }
+            }
+
+            if (! empty($columnsToRemove)) {
+                // Drop foreign keys first
+                if (in_array('plan_id', $columnsToRemove)) {
+                    $table->dropConstrainedForeignId('plan_id');
+                    $columnsToRemove = array_diff($columnsToRemove, ['plan_id']);
+                }
+                if (in_array('plan_price_id', $columnsToRemove)) {
+                    $table->dropConstrainedForeignId('plan_price_id');
+                    $columnsToRemove = array_diff($columnsToRemove, ['plan_price_id']);
+                }
+
+                if (! empty($columnsToRemove)) {
+                    $table->dropColumn($columnsToRemove);
+                }
+            }
+        });
+    }
+};

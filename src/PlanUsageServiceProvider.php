@@ -104,12 +104,12 @@ class PlanUsageServiceProvider extends PackageServiceProvider
     {
         if (! class_exists(\Laravel\Cashier\Cashier::class)) {
             throw new \RuntimeException(
-                'Stripe provider configured but laravel/cashier is not installed. ' .
+                'Stripe provider configured but laravel/cashier is not installed. '.
                 'Install it with: composer require laravel/cashier'
             );
         }
 
-        return new StripeProvider();
+        return new StripeProvider;
     }
 
     /**
@@ -119,12 +119,12 @@ class PlanUsageServiceProvider extends PackageServiceProvider
     {
         if (! class_exists(\Laravel\Paddle\Cashier::class)) {
             throw new \RuntimeException(
-                'Paddle provider configured but laravel/cashier-paddle is not installed. ' .
+                'Paddle provider configured but laravel/cashier-paddle is not installed. '.
                 'Install it with: composer require laravel/cashier-paddle'
             );
         }
 
-        return new PaddleProvider();
+        return new PaddleProvider;
     }
 
     /**
@@ -140,15 +140,7 @@ class PlanUsageServiceProvider extends PackageServiceProvider
         $package
             ->name('plan-usage')
             ->hasConfigFile('plan-usage')
-            ->hasMigrations([
-                'create_plans_table',
-                'create_features_table',
-                'create_plan_features_table',
-                'create_plan_prices_table',
-                'create_usage_table',
-                'create_quotas_table',
-                'add_billable_columns',
-            ])
+            ->hasMigrations($this->getMigrations())
             ->hasCommands([
                 PlanUsageCommand::class,
                 WarmCacheCommand::class,
@@ -156,6 +148,32 @@ class PlanUsageServiceProvider extends PackageServiceProvider
                 PushPlansCommand::class,
                 PushPlansStripeCommand::class, // Deprecated, kept for backward compatibility
             ]);
+    }
+
+    /**
+     * Get the migrations to publish based on detected billing provider.
+     *
+     * @return array<string>
+     */
+    protected function getMigrations(): array
+    {
+        $provider = $this->detectBillingProvider();
+
+        $billableMigration = match ($provider) {
+            'paddle' => 'add_billable_columns_paddle',
+            'stripe' => 'add_billable_columns_stripe',
+            default => 'add_billable_columns_stripe', // Fallback to Stripe
+        };
+
+        return [
+            'create_plans_table',
+            'create_features_table',
+            'create_plan_features_table',
+            'create_plan_prices_table',
+            'create_usage_table',
+            'create_quotas_table',
+            $billableMigration,
+        ];
     }
 
     /**

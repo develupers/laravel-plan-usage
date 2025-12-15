@@ -10,7 +10,7 @@ use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
  */
 describe('StripeProvider', function () {
     beforeEach(function () {
-        $this->provider = new StripeProvider();
+        $this->provider = new StripeProvider;
     });
 
     it('implements BillingProvider interface', function () {

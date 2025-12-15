@@ -10,7 +10,7 @@ use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
  */
 describe('PaddleProvider', function () {
     beforeEach(function () {
-        $this->provider = new PaddleProvider();
+        $this->provider = new PaddleProvider;
     });
 
     it('implements BillingProvider interface', function () {

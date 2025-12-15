@@ -12,8 +12,8 @@ use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
 describe('BillingProvider Contract', function () {
 
     dataset('providers', [
-        'Stripe Provider' => [fn () => new StripeProvider()],
-        'Paddle Provider' => [fn () => new PaddleProvider()],
+        'Stripe Provider' => [fn () => new StripeProvider],
+        'Paddle Provider' => [fn () => new PaddleProvider],
     ]);
 
     it('implements BillingProvider interface', function (BillingProvider $provider) {
@@ -60,8 +60,8 @@ describe('BillingProvider Contract', function () {
     })->with('providers');
 
     it('stripe and paddle have different column names', function () {
-        $stripe = new StripeProvider();
-        $paddle = new PaddleProvider();
+        $stripe = new StripeProvider;
+        $paddle = new PaddleProvider;
 
         expect($stripe->getCustomerIdColumn())->not->toBe($paddle->getCustomerIdColumn())
             ->and($stripe->getPriceIdColumn())->not->toBe($paddle->getPriceIdColumn())
@@ -69,8 +69,8 @@ describe('BillingProvider Contract', function () {
     });
 
     it('stripe and paddle have different names', function () {
-        $stripe = new StripeProvider();
-        $paddle = new PaddleProvider();
+        $stripe = new StripeProvider;
+        $paddle = new PaddleProvider;
 
         expect($stripe->name())->not->toBe($paddle->name())
             ->and($stripe->name())->toBe('stripe')
