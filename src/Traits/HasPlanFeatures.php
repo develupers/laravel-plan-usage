@@ -35,6 +35,23 @@ trait HasPlanFeatures
     use TracksUsage;
 
     /**
+     * Boot the trait and register model events.
+     */
+    public static function bootHasPlanFeatures(): void
+    {
+        static::creating(function ($model) {
+            // Only assign default plan if plan_id is not already set
+            if ($model->plan_id === null) {
+                $defaultPlanId = config('plan-usage.subscription.default_plan_id');
+
+                if ($defaultPlanId) {
+                    $model->plan_id = $defaultPlanId;
+                }
+            }
+        });
+    }
+
+    /**
      * Get the plan that the billable is subscribed to.
      */
     public function plan(): BelongsTo

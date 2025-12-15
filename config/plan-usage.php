@@ -224,7 +224,8 @@ return [
     |
     */
     'subscription' => [
-        // Default plan ID to assign when subscription is deleted
+        // Default plan ID to assign to new billables and when subscription is deleted.
+        // Set this to your free plan ID so users always have a plan.
         'default_plan_id' => null,
 
         // Clear usage records when subscription is deleted

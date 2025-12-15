@@ -92,6 +92,13 @@ return [
         'provider' => env('BILLING_PROVIDER', 'auto'),
     ],
 
+    // Subscription settings
+    'subscription' => [
+        // Default plan ID for new billables and cancelled subscriptions.
+        // Set this to your free plan ID so users always have a plan.
+        'default_plan_id' => env('DEFAULT_PLAN_ID', null),
+    ],
+
     // Paddle-specific configuration (only needed if using Paddle)
     'paddle' => [
         'sandbox' => env('PADDLE_SANDBOX', true),
@@ -101,6 +108,35 @@ return [
         'client_side_token' => env('PADDLE_CLIENT_SIDE_TOKEN'),
     ],
 ];
+```
+
+### Default Plan for New Billables
+
+When `default_plan_id` is configured, the package automatically assigns this plan to new billable models when they're created. This is useful for:
+
+- **Free tier assignment**: New users automatically get the free plan
+- **Subscription cancellation fallback**: When a paid subscription is cancelled, users fall back to the default plan instead of having no plan
+
+```php
+// In config/plan-usage.php
+'subscription' => [
+    'default_plan_id' => 1, // Your Free plan ID
+],
+
+// Or via .env
+DEFAULT_PLAN_ID=1
+```
+
+With this configured, you don't need to manually assign plans when creating billables:
+
+```php
+// The free plan is automatically assigned!
+$account = Account::create([
+    'name' => 'New Account',
+    'owner_id' => $user->id,
+]);
+
+echo $account->plan->name; // "Free"
 ```
 
 ## 💳 Billing Provider Setup
@@ -148,6 +184,28 @@ PADDLE_CLIENT_SIDE_TOKEN=your-client-token
 ### Auto-Detection
 
 If `BILLING_PROVIDER` is set to `auto` (or not set), the package will automatically detect which Cashier package is installed and use the appropriate provider.
+
+### Automatic Migration Selection
+
+The package automatically publishes the correct migration for your billable table based on the detected billing provider:
+
+- **Stripe**: Adds `stripe_id`, `pm_type`, `pm_last_four`, `trial_ends_at` columns
+- **Paddle**: Adds `paddle_id`, `trial_ends_at` columns
+
+Both migrations also add plan tracking columns: `plan_id`, `plan_price_id`, `plan_changed_at`.
+
+> **Important**: You still need to publish and run the Cashier migrations separately. The package only adds the billable columns to your model's table - it does not create the `subscriptions`, `customers`, or `transactions` tables that Cashier requires.
+
+```bash
+# For Stripe
+php artisan vendor:publish --tag=cashier-migrations
+
+# For Paddle
+php artisan vendor:publish --provider="Laravel\Paddle\CashierServiceProvider"
+
+# Then run migrations
+php artisan migrate
+```
 
 ## 🏁 Quick Start
 
