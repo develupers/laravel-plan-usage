@@ -28,7 +28,7 @@
         "illuminate/contracts": "^11.0||^12.0",
         "illuminate/support": "^11.0||^12.0",
         "illuminate/database": "^11.0||^12.0",
-        "laravel/cashier": "^15.0"
+        "laravel/cashier": "^16.1"
     },
     "require-dev": {
         "laravel/pint": "^1.14",
