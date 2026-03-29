@@ -9,11 +9,19 @@ use Illuminate\Support\Facades\Cache;
 trait ManagesCache
 {
     /**
+     * Check if caching is enabled.
+     */
+    protected function isCacheEnabled(): bool
+    {
+        return (bool) config('plan-usage.cache.enabled', false);
+    }
+
+    /**
      * Get cache store instance
      */
     protected function getCacheStore()
     {
-        $store = config('plan-usage.cache.store', 'redis');
+        $store = config('plan-usage.cache.store');
 
         return Cache::store($store);
     }
@@ -27,7 +35,8 @@ trait ManagesCache
             return false;
         }
 
-        $store = config('plan-usage.cache.store', 'redis');
+        // Resolve the actual store driver name
+        $store = config('plan-usage.cache.store') ?? config('cache.default');
 
         return in_array($store, ['redis', 'memcached', 'dynamodb', 'octane']);
     }
@@ -37,7 +46,7 @@ trait ManagesCache
      */
     protected function cache(array $tags = [])
     {
-        if (! config('plan-usage.cache.enabled', true)) {
+        if (! $this->isCacheEnabled()) {
             return null;
         }
 
@@ -55,7 +64,7 @@ trait ManagesCache
      */
     protected function cacheRemember(string $key, array $tags, \Closure $callback, ?string $type = null)
     {
-        if (! config('plan-usage.cache.enabled', true)) {
+        if (! $this->isCacheEnabled()) {
             return $callback();
         }
 
@@ -83,7 +92,7 @@ trait ManagesCache
      */
     protected function cacheForget(string $key, array $tags = []): void
     {
-        if (! config('plan-usage.cache.enabled', true)) {
+        if (! $this->isCacheEnabled()) {
             return;
         }
 
@@ -99,7 +108,7 @@ trait ManagesCache
      */
     protected function cacheFlushTags(array $tags): void
     {
-        if (! config('plan-usage.cache.enabled', true)) {
+        if (! $this->isCacheEnabled()) {
             return;
         }
 
@@ -166,7 +175,7 @@ trait ManagesCache
      */
     protected function isCacheTypeEnabled(string $type): bool
     {
-        if (! config('plan-usage.cache.enabled', true)) {
+        if (! $this->isCacheEnabled()) {
             return false;
         }
 

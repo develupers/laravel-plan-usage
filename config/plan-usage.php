@@ -91,7 +91,7 @@ return [
     */
     'cache' => [
         'enabled' => env('PLAN_USAGE_CACHE_ENABLED', false),
-        'store' => env('PLAN_USAGE_CACHE_STORE', 'database'), // Can be any Laravel cache store (file, database, redis, memcached, etc.)
+        'store' => env('PLAN_USAGE_CACHE_STORE', null), // null = use app's default cache store. Set to 'redis', 'file', etc. to override.
         'prefix' => 'plan_feature_usage',
 
         // Granular TTL settings for different cache types (in seconds)

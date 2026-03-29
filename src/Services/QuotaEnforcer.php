@@ -475,7 +475,7 @@ class QuotaEnforcer
      */
     public function clearQuotaCache(Model $billable): void
     {
-        if (! config('plan-usage.cache.enabled', true)) {
+        if (! $this->isCacheEnabled()) {
             return;
         }
 

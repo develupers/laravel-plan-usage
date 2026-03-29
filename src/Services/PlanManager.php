@@ -198,7 +198,7 @@ class PlanManager
      */
     public function clearCache(?int $planId = null): void
     {
-        if (! config('plan-usage.cache.enabled', true)) {
+        if (! $this->isCacheEnabled()) {
             return;
         }
 
@@ -251,7 +251,7 @@ class PlanManager
         $billable->save();
 
         // Clear cached quotas for this billable
-        if (config('plan-usage.cache.enabled', true)) {
+        if ($this->isCacheEnabled()) {
             Cache::forget("plan-usage.billable.{$billable->getMorphClass()}.{$billable->getKey()}.quotas");
         }
     }
