@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Facades\DB;
 
 /**
  * @property int $id
@@ -100,8 +101,11 @@ class Quota extends Model
             return false; // Unlimited
         }
 
-        $gracePercentage = config('plan-usage.quota.grace_period', 0);
-        $graceAmount = $this->limit * ($gracePercentage / 100);
+        $graceAmount = 0;
+        if (config('plan-usage.quota.soft_limit', false)) {
+            $gracePercentage = config('plan-usage.quota.grace_percentage', 10);
+            $graceAmount = $this->limit * ($gracePercentage / 100);
+        }
 
         return $this->used > ($this->limit + $graceAmount);
     }
@@ -180,22 +184,40 @@ class Quota extends Model
     }
 
     /**
-     * Use some of the quota.
+     * Use some of the quota (atomic check-and-increment).
      */
     public function use(float $amount = 1): self
     {
-        if ($this->limit !== null && ($this->used + $amount) > $this->limit) {
-            if (config('plan-usage.quota.throw_exception', true)) {
-                throw new QuotaExceededException(
-                    "Quota exceeded for feature {$this->feature->name}. Used: {$this->used}, Limit: {$this->limit}",
-                    $this->feature->slug,
-                    $this->limit,
-                    $this->used
-                );
+        if ($this->limit !== null) {
+            $effectiveLimit = $this->limit;
+            if (config('plan-usage.quota.soft_limit', false)) {
+                $gracePercentage = config('plan-usage.quota.grace_percentage', 10);
+                $effectiveLimit += $this->limit * ($gracePercentage / 100);
             }
-        }
 
-        $this->increment('used', $amount);
+            // Atomic conditional increment — only succeeds if within limit
+            $affected = static::where('id', $this->id)
+                ->whereRaw('(used + ?) <= ?', [$amount, $effectiveLimit])
+                ->update(['used' => DB::raw('used + '.(float) $amount)]);
+
+            if ($affected === 0) {
+                if (config('plan-usage.quota.throw_exception', true)) {
+                    throw new QuotaExceededException(
+                        "Quota exceeded for feature {$this->feature->name}. Used: {$this->used}, Limit: {$this->limit}",
+                        $this->feature->slug,
+                        $this->limit,
+                        $this->used
+                    );
+                }
+
+                return $this;
+            }
+
+            $this->refresh();
+        } else {
+            // Unlimited — just increment
+            $this->increment('used', $amount);
+        }
 
         return $this;
     }
@@ -209,8 +231,11 @@ class Quota extends Model
             return true; // Unlimited
         }
 
-        $gracePercentage = config('plan-usage.quota.grace_period', 0);
-        $graceAmount = $this->limit * ($gracePercentage / 100);
+        $graceAmount = 0;
+        if (config('plan-usage.quota.soft_limit', false)) {
+            $gracePercentage = config('plan-usage.quota.grace_percentage', 10);
+            $graceAmount = $this->limit * ($gracePercentage / 100);
+        }
 
         return ($this->used + $amount) <= ($this->limit + $graceAmount);
     }

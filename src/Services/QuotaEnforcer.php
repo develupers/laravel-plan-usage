@@ -59,21 +59,55 @@ class QuotaEnforcer
     }
 
     /**
-     * Enforce quota for a feature
+     * Enforce quota for a feature (atomic check-and-increment)
      */
     public function enforce(Model $billable, string $featureSlug, float $amount = 1): bool
     {
-        if (! $this->canUse($billable, $featureSlug, $amount)) {
-            $quota = $this->getQuota($billable, $featureSlug);
-            $feature = $this->featureModel::where('slug', $featureSlug)->first();
-            Event::dispatch(new QuotaExceeded($billable, $feature, $quota));
+        $quota = $this->getOrCreateQuota($billable, $featureSlug);
 
+        if (! $quota) {
             return false;
         }
 
-        $this->increment($billable, $featureSlug, $amount);
+        return DB::transaction(function () use ($billable, $featureSlug, $amount, $quota) {
+            $lockedQuota = $this->quotaModel::lockForUpdate()->find($quota->id);
 
-        return true;
+            if (! $lockedQuota) {
+                return false;
+            }
+
+            // Check if quota needs reset under lock
+            if ($this->shouldReset($lockedQuota)) {
+                $lockedQuota->used = 0;
+                $lockedQuota->reset_at = $this->calculateResetTime($lockedQuota->feature);
+                $lockedQuota->save();
+            }
+
+            // Unlimited quota
+            if (is_null($lockedQuota->limit)) {
+                $lockedQuota->increment('used', $amount);
+                $this->clearQuotaCache($billable);
+
+                return true;
+            }
+
+            // Check with grace
+            $graceAmount = $this->getGraceAmount($lockedQuota);
+            $effectiveLimit = $lockedQuota->limit + $graceAmount;
+
+            if (($lockedQuota->used + $amount) > $effectiveLimit) {
+                $feature = $this->featureModel::where('slug', $featureSlug)->first();
+                Event::dispatch(new QuotaExceeded($billable, $feature, $lockedQuota));
+
+                return false;
+            }
+
+            $lockedQuota->increment('used', $amount);
+            $this->checkWarningThreshold($billable, $featureSlug, $lockedQuota->fresh());
+            $this->clearQuotaCache($billable);
+
+            return true;
+        });
     }
 
     /**
@@ -89,18 +123,28 @@ class QuotaEnforcer
 
         // Check if billable has a plan with this feature
         $featureValue = null;
-        $hasFeature = false;
 
-        if (isset($billable->plan_id)) {
+        if (! empty($billable->plan_id)) {
             $plan = $this->planManager->findPlan($billable->plan_id);
-            if ($plan && $plan->hasFeature($featureSlug)) {
-                $hasFeature = true;
-                $featureValue = $this->planManager->getFeatureValue($billable->plan_id, $featureSlug);
+            if (! $plan || ! $plan->hasFeature($featureSlug)) {
+                return null;
             }
+            $featureValue = $this->planManager->getFeatureValue($billable->plan_id, $featureSlug);
         }
 
-        // If billable doesn't have the feature in their plan, return null
-        if (isset($billable->plan_id) && ! $hasFeature) {
+        // Check for an existing quota first
+        $existingQuota = $this->quotaModel::query()
+            ->where('billable_type', $billable->getMorphClass())
+            ->where('billable_id', $billable->getKey())
+            ->where('feature_id', $feature->id)
+            ->first();
+
+        if ($existingQuota) {
+            return $existingQuota;
+        }
+
+        // Don't create new quotas without a plan
+        if (empty($billable->plan_id)) {
             return null;
         }
 
@@ -154,7 +198,7 @@ class QuotaEnforcer
     }
 
     /**
-     * Increment quota usage
+     * Increment quota usage (atomic with row locking)
      */
     public function increment(Model $billable, string $featureSlug, float $amount = 1): void
     {
@@ -164,22 +208,32 @@ class QuotaEnforcer
             return;
         }
 
-        // Check if quota needs reset
-        if ($this->shouldReset($quota)) {
-            $this->resetQuota($quota);
-        }
+        DB::transaction(function () use ($quota, $billable, $featureSlug, $amount) {
+            $lockedQuota = $this->quotaModel::lockForUpdate()->find($quota->id);
 
-        $quota->increment('used', $amount);
+            if (! $lockedQuota) {
+                return;
+            }
 
-        // Check for warning threshold
-        $this->checkWarningThreshold($billable, $featureSlug, $quota);
+            // Check if quota needs reset under lock
+            if ($this->shouldReset($lockedQuota)) {
+                $lockedQuota->used = 0;
+                $lockedQuota->reset_at = $this->calculateResetTime($lockedQuota->feature);
+                $lockedQuota->save();
+            }
+
+            $lockedQuota->increment('used', $amount);
+
+            // Check for warning threshold
+            $this->checkWarningThreshold($billable, $featureSlug, $lockedQuota->fresh());
+        });
 
         // Clear cache
         $this->clearQuotaCache($billable);
     }
 
     /**
-     * Decrement quota usage
+     * Decrement quota usage (atomic, floors at 0)
      */
     public function decrement(Model $billable, string $featureSlug, float $amount = 1): void
     {
@@ -189,28 +243,37 @@ class QuotaEnforcer
             return;
         }
 
-        $quota->decrement('used', $amount);
-
-        // Ensure used doesn't go below 0
-        if ($quota->used < 0) {
-            $quota->used = 0;
-            $quota->save();
-        }
+        $this->quotaModel::where('id', $quota->id)
+            ->update(['used' => DB::raw('MAX(used - '.(float) $amount.', 0)')]);
 
         $this->clearQuotaCache($billable);
     }
 
     /**
-     * Reset quota for a billable
+     * Reset quota for a billable (explicit/user-initiated reset)
      */
     public function reset(Model $billable, string $featureSlug): void
     {
         $quota = $this->getQuota($billable, $featureSlug);
 
-        if ($quota) {
-            $this->resetQuota($quota);
-            $this->clearQuotaCache($billable);
+        if (! $quota) {
+            return;
         }
+
+        DB::transaction(function () use ($quota) {
+            $locked = $this->quotaModel::lockForUpdate()->find($quota->id);
+
+            if (! $locked) {
+                return;
+            }
+
+            $locked->used = 0;
+            $locked->reset_at = $this->calculateResetTime($locked->feature);
+            $locked->save();
+        });
+
+        $quota->refresh();
+        $this->clearQuotaCache($billable);
     }
 
     /**
@@ -294,13 +357,28 @@ class QuotaEnforcer
     }
 
     /**
-     * Reset a quota
+     * Reset a quota (atomic with row locking)
      */
     protected function resetQuota(Quota $quota): void
     {
-        $quota->used = 0;
-        $quota->reset_at = $this->calculateResetTime($quota->feature);
-        $quota->save();
+        DB::transaction(function () use ($quota) {
+            $locked = $this->quotaModel::lockForUpdate()->find($quota->id);
+
+            if (! $locked) {
+                return;
+            }
+
+            // Re-check under lock — another process may have already reset
+            if (! $this->shouldReset($locked)) {
+                return;
+            }
+
+            $locked->used = 0;
+            $locked->reset_at = $this->calculateResetTime($locked->feature);
+            $locked->save();
+        });
+
+        $quota->refresh();
     }
 
     /**
@@ -358,7 +436,7 @@ class QuotaEnforcer
     /**
      * Clear quota cache for a billable
      */
-    protected function clearQuotaCache(Model $billable): void
+    public function clearQuotaCache(Model $billable): void
     {
         if (! config('plan-usage.cache.enabled', true)) {
             return;

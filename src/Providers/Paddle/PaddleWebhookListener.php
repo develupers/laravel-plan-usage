@@ -6,6 +6,7 @@ namespace Develupers\PlanUsage\Providers\Paddle;
 
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Laravel\Paddle\Events\WebhookReceived;
 
@@ -35,6 +36,14 @@ class PaddleWebhookListener
 
         // Only handle subscription-related events
         if (! $this->shouldHandle($eventType)) {
+            return;
+        }
+
+        // Deduplicate webhook events using Paddle event ID
+        $eventId = $payload['event_id'] ?? null;
+        if ($eventId && ! Cache::add("plan-usage:webhook:paddle:{$eventId}", true, 3600)) {
+            Log::debug('Skipping duplicate Paddle webhook event', ['event_id' => $eventId]);
+
             return;
         }
 
@@ -77,12 +86,18 @@ class PaddleWebhookListener
     {
         $data = $payload['data'] ?? [];
 
-        // Extract customer ID and price ID
+        if (! is_array($data) || empty($data)) {
+            Log::warning('Invalid or empty data object in Paddle webhook');
+
+            return;
+        }
+
+        // Extract and validate customer ID and price ID
         $customerId = $data['customer_id'] ?? null;
         $priceId = $this->extractPriceId($data);
 
-        if (! $customerId || ! $priceId) {
-            Log::warning('Missing customer ID or price ID in Paddle subscription webhook', [
+        if (! is_string($customerId) || $customerId === '' || ! is_string($priceId) || $priceId === '') {
+            Log::warning('Invalid customer ID or price ID in Paddle subscription webhook', [
                 'customer_id' => $customerId,
                 'price_id' => $priceId,
                 'subscription_id' => $data['id'] ?? 'unknown',
@@ -136,8 +151,8 @@ class PaddleWebhookListener
         $data = $payload['data'] ?? [];
         $customerId = $data['customer_id'] ?? null;
 
-        if (! $customerId) {
-            Log::warning('Missing customer ID in Paddle subscription ended webhook');
+        if (! is_string($customerId) || $customerId === '') {
+            Log::warning('Invalid or missing customer ID in Paddle subscription ended webhook');
 
             return;
         }

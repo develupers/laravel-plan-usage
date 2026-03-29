@@ -13,6 +13,9 @@ class CheckQuota
     /**
      * Handle an incoming request.
      *
+     * Read-only gate — blocks the request if quota is exceeded.
+     * Actual quota consumption is handled by ConsumeQuota middleware or consume() method.
+     *
      * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
      */
     public function handle(Request $request, Closure $next, string $featureSlug, float $amount = 1): Response
@@ -23,11 +26,11 @@ class CheckQuota
             abort(403, 'No billable entity found.');
         }
 
-        if (! method_exists($billable, 'canUseFeature')) {
+        if (! method_exists($billable, 'checkQuota')) {
             abort(500, 'Billable must use EnforcesQuotas trait.');
         }
 
-        if (! $billable->canUseFeature($featureSlug, $amount)) {
+        if (! $billable->checkQuota($featureSlug, $amount)) {
             $remaining = method_exists($billable, 'getRemainingQuota')
                 ? $billable->getRemainingQuota($featureSlug)
                 : null;
@@ -54,7 +57,7 @@ class CheckQuota
             }
 
             // Check if user itself is billable
-            if (method_exists($request->user(), 'canUseFeature')) {
+            if (method_exists($request->user(), 'checkQuota')) {
                 return $request->user();
             }
 

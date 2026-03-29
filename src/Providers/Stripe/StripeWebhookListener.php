@@ -6,6 +6,7 @@ namespace Develupers\PlanUsage\Providers\Stripe;
 
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Laravel\Cashier\Events\WebhookHandled;
 
@@ -34,6 +35,14 @@ class StripeWebhookListener
 
         // Only handle subscription-related events
         if (! $this->shouldHandle($payload['type'] ?? '')) {
+            return;
+        }
+
+        // Deduplicate webhook events using Stripe event ID
+        $eventId = $payload['id'] ?? null;
+        if ($eventId && ! Cache::add("plan-usage:webhook:stripe:{$eventId}", true, 3600)) {
+            Log::debug('Skipping duplicate Stripe webhook event', ['event_id' => $eventId]);
+
             return;
         }
 
@@ -72,12 +81,18 @@ class StripeWebhookListener
     {
         $subscription = $payload['data']['object'] ?? [];
 
-        // Extract customer ID and price ID
+        if (! is_array($subscription) || empty($subscription)) {
+            Log::warning('Invalid or empty subscription object in Stripe webhook');
+
+            return;
+        }
+
+        // Extract and validate customer ID and price ID
         $customerId = $subscription['customer'] ?? null;
         $priceId = $this->extractPriceId($subscription);
 
-        if (! $customerId || ! $priceId) {
-            Log::warning('Missing customer ID or price ID in subscription webhook', [
+        if (! is_string($customerId) || $customerId === '' || ! is_string($priceId) || $priceId === '') {
+            Log::warning('Invalid customer ID or price ID in subscription webhook', [
                 'customer_id' => $customerId,
                 'price_id' => $priceId,
                 'subscription_id' => $subscription['id'] ?? 'unknown',
@@ -125,8 +140,8 @@ class StripeWebhookListener
         $subscription = $payload['data']['object'] ?? [];
         $customerId = $subscription['customer'] ?? null;
 
-        if (! $customerId) {
-            Log::warning('Missing customer ID in subscription deleted webhook');
+        if (! is_string($customerId) || $customerId === '') {
+            Log::warning('Invalid or missing customer ID in subscription deleted webhook');
 
             return;
         }

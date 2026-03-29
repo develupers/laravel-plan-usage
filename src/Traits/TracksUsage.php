@@ -8,6 +8,7 @@ use Carbon\CarbonInterface;
 use Develupers\PlanUsage\Models\Usage;
 use Develupers\PlanUsage\Services\UsageTracker;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Trait TracksUsage
@@ -28,19 +29,28 @@ trait TracksUsage
     /**
      * Record usage for a feature.
      */
-    public function recordUsage(string $featureSlug, float $quantity = 1.0, array $metadata = []): bool
+    /**
+     * Log usage for a feature (log only, no quota enforcement).
+     *
+     * This logs to the usage table without checking or incrementing quotas.
+     * For full enforcement + logging, use consume() instead.
+     * @see \Develupers\PlanUsage\Traits\EnforcesQuotas::consume()
+     */
+    public function logUsage(string $featureSlug, float $quantity = 1.0, array $metadata = []): bool
     {
         try {
-            // Record usage through service
             $usage = $this->usageTracker()->record($this, $featureSlug, $quantity, $metadata);
-
-            // Also update quota through the quota enforcer
-            if (method_exists($this, 'incrementQuotaUsage')) {
-                $this->incrementQuotaUsage($featureSlug, $quantity);
-            }
 
             return $usage !== null;
         } catch (\Exception $e) {
+            Log::error('Failed to record usage', [
+                'feature' => $featureSlug,
+                'quantity' => $quantity,
+                'billable_type' => $this->getMorphClass(),
+                'billable_id' => $this->getKey(),
+                'error' => $e->getMessage(),
+            ]);
+
             return false;
         }
     }

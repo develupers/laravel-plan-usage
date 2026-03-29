@@ -17,7 +17,7 @@ describe('CheckQuota Middleware', function () {
         // Arrange
         $user = new class
         {
-            public function canUseFeature($slug, $amount)
+            public function checkQuota($slug, $amount)
             {
                 return true;
             }
@@ -46,7 +46,7 @@ describe('CheckQuota Middleware', function () {
         // Arrange
         $user = new class
         {
-            public function canUseFeature($slug, $amount)
+            public function checkQuota($slug, $amount)
             {
                 return false;
             }
@@ -77,7 +77,7 @@ describe('CheckQuota Middleware', function () {
         // Arrange
         $user = new class
         {
-            public function canUseFeature($slug, $amount)
+            public function checkQuota($slug, $amount)
             {
                 return false;
             }
@@ -110,7 +110,7 @@ describe('CheckQuota Middleware', function () {
         {
             public $lastAmount;
 
-            public function canUseFeature($slug, $amount)
+            public function checkQuota($slug, $amount)
             {
                 $this->lastAmount = $amount;
 
@@ -145,7 +145,7 @@ describe('CheckQuota Middleware with datasets', function () {
         {
             public $requestedAmount;
 
-            public function canUseFeature($slug, $amount)
+            public function checkQuota($slug, $amount)
             {
                 $this->requestedAmount = $amount;
 

@@ -59,23 +59,33 @@ interface Billable
     public function hasFeature(string $featureSlug): bool;
 
     /**
-     * Check if the billable can use more of a feature.
+     * Check if the billable can use more of a feature (read-only).
      *
      * @param  string  $featureSlug  The feature to check
      * @param  float  $units  Number of units to check
      * @return bool True if the feature can be used
      */
-    public function canUseFeature(string $featureSlug, float $units = 1.0): bool;
+    public function checkQuota(string $featureSlug, float $units = 1.0): bool;
 
     /**
-     * Record usage of a feature.
+     * Consume a feature: enforce quota, increment, and log usage.
+     *
+     * @param  string  $featureSlug  The feature being consumed
+     * @param  float  $amount  The amount to consume
+     * @param  array  $metadata  Additional metadata
+     * @return bool True if consumption was allowed and recorded
+     */
+    public function consume(string $featureSlug, float $amount = 1.0, array $metadata = []): bool;
+
+    /**
+     * Log usage of a feature (no quota enforcement).
      *
      * @param  string  $featureSlug  The feature being used
      * @param  float  $quantity  The quantity used
      * @param  array  $metadata  Additional metadata
-     * @return bool True if usage was recorded successfully
+     * @return bool True if usage was logged successfully
      */
-    public function recordUsage(string $featureSlug, float $quantity = 1.0, array $metadata = []): bool;
+    public function logUsage(string $featureSlug, float $quantity = 1.0, array $metadata = []): bool;
 
     /**
      * Get the value/limit for a feature.

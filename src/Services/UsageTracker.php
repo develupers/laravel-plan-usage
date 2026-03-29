@@ -72,7 +72,7 @@ class UsageTracker
     }
 
     /**
-     * Aggregate usage into existing record
+     * Aggregate usage into existing record (atomic within transaction)
      */
     protected function aggregateUsage(
         Model $billable,
@@ -85,28 +85,32 @@ class UsageTracker
         $periodStart = $this->getPeriodStart($feature, $timestamp);
         $periodEnd = $this->getPeriodEnd($feature, $timestamp);
 
-        $usage = $this->usageModel::lockForUpdate()->firstOrCreate(
-            [
-                'billable_type' => $billable->getMorphClass(),
-                'billable_id' => $billable->getKey(),
-                'feature_id' => $feature->id,
-                'period_start' => $periodStart,
-                'period_end' => $periodEnd,
-            ],
-            [
-                'used' => 0,
-                'metadata' => $metadata,
-            ]
-        );
+        $usage = DB::transaction(function () use ($billable, $feature, $amount, $metadata, $periodStart, $periodEnd) {
+            $usage = $this->usageModel::lockForUpdate()->firstOrCreate(
+                [
+                    'billable_type' => $billable->getMorphClass(),
+                    'billable_id' => $billable->getKey(),
+                    'feature_id' => $feature->id,
+                    'period_start' => $periodStart,
+                    'period_end' => $periodEnd,
+                ],
+                [
+                    'used' => 0,
+                    'metadata' => $metadata,
+                ]
+            );
 
-        $usage->increment('used', $amount);
+            $usage->increment('used', $amount);
 
-        // Merge metadata if provided
-        if ($metadata && config('plan-usage.usage.merge_metadata', false)) {
-            $existingMetadata = $usage->metadata ?? [];
-            $usage->metadata = array_merge($existingMetadata, $metadata);
-            $usage->save();
-        }
+            // Merge metadata if provided — still under lock
+            if ($metadata && config('plan-usage.usage.merge_metadata', false)) {
+                $existingMetadata = $usage->metadata ?? [];
+                $usage->metadata = array_merge($existingMetadata, $metadata);
+                $usage->save();
+            }
+
+            return $usage;
+        });
 
         Event::dispatch(new UsageRecorded($billable, $feature, $amount, $usage));
 
@@ -268,7 +272,11 @@ class UsageTracker
     }
 
     /**
-     * Get period start based on reset period
+     * Get period start based on reset period.
+     *
+     * Features without a reset_period (e.g. lifetime credits) default to monthly
+     * windows for usage logging/analytics. This does NOT affect quota enforcement
+     * or reset behavior — that is controlled by the Quota model's reset_at field.
      */
     protected function getPeriodStart(Feature $feature, CarbonInterface $timestamp): CarbonInterface
     {
@@ -280,7 +288,10 @@ class UsageTracker
     }
 
     /**
-     * Get period end based on reset period
+     * Get period end based on reset period.
+     *
+     * See getPeriodStart() for details on the monthly default for features
+     * without a reset_period.
      */
     protected function getPeriodEnd(Feature $feature, CarbonInterface $timestamp): CarbonInterface
     {

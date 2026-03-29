@@ -120,10 +120,7 @@ return [
         // Throw exception when quota exceeded
         'throw_exception' => true,
 
-        // Grace period percentage (e.g., allow 10% over limit before hard stop)
-        'grace_period' => 0,
-
-        // Enable soft limits to allow grace period
+        // Enable soft limits to allow grace percentage overage
         'soft_limit' => false,
 
         // Grace percentage - how much over the limit to allow (e.g., 10 = 10% over limit)
@@ -326,8 +323,8 @@ return [
     */
     'middleware' => [
         'check-feature' => \Develupers\PlanUsage\Http\Middleware\CheckFeature::class,
-        'enforce-quota' => \Develupers\PlanUsage\Http\Middleware\CheckQuota::class,
-        'track-usage' => \Develupers\PlanUsage\Http\Middleware\TrackUsage::class,
+        'check-quota' => \Develupers\PlanUsage\Http\Middleware\CheckQuota::class,
+        'consume-quota' => \Develupers\PlanUsage\Http\Middleware\ConsumeQuota::class,
     ],
 
     /*

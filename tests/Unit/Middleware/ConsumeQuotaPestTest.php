@@ -2,38 +2,37 @@
 
 declare(strict_types=1);
 
-use Develupers\PlanUsage\Http\Middleware\TrackUsage;
+use Develupers\PlanUsage\Http\Middleware\ConsumeQuota;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
-describe('TrackUsage Middleware', function () {
+describe('ConsumeQuota Middleware', function () {
 
     beforeEach(function () {
-        $this->middleware = new TrackUsage;
+        $this->middleware = new ConsumeQuota;
         $this->request = Request::create('/test', 'POST');
         $this->request->server->set('REMOTE_ADDR', '127.0.0.1');
         $this->request->headers->set('User-Agent', 'Test Browser');
     });
 
-    it('tracks usage on successful responses', function () {
+    it('consumes quota on successful responses', function () {
         // Arrange
-        $tracked = false;
-        $trackedData = null;
-
         $user = new class
         {
-            public $tracked = false;
+            public $consumed = false;
 
-            public $trackedData = null;
+            public $consumedData = null;
 
-            public function recordUsage($slug, $amount, $metadata)
+            public function consume($slug, $amount, $metadata)
             {
-                $this->tracked = true;
-                $this->trackedData = [
+                $this->consumed = true;
+                $this->consumedData = [
                     'slug' => $slug,
                     'amount' => $amount,
                     'metadata' => $metadata,
                 ];
+
+                return true;
             }
         };
 
@@ -49,21 +48,23 @@ describe('TrackUsage Middleware', function () {
 
         // Assert
         expect($response->getContent())->toBe('success')
-            ->and($user->tracked)->toBeTrue()
-            ->and($user->trackedData['slug'])->toBe('api-calls')
-            ->and($user->trackedData['amount'])->toBe(5.0)
-            ->and($user->trackedData['metadata'])->toHaveKeys(['ip', 'user_agent', 'url', 'method']);
+            ->and($user->consumed)->toBeTrue()
+            ->and($user->consumedData['slug'])->toBe('api-calls')
+            ->and($user->consumedData['amount'])->toBe(5.0)
+            ->and($user->consumedData['metadata'])->toHaveKeys(['ip', 'user_agent', 'url', 'method']);
     });
 
-    it('does not track usage on failed responses', function () {
+    it('does not consume on failed responses', function () {
         // Arrange
         $user = new class
         {
-            public $tracked = false;
+            public $consumed = false;
 
-            public function recordUsage($slug, $amount, $metadata)
+            public function consume($slug, $amount, $metadata)
             {
-                $this->tracked = true;
+                $this->consumed = true;
+
+                return true;
             }
         };
 
@@ -79,7 +80,7 @@ describe('TrackUsage Middleware', function () {
 
         // Assert
         expect($response->getStatusCode())->toBe(500)
-            ->and($user->tracked)->toBeFalse();
+            ->and($user->consumed)->toBeFalse();
     });
 
     it('captures correct metadata', function () {
@@ -88,9 +89,11 @@ describe('TrackUsage Middleware', function () {
         {
             public $metadata = null;
 
-            public function recordUsage($slug, $amount, $metadata)
+            public function consume($slug, $amount, $metadata)
             {
                 $this->metadata = $metadata;
+
+                return true;
             }
         };
 
@@ -115,11 +118,13 @@ describe('TrackUsage Middleware', function () {
         // Arrange
         $user = new class
         {
-            public $recordedAmount = null;
+            public $consumedAmount = null;
 
-            public function recordUsage($slug, $amount, $metadata)
+            public function consume($slug, $amount, $metadata)
             {
-                $this->recordedAmount = $amount;
+                $this->consumedAmount = $amount;
+
+                return true;
             }
         };
 
@@ -133,7 +138,7 @@ describe('TrackUsage Middleware', function () {
         );
 
         // Assert
-        expect($user->recordedAmount)->toBe(1.0);
+        expect($user->consumedAmount)->toBe(1.0);
     });
 
     it('handles missing billable gracefully', function () {
@@ -152,20 +157,22 @@ describe('TrackUsage Middleware', function () {
     });
 });
 
-describe('TrackUsage Middleware with different response codes', function () {
+describe('ConsumeQuota Middleware with different response codes', function () {
 
-    test('tracks usage for successful status codes', function (int $statusCode) {
+    test('consumes quota for successful status codes only', function (int $statusCode) {
         // Arrange
-        $middleware = new TrackUsage;
+        $middleware = new ConsumeQuota;
         $request = Request::create('/test', 'GET');
 
         $user = new class
         {
-            public $tracked = false;
+            public $consumed = false;
 
-            public function recordUsage($slug, $amount, $metadata)
+            public function consume($slug, $amount, $metadata)
             {
-                $this->tracked = true;
+                $this->consumed = true;
+
+                return true;
             }
         };
 
@@ -179,8 +186,8 @@ describe('TrackUsage Middleware with different response codes', function () {
         );
 
         // Assert
-        $shouldTrack = $statusCode >= 200 && $statusCode < 300;
-        expect($user->tracked)->toBe($shouldTrack);
+        $shouldConsume = $statusCode >= 200 && $statusCode < 300;
+        expect($user->consumed)->toBe($shouldConsume);
     })->with([
         'OK' => [200],
         'Created' => [201],

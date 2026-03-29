@@ -48,20 +48,25 @@ class PlanUsage
     }
 
     /**
-     * Quick check if a billable can use a feature
+     * Check if a billable can use a feature (read-only).
      */
-    public function can($billable, string $featureSlug, float $amount = 1): bool
+    public function checkQuota($billable, string $featureSlug, float $amount = 1): bool
     {
         return $this->quotaEnforcer->canUse($billable, $featureSlug, $amount);
     }
 
     /**
-     * Quick record usage for a billable
+     * Consume a feature: enforce quota, increment usage, and log.
      */
-    public function record($billable, string $featureSlug, float $amount = 1, ?array $metadata = null): void
+    public function consume($billable, string $featureSlug, float $amount = 1, ?array $metadata = null): bool
     {
-        $this->usageTracker->record($billable, $featureSlug, $amount, $metadata);
-        $this->quotaEnforcer->increment($billable, $featureSlug, $amount);
+        $allowed = $this->quotaEnforcer->enforce($billable, $featureSlug, $amount);
+
+        if ($allowed) {
+            $this->usageTracker->record($billable, $featureSlug, $amount, $metadata);
+        }
+
+        return $allowed;
     }
 
     /**

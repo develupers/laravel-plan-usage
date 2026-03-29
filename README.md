@@ -301,39 +301,56 @@ $account->save();
 
 ### 4. Use Features in Your Application
 
+There are two approaches -- pick whichever fits your use case:
+
+**Middleware approach** (automatic, on routes):
+```php
+// CheckQuota gates the request, ConsumeQuota enforces + logs on success
+Route::middleware(['check-quota:api-calls,1', 'consume-quota:api-calls,1'])
+    ->post('/api/generate', 'ApiController@generate');
+```
+
+**Manual approach** (in your code):
+```php
+// consume() does everything: checks quota, increments, and logs usage
+if ($account->consume('api-calls', 1, ['endpoint' => '/api/generate'])) {
+    // Success -- quota was available
+} else {
+    // Quota exceeded
+}
+```
+
+**Other useful methods:**
 ```php
 // Check if feature is in the plan
-if ($account->hasFeature('api-calls')) {
-    // Feature is included in the plan
-}
+$account->hasFeature('api-calls');
 
-// Check if account can use more of a feature
-if ($account->canUseFeature('api-calls', 10)) {
-    // Has enough quota for 10 more calls
-}
+// Read-only quota check (no side effects)
+$account->checkQuota('api-calls', 10);
 
-// Record usage
-$account->recordUsage('api-calls', 1);
+// Log usage without quota enforcement
+$account->logUsage('api-calls', 1, ['source' => 'import']);
 
 // Check remaining quota
 $remaining = $account->getRemainingQuota('api-calls');
-echo "API calls remaining: {$remaining}";
 
 // Get detailed usage information
 $usage = $account->getFeatureUsage('api-calls');
-echo "Limit: {$usage['limit']}, Used: {$usage['used']}, Remaining: {$usage['remaining']}";
+// Returns: ['limit' => 5000, 'used' => 1250, 'remaining' => 3750]
 ```
 
 ## 🔍 Understanding Feature Checks
 
 The package provides two main methods for checking features:
 
-| Method | Purpose | Returns |
-|--------|---------|---------|
-| `hasFeature('api-calls')` | Check if feature is included in the plan | `true` if feature exists in plan |
-| `canUseFeature('api-calls', 10)` | Check if you can use/consume more | `true` if within limits |
+| Method | Purpose | Mutates quota? |
+|--------|---------|----------------|
+| `hasFeature('api-calls')` | Check if feature is included in the plan | No |
+| `checkQuota('api-calls', 10)` | Check if quota is available for amount | No |
+| `consume('api-calls', 10)` | Enforce + increment + log (the full operation) | Yes |
+| `logUsage('api-calls', 10)` | Log usage only (no enforcement) | No |
 
-**Key difference**: `hasFeature()` checks plan inclusion, while `canUseFeature()` checks current availability/quota.
+**Key difference**: `hasFeature()` checks plan inclusion, `checkQuota()` checks current quota availability, and `consume()` actually uses the quota.
 
 ## 🏷️ Plan Types
 
@@ -446,20 +463,24 @@ Protect your routes with built-in middleware:
 // In bootstrap/app.php
 ->withMiddleware(function (Middleware $middleware) {
     $middleware->alias([
-        'check.feature' => \Develupers\PlanUsage\Http\Middleware\CheckFeature::class,
-        'enforce.quota' => \Develupers\PlanUsage\Http\Middleware\CheckQuota::class,
-        'track.usage' => \Develupers\PlanUsage\Http\Middleware\TrackUsage::class,
+        'check-feature' => \Develupers\PlanUsage\Http\Middleware\CheckFeature::class,
+        'check-quota' => \Develupers\PlanUsage\Http\Middleware\CheckQuota::class,
+        'consume-quota' => \Develupers\PlanUsage\Http\Middleware\ConsumeQuota::class,
     ]);
 })
 
 // In routes/web.php
 Route::get('/analytics', function () {
     // Only accessible if user has 'advanced-analytics' feature
-})->middleware('check.feature:advanced-analytics');
+})->middleware('check-feature:advanced-analytics');
 
 Route::post('/api/generate', function () {
-    // Automatically tracks API usage
-})->middleware('track.usage:api-calls,1');
+    // Enforces quota, increments, and logs usage on success
+})->middleware('consume-quota:api-calls,1');
+
+// Gate + consume (check first, consume after success)
+Route::middleware(['check-quota:api-calls,5', 'consume-quota:api-calls,5'])
+    ->post('/api/bulk', 'ApiController@bulk');
 ```
 
 ## 📊 Usage Tracking & Analytics
@@ -487,8 +508,8 @@ foreach ($featuresStatus as $status) {
 ```php
 use Develupers\PlanUsage\Facades\PlanUsage;
 
-// Record usage with metadata
-PlanUsage::record($account, 'api-calls', 10, [
+// Consume: enforce quota + increment + log (returns false if exceeded)
+PlanUsage::consume($account, 'api-calls', 10, [
     'endpoint' => '/api/generate',
     'ip' => $request->ip(),
 ]);

@@ -128,8 +128,9 @@ trait HasPlanFeatures
 
         $this->save();
 
-        // Initialize quotas for the new plan
-        $this->initializeQuotasForPlan($plan);
+        // Sync quotas: remove orphaned quotas from old plan, initialize new ones, clear cache
+        $this->syncQuotasWithPlan();
+        $this->quotaEnforcer()->clearQuotaCache($this);
 
         // Handle billing provider subscription if configured
         $billingEnabled = config('plan-usage.stripe.enabled', false)
@@ -171,12 +172,15 @@ trait HasPlanFeatures
 
     /**
      * Initialize quotas for a plan.
+     *
+     * On create: sets limit, used=0, and reset_at.
+     * On update: only updates the limit (preserves existing usage).
      */
     public function initializeQuotasForPlan(Plan $plan): void
     {
         foreach ($plan->features as $feature) {
             if ($feature->type === 'quota' || $feature->type === 'limit') {
-                $this->quotas()->updateOrCreate(
+                $quota = $this->quotas()->firstOrCreate(
                     ['feature_id' => $feature->id],
                     [
                         'limit' => $feature->pivot->value,
@@ -184,6 +188,11 @@ trait HasPlanFeatures
                         'reset_at' => $feature->getNextResetDate(),
                     ]
                 );
+
+                // If quota already existed, only update the limit
+                if (! $quota->wasRecentlyCreated) {
+                    $quota->update(['limit' => $feature->pivot->value]);
+                }
             }
         }
     }
@@ -192,7 +201,7 @@ trait HasPlanFeatures
      * Check if the billable's plan includes a feature.
      *
      * This checks if the feature exists in the plan, not if it can be used.
-     * For usage checks, use canUseFeature() instead.
+     * For usage checks, use checkQuota() instead.
      *
      * @param  string  $featureSlug  The feature to check
      * @return bool True if the plan includes this feature

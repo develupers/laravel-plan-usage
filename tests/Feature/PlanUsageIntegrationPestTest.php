@@ -89,9 +89,9 @@ describe('PlanUsage Integration', function () {
         // Act & Assert
         expect(PlanUsage::findPlan($plan->id)->id)->toBe($plan->id)
             ->and(PlanUsage::plans()->planHasFeature($plan->id, 'api-calls-'.$testId))->toBeTrue()
-            ->and(PlanUsage::can($this->billable, 'api-calls-'.$testId, 100))->toBeTrue();
+            ->and(PlanUsage::checkQuota($this->billable, 'api-calls-'.$testId, 100))->toBeTrue();
 
-        PlanUsage::record($this->billable, 'api-calls-'.$testId, 100, ['source' => 'api']);
+        PlanUsage::consume($this->billable, 'api-calls-'.$testId, 100, ['source' => 'api']);
         Event::assertDispatched(UsageRecorded::class);
 
         $usage = Usage::where('billable_type', $this->billable->getMorphClass())
@@ -178,7 +178,7 @@ describe('PlanUsage Integration', function () {
         $this->billable->plan_price_id = $plan->defaultPrice?->id;
 
         // Act & Assert
-        PlanUsage::record($this->billable, 'api-calls', 85);
+        PlanUsage::consume($this->billable, 'api-calls', 85);
         Event::assertDispatched(QuotaWarning::class);
 
         $enforced = PlanUsage::quotas()->enforce($this->billable, 'api-calls', 20);
@@ -255,7 +255,7 @@ describe('PlanUsage Integration', function () {
         $this->billable->plan_price_id = $plan->defaultPrice?->id;
 
         // Act & Assert
-        PlanUsage::record($this->billable, 'monthly-reports', 5);
+        PlanUsage::consume($this->billable, 'monthly-reports', 5);
 
         $quota = PlanUsage::quotas()->getQuota($this->billable, 'monthly-reports');
         expect($quota->used)->toBe(5.0);
@@ -284,11 +284,11 @@ describe('PlanUsage Integration', function () {
         $this->billable->plan_price_id = $plan->defaultPrice?->id;
 
         // Act & Assert
-        expect(PlanUsage::can($this->billable, 'unlimited-feature', 999999))->toBeTrue();
+        expect(PlanUsage::checkQuota($this->billable, 'unlimited-feature', 999999))->toBeTrue();
 
-        PlanUsage::record($this->billable, 'unlimited-feature', 999999);
+        PlanUsage::consume($this->billable, 'unlimited-feature', 999999);
 
-        expect(PlanUsage::can($this->billable, 'unlimited-feature', 999999))->toBeTrue()
+        expect(PlanUsage::checkQuota($this->billable, 'unlimited-feature', 999999))->toBeTrue()
             ->and(PlanUsage::quotas()->getRemaining($this->billable, 'unlimited-feature'))->toBeNull();
     });
 
@@ -388,8 +388,8 @@ describe('PlanUsage with multiple features', function () {
         app('plan-usage.manager')->clearCache($plan->id);
 
         // Act
-        PlanUsage::record($this->billable, 'api-calls-'.$testId, 100);
-        PlanUsage::record($this->billable, 'storage-gb-'.$testId, 5);
+        PlanUsage::consume($this->billable, 'api-calls-'.$testId, 100);
+        PlanUsage::consume($this->billable, 'storage-gb-'.$testId, 5);
 
         // Assert
         expect(PlanUsage::quotas()->getRemaining($this->billable, 'api-calls-'.$testId))->toBe(900.0)

@@ -39,7 +39,7 @@ trait EnforcesQuotas
     }
 
     /**
-     * Check if the billable can use a feature.
+     * Check if the billable can use a feature (read-only, no side effects).
      *
      * @param  string  $featureSlug  The feature to check
      * @param  float  $amount  The amount to check (default: 1)
@@ -50,17 +50,35 @@ trait EnforcesQuotas
      * - quota: Checks if usage + amount <= limit (resets periodically)
      * - limit: Checks if current count + amount <= limit (never resets)
      */
-    public function canUseFeature(string $featureSlug, float $amount = 1): bool
+    public function checkQuota(string $featureSlug, float $amount = 1): bool
     {
         return $this->quotaEnforcer()->canUse($this, $featureSlug, $amount);
     }
 
     /**
-     * Use quota for a feature.
+     * Consume a feature: enforces limit, increments quota, and logs usage.
+     *
+     * This is the primary method for using a feature. Returns false if
+     * the quota would be exceeded. Use this OR the CheckQuota + ConsumeQuota
+     * middleware — not both.
      */
-    public function useQuota(string $featureSlug, float $amount = 1): bool
+    public function consume(string $featureSlug, float $amount = 1, array $metadata = []): bool
     {
-        return $this->quotaEnforcer()->enforce($this, $featureSlug, $amount);
+        $allowed = $this->quotaEnforcer()->enforce($this, $featureSlug, $amount);
+
+        if ($allowed && method_exists($this, 'usageTracker')) {
+            try {
+                $this->usageTracker()->record($this, $featureSlug, $amount, $metadata ?: null);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to record usage after quota enforcement', [
+                    'feature' => $featureSlug,
+                    'amount' => $amount,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $allowed;
     }
 
     /**

@@ -8,10 +8,12 @@ use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-class TrackUsage
+class ConsumeQuota
 {
     /**
      * Handle an incoming request.
+     *
+     * On successful responses, enforces quota, increments usage, and logs.
      *
      * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
      */
@@ -19,11 +21,11 @@ class TrackUsage
     {
         $response = $next($request);
 
-        // Only track usage on successful responses
+        // Only consume on successful responses
         if ($response->isSuccessful()) {
             $billable = $this->getBillable($request);
 
-            if ($billable && method_exists($billable, 'recordUsage')) {
+            if ($billable && method_exists($billable, 'consume')) {
                 $metadata = [
                     'ip' => $request->ip(),
                     'user_agent' => $request->userAgent(),
@@ -31,7 +33,7 @@ class TrackUsage
                     'method' => $request->method(),
                 ];
 
-                $billable->recordUsage($featureSlug, $amount, $metadata);
+                $billable->consume($featureSlug, $amount, $metadata);
             }
         }
 
@@ -51,7 +53,7 @@ class TrackUsage
             }
 
             // Check if user itself is billable
-            if (method_exists($request->user(), 'recordUsage')) {
+            if (method_exists($request->user(), 'consume')) {
                 return $request->user();
             }
 

@@ -54,7 +54,7 @@ describe('PlanUsage Facade', function () {
         $this->billable->save();
 
         // Act
-        $canUse = PlanUsage::can($this->billable, 'test-feature-'.$testId, 50);
+        $canUse = PlanUsage::checkQuota($this->billable, 'test-feature-'.$testId, 50);
 
         // Assert
         expect($canUse)->toBeTrue();
@@ -64,7 +64,7 @@ describe('PlanUsage Facade', function () {
         // Arrange
         $testId = uniqid('test_'); // Unique identifier for this test run
         $plan = Plan::factory()->create(['slug' => 'plan-'.$testId]);
-        $feature = Feature::factory()->create(['slug' => 'api-calls-'.$testId]);
+        $feature = Feature::factory()->quota()->create(['slug' => 'api-calls-'.$testId]);
 
         PlanFeature::create([
             'plan_id' => $plan->id,
@@ -74,11 +74,13 @@ describe('PlanUsage Facade', function () {
 
         $this->billable->plan_id = $plan->id;
         $this->billable->plan_price_id = $plan->defaultPrice?->id;
+        $this->billable->save();
 
         // Act
-        PlanUsage::record($this->billable, 'api-calls-'.$testId, 100, ['source' => 'test']);
+        $result = PlanUsage::consume($this->billable, 'api-calls-'.$testId, 100, ['source' => 'test']);
 
         // Assert
+        expect($result)->toBeTrue();
         $usage = \Develupers\PlanUsage\Models\Usage::where('feature_id', $feature->id)->first();
         expect($usage)->not->toBeNull()
             ->and($usage->used)->toBe(100.0);
@@ -122,8 +124,8 @@ describe('PlanUsage Facade with complex scenarios', function () {
         $billable2->save();
 
         // Act
-        PlanUsage::record($billable1, 'storage-'.$testId, 30);
-        PlanUsage::record($billable2, 'storage-'.$testId, 50);
+        PlanUsage::consume($billable1, 'storage-'.$testId, 30);
+        PlanUsage::consume($billable2, 'storage-'.$testId, 50);
 
         // Assert
         $remaining1 = PlanUsage::quotas()->getRemaining($billable1, 'storage-'.$testId);
