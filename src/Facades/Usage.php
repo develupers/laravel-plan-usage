@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Facades;
 
+use Develupers\PlanUsage\Services\UsageTracker;
 use Illuminate\Support\Facades\Facade;
 
 /**
- * @see \Develupers\PlanUsage\Services\UsageTracker
+ * @see UsageTracker
  */
 class Usage extends Facade
 {

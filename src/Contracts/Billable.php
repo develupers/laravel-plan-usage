@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Develupers\PlanUsage\Contracts;
 
 use Develupers\PlanUsage\Models\Plan;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Support\Collection;
 
 /**
  * Interface for models that can have subscriptions and plans.
@@ -17,21 +20,21 @@ interface Billable
     /**
      * Get the current plan of the billable entity.
      *
-     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo
+     * @return BelongsTo
      */
     public function plan();
 
     /**
      * Get all quotas for the billable.
      *
-     * @return \Illuminate\Database\Eloquent\Relations\MorphMany
+     * @return MorphMany
      */
     public function quotas();
 
     /**
      * Get all usage records for the billable.
      *
-     * @return \Illuminate\Database\Eloquent\Relations\MorphMany
+     * @return MorphMany
      */
     public function usage();
 
@@ -122,7 +125,7 @@ interface Billable
     /**
      * Get all features with their current status.
      *
-     * @return \Illuminate\Support\Collection
+     * @return Collection
      */
     public function getFeaturesStatus();
 

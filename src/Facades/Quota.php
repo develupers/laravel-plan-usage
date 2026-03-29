@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Facades;
 
+use Develupers\PlanUsage\Services\QuotaEnforcer;
 use Illuminate\Support\Facades\Facade;
 
 /**
- * @see \Develupers\PlanUsage\Services\QuotaEnforcer
+ * @see QuotaEnforcer
  */
 class Quota extends Facade
 {

@@ -5,6 +5,7 @@ namespace Develupers\PlanUsage\Tests;
 use Develupers\PlanUsage\PlanUsageServiceProvider;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as Orchestra;
 
@@ -19,7 +20,7 @@ class TestCase extends Orchestra
         );
 
         // Clear cache before each test to ensure isolation
-        \Illuminate\Support\Facades\Cache::store('sqlite')->flush();
+        Cache::store('sqlite')->flush();
     }
 
     protected function getPackageProviders($app)

@@ -7,6 +7,7 @@ use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\Usage;
+use Develupers\PlanUsage\Traits\HasPlanFeatures;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 
@@ -238,8 +239,8 @@ it('gets plan ID from billable using method', function () {
     // Create a mock that doesn't have the plan_id property but has the method
     $billable = new class implements Billable
     {
-        use \Develupers\PlanUsage\Traits\HasPlanFeatures;
-        use \Laravel\Cashier\Billable;
+        use HasPlanFeatures;
+        use Laravel\Cashier\Billable;
 
         public function getPlanId(): ?int
         {

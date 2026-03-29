@@ -17,11 +17,11 @@ use Illuminate\Support\Carbon;
  * @property int $billable_id
  * @property int $feature_id
  * @property float $used
- * @property \Illuminate\Support\Carbon $period_start
- * @property \Illuminate\Support\Carbon $period_end
+ * @property Carbon $period_start
+ * @property Carbon $period_end
  * @property array|null $metadata
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  * @property-read Model $billable
  * @property-read Feature $feature
  */

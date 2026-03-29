@@ -16,7 +16,7 @@ class CheckQuota
      * Read-only gate — blocks the request if quota is exceeded.
      * Actual quota consumption is handled by ConsumeQuota middleware or consume() method.
      *
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     * @param  Closure(Request): (Response)  $next
      */
     public function handle(Request $request, Closure $next, string $featureSlug, float $amount = 1): Response
     {

@@ -12,6 +12,7 @@ use Develupers\PlanUsage\Models\Quota;
 use Develupers\PlanUsage\Traits\ManagesCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -197,7 +198,7 @@ class QuotaEnforcer
     /**
      * Get all quotas for a billable
      */
-    public function getAllQuotas(Model $billable): \Illuminate\Support\Collection
+    public function getAllQuotas(Model $billable): Collection
     {
         $cacheKey = "plan-usage.billable.{$billable->getMorphClass()}.{$billable->getKey()}.quotas";
         $tags = $this->getQuotaCacheTags($billable->getMorphClass(), $billable->getKey());

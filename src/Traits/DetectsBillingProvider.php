@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Traits;
 
+use Laravel\Paddle\Cashier;
+
 /**
  * Trait for detecting the configured billing provider.
  *
@@ -22,7 +24,7 @@ trait DetectsBillingProvider
         $provider = config('plan-usage.billing.provider', 'auto');
 
         if ($provider === 'auto') {
-            return class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
+            return class_exists(Cashier::class) ? 'paddle' : 'stripe';
         }
 
         return $provider;

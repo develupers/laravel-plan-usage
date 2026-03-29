@@ -6,12 +6,17 @@ use Develupers\PlanUsage\Facades\PlanUsage;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanFeature;
+use Develupers\PlanUsage\Models\Usage;
+use Develupers\PlanUsage\Services\PlanManager;
+use Develupers\PlanUsage\Services\QuotaEnforcer;
+use Develupers\PlanUsage\Services\UsageTracker;
+use Illuminate\Support\Facades\Cache;
 
 describe('PlanUsage Facade', function () {
 
     beforeEach(function () {
         // Clear cache to ensure test isolation
-        \Illuminate\Support\Facades\Cache::flush();
+        Cache::flush();
         $this->billable = createBillable();
     });
 
@@ -24,17 +29,17 @@ describe('PlanUsage Facade', function () {
 
         // Assert
         expect($plans)->toHaveCount(3)
-            ->and(PlanUsage::plans())->toBeInstanceOf(\Develupers\PlanUsage\Services\PlanManager::class);
+            ->and(PlanUsage::plans())->toBeInstanceOf(PlanManager::class);
     });
 
     it('provides access to usage tracker', function () {
         // Assert
-        expect(PlanUsage::usage())->toBeInstanceOf(\Develupers\PlanUsage\Services\UsageTracker::class);
+        expect(PlanUsage::usage())->toBeInstanceOf(UsageTracker::class);
     });
 
     it('provides access to quota enforcer', function () {
         // Assert
-        expect(PlanUsage::quotas())->toBeInstanceOf(\Develupers\PlanUsage\Services\QuotaEnforcer::class);
+        expect(PlanUsage::quotas())->toBeInstanceOf(QuotaEnforcer::class);
     });
 
     it('can check feature availability', function () {
@@ -81,7 +86,7 @@ describe('PlanUsage Facade', function () {
 
         // Assert
         expect($result)->toBeTrue();
-        $usage = \Develupers\PlanUsage\Models\Usage::where('feature_id', $feature->id)->first();
+        $usage = Usage::where('feature_id', $feature->id)->first();
         expect($usage)->not->toBeNull()
             ->and($usage->used)->toBe(100.0);
     });

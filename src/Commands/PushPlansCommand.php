@@ -7,6 +7,8 @@ namespace Develupers\PlanUsage\Commands;
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanPrice;
+use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
+use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
 use Illuminate\Console\Command;
 
 /**
@@ -96,8 +98,8 @@ class PushPlansCommand extends Command
     {
         try {
             return match ($name) {
-                'stripe' => new \Develupers\PlanUsage\Providers\Stripe\StripeProvider,
-                'paddle' => new \Develupers\PlanUsage\Providers\Paddle\PaddleProvider,
+                'stripe' => new StripeProvider,
+                'paddle' => new PaddleProvider,
                 default => throw new \InvalidArgumentException("Unknown provider: {$name}"),
             };
         } catch (\InvalidArgumentException $e) {

@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use Laravel\Paddle\Cashier;
 
 /**
  * @property int $id
@@ -194,7 +195,7 @@ class Feature extends Model
 
         // If auto, detect from installed package
         if ($provider === 'auto') {
-            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
+            $provider = class_exists(Cashier::class) ? 'paddle' : 'stripe';
         }
 
         return match ($provider) {
@@ -212,7 +213,7 @@ class Feature extends Model
 
         // If auto, detect from installed package
         if ($provider === 'auto') {
-            $provider = class_exists(\Laravel\Paddle\Cashier::class) ? 'paddle' : 'stripe';
+            $provider = class_exists(Cashier::class) ? 'paddle' : 'stripe';
         }
 
         match ($provider) {

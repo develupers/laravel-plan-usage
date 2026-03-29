@@ -282,26 +282,26 @@ describe('QuotaEnforcer', function () {
         $billable = createBillable();
 
         expect(fn () => $this->quotaEnforcer->canUse($billable, 'any-feature', -1))
-            ->toThrow(\InvalidArgumentException::class, 'Amount must be a positive number.')
+            ->toThrow(InvalidArgumentException::class, 'Amount must be a positive number.')
             ->and(fn () => $this->quotaEnforcer->enforce($billable, 'any-feature', -5))
-            ->toThrow(\InvalidArgumentException::class)
+            ->toThrow(InvalidArgumentException::class)
             ->and(fn () => $this->quotaEnforcer->increment($billable, 'any-feature', -10))
-            ->toThrow(\InvalidArgumentException::class)
+            ->toThrow(InvalidArgumentException::class)
             ->and(fn () => $this->quotaEnforcer->decrement($billable, 'any-feature', -1))
-            ->toThrow(\InvalidArgumentException::class);
+            ->toThrow(InvalidArgumentException::class);
     });
 
     it('rejects zero amounts', function () {
         $billable = createBillable();
 
         expect(fn () => $this->quotaEnforcer->canUse($billable, 'any-feature', 0))
-            ->toThrow(\InvalidArgumentException::class, 'Amount must be a positive number.')
+            ->toThrow(InvalidArgumentException::class, 'Amount must be a positive number.')
             ->and(fn () => $this->quotaEnforcer->enforce($billable, 'any-feature', 0))
-            ->toThrow(\InvalidArgumentException::class)
+            ->toThrow(InvalidArgumentException::class)
             ->and(fn () => $this->quotaEnforcer->increment($billable, 'any-feature', 0))
-            ->toThrow(\InvalidArgumentException::class)
+            ->toThrow(InvalidArgumentException::class)
             ->and(fn () => $this->quotaEnforcer->decrement($billable, 'any-feature', 0))
-            ->toThrow(\InvalidArgumentException::class);
+            ->toThrow(InvalidArgumentException::class);
     });
 
     it('dispatches warning event at threshold', function () {

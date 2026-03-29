@@ -6,6 +6,9 @@ namespace Develupers\PlanUsage\Traits;
 
 use Develupers\PlanUsage\Exceptions\QuotaExceededException;
 use Develupers\PlanUsage\Models\Quota;
+use Develupers\PlanUsage\Services\QuotaEnforcer;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Trait EnforcesQuotas
@@ -18,7 +21,7 @@ trait EnforcesQuotas
     /**
      * Get the quota enforcer service instance.
      */
-    protected function quotaEnforcer(): \Develupers\PlanUsage\Services\QuotaEnforcer
+    protected function quotaEnforcer(): QuotaEnforcer
     {
         return app('plan-usage.quota');
     }
@@ -69,7 +72,7 @@ trait EnforcesQuotas
             try {
                 $this->usageTracker()->record($this, $featureSlug, $amount, $metadata ?: null);
             } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Failed to record usage after quota enforcement', [
+                Log::error('Failed to record usage after quota enforcement', [
                     'feature' => $featureSlug,
                     'amount' => $amount,
                     'error' => $e->getMessage(),
@@ -164,7 +167,7 @@ trait EnforcesQuotas
     /**
      * Get all quotas with their status.
      */
-    public function getQuotasStatus(): \Illuminate\Support\Collection
+    public function getQuotasStatus(): Collection
     {
         $quotas = $this->quotaEnforcer()->getAllQuotas($this);
 

@@ -8,6 +8,7 @@ use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Contracts\CheckoutSession;
 use Illuminate\Database\Eloquent\Model;
 use Laravel\Paddle\Cashier;
+use Laravel\Paddle\Events\WebhookReceived;
 
 /**
  * Paddle billing provider implementation.
@@ -54,7 +55,7 @@ class PaddleProvider implements BillingProvider
      */
     public function getWebhookEventClass(): string
     {
-        return \Laravel\Paddle\Events\WebhookReceived::class;
+        return WebhookReceived::class;
     }
 
     /**

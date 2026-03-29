@@ -10,6 +10,7 @@ use Illuminate\Console\Command;
 use Stripe\Exception\ApiErrorException;
 use Stripe\Price;
 use Stripe\Product;
+use Stripe\Stripe;
 
 /**
  * @deprecated Use `plans:push --provider=stripe` instead. This command will be removed in a future version.
@@ -47,7 +48,7 @@ class PushPlansStripeCommand extends Command
             return 1;
         }
 
-        \Stripe\Stripe::setApiKey($stripeSecret);
+        Stripe::setApiKey($stripeSecret);
         $plans = Plan::all();
         $dryRun = $this->option('dry-run');
         $force = $this->option('force');

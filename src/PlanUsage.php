@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage;
 
+use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Services\PlanManager;
 use Develupers\PlanUsage\Services\QuotaEnforcer;
 use Develupers\PlanUsage\Services\UsageTracker;
+use Illuminate\Support\Collection;
 
 class PlanUsage
 {
@@ -72,7 +74,7 @@ class PlanUsage
     /**
      * Get all plans
      */
-    public function getAllPlans(): \Illuminate\Support\Collection
+    public function getAllPlans(): Collection
     {
         return $this->planManager->getAllPlans();
     }
@@ -80,7 +82,7 @@ class PlanUsage
     /**
      * Find a plan
      */
-    public function findPlan($identifier): ?\Develupers\PlanUsage\Models\Plan
+    public function findPlan($identifier): ?Plan
     {
         return $this->planManager->findPlan($identifier);
     }

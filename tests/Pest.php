@@ -1,7 +1,15 @@
 <?php
 
+use Develupers\PlanUsage\Enums\Interval;
+use Develupers\PlanUsage\Enums\Period;
+use Develupers\PlanUsage\Models\Plan;
+use Develupers\PlanUsage\Models\Quota;
+use Develupers\PlanUsage\Models\Usage;
 use Develupers\PlanUsage\Tests\TestCase;
+use Develupers\PlanUsage\Traits\HasPlanFeatures;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Cashier\Billable;
 
 /*
 |--------------------------------------------------------------------------
@@ -37,7 +45,7 @@ expect()->extend('toBeModel', function (string $model) {
  */
 function createMockBillable()
 {
-    $billable = Mockery::mock(\Develupers\PlanUsage\Contracts\Billable::class);
+    $billable = Mockery::mock(Develupers\PlanUsage\Contracts\Billable::class);
     $billable->shouldAllowMockingProtectedMethods();
 
     // Add the methods that the actions check for
@@ -51,12 +59,12 @@ function createMockBillable()
     return $billable;
 }
 
-function createBillable(array $attributes = []): \Develupers\PlanUsage\Contracts\Billable
+function createBillable(array $attributes = []): Develupers\PlanUsage\Contracts\Billable
 {
-    return new class($attributes) extends \Illuminate\Database\Eloquent\Model implements \Develupers\PlanUsage\Contracts\Billable
+    return new class($attributes) extends Model implements Develupers\PlanUsage\Contracts\Billable
     {
-        use \Develupers\PlanUsage\Traits\HasPlanFeatures;
-        use \Laravel\Cashier\Billable;
+        use Billable;
+        use HasPlanFeatures;
 
         public $plan_id;
 
@@ -128,19 +136,19 @@ function createBillable(array $attributes = []): \Develupers\PlanUsage\Contracts
         // Add required methods from Billable contract
         public function quotas()
         {
-            return $this->hasMany(\Develupers\PlanUsage\Models\Quota::class, 'billable_id')
+            return $this->hasMany(Quota::class, 'billable_id')
                 ->where('billable_type', $this->getMorphClass());
         }
 
         public function usage()
         {
-            return $this->hasMany(\Develupers\PlanUsage\Models\Usage::class, 'billable_id')
+            return $this->hasMany(Usage::class, 'billable_id')
                 ->where('billable_type', $this->getMorphClass());
         }
 
         public function plan()
         {
-            return $this->belongsTo(\Develupers\PlanUsage\Models\Plan::class, 'plan_id');
+            return $this->belongsTo(Plan::class, 'plan_id');
         }
     };
 }
@@ -158,11 +166,11 @@ dataset('feature_types', [
 ]);
 
 dataset('reset_periods', [
-    'hourly' => [\Develupers\PlanUsage\Enums\Period::HOUR->value],
-    'daily' => [\Develupers\PlanUsage\Enums\Period::DAY->value],
-    'weekly' => [\Develupers\PlanUsage\Enums\Period::WEEK->value],
-    'monthly' => [\Develupers\PlanUsage\Enums\Period::MONTH->value],
-    'yearly' => [\Develupers\PlanUsage\Enums\Period::YEAR->value],
+    'hourly' => [Period::HOUR->value],
+    'daily' => [Period::DAY->value],
+    'weekly' => [Period::WEEK->value],
+    'monthly' => [Period::MONTH->value],
+    'yearly' => [Period::YEAR->value],
 ]);
 
 dataset('aggregation_methods', [
@@ -173,8 +181,8 @@ dataset('aggregation_methods', [
 ]);
 
 dataset('plan_intervals', [
-    'monthly' => [\Develupers\PlanUsage\Enums\Interval::MONTH->value],
-    'yearly' => [\Develupers\PlanUsage\Enums\Interval::YEAR->value],
+    'monthly' => [Interval::MONTH->value],
+    'yearly' => [Interval::YEAR->value],
 ]);
 
 dataset('usage_amounts', [

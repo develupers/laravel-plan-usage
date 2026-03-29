@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
+use Laravel\Cashier\Cashier;
+use Laravel\Cashier\Events\WebhookHandled;
 
 /**
  * Test suite for StripeProvider implementation.
@@ -35,12 +37,12 @@ describe('StripeProvider', function () {
 
     it('returns correct webhook event class', function () {
         expect($this->provider->getWebhookEventClass())
-            ->toBe(\Laravel\Cashier\Events\WebhookHandled::class);
+            ->toBe(WebhookHandled::class);
     });
 
     it('isInstalled returns true when cashier available', function () {
         $isInstalled = $this->provider->isInstalled();
-        $cashierExists = class_exists(\Laravel\Cashier\Cashier::class);
+        $cashierExists = class_exists(Cashier::class);
 
         expect($isInstalled)->toBe($cashierExists);
     });

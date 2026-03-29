@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage;
 
+use Develupers\PlanUsage\Actions\Subscription\CancelSubscriptionAction;
+use Develupers\PlanUsage\Actions\Subscription\CreateStripeCheckoutSessionAction;
+use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
+use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Develupers\PlanUsage\Commands\PlanUsageCommand;
 use Develupers\PlanUsage\Commands\PushPlansCommand;
 use Develupers\PlanUsage\Commands\Stripe\PushPlansStripeCommand;
@@ -11,8 +15,16 @@ use Develupers\PlanUsage\Commands\Subscription\ReconcileSubscriptionsCommand;
 use Develupers\PlanUsage\Commands\WarmCacheCommand;
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
+use Develupers\PlanUsage\Providers\Paddle\PaddleWebhookListener;
 use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
+use Develupers\PlanUsage\Providers\Stripe\StripeWebhookListener;
+use Develupers\PlanUsage\Services\PlanManager;
+use Develupers\PlanUsage\Services\QuotaEnforcer;
+use Develupers\PlanUsage\Services\UsageTracker;
 use Develupers\PlanUsage\Traits\DetectsBillingProvider;
+use Laravel\Cashier\Cashier;
+use Laravel\Cashier\Events\WebhookHandled;
+use Laravel\Paddle\Events\WebhookReceived;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -37,37 +49,37 @@ class PlanUsageServiceProvider extends PackageServiceProvider
 
         // Register service bindings
         $this->app->singleton('plan-usage.manager', function ($app) {
-            return new \Develupers\PlanUsage\Services\PlanManager;
+            return new PlanManager;
         });
 
         $this->app->singleton('plan-usage.tracker', function ($app) {
-            return new \Develupers\PlanUsage\Services\UsageTracker;
+            return new UsageTracker;
         });
 
         $this->app->singleton('plan-usage.quota', function ($app) {
-            return new \Develupers\PlanUsage\Services\QuotaEnforcer;
+            return new QuotaEnforcer;
         });
 
         // Alias for main facade
         $this->app->singleton('plan-usage', function ($app) {
-            return new \Develupers\PlanUsage\PlanUsage;
+            return new PlanUsage;
         });
 
         // Register subscription actions as singletons
         $this->app->singleton(
-            \Develupers\PlanUsage\Actions\Subscription\CancelSubscriptionAction::class
+            CancelSubscriptionAction::class
         );
 
         $this->app->singleton(
-            \Develupers\PlanUsage\Actions\Subscription\CreateStripeCheckoutSessionAction::class
+            CreateStripeCheckoutSessionAction::class
         );
 
         $this->app->singleton(
-            \Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction::class
+            DeleteSubscriptionAction::class
         );
 
         $this->app->singleton(
-            \Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction::class
+            SyncPlanWithBillableAction::class
         );
     }
 
@@ -102,7 +114,7 @@ class PlanUsageServiceProvider extends PackageServiceProvider
      */
     protected function resolveStripeProvider(): StripeProvider
     {
-        if (! class_exists(\Laravel\Cashier\Cashier::class)) {
+        if (! class_exists(Cashier::class)) {
             throw new \RuntimeException(
                 'Stripe provider configured but laravel/cashier is not installed. '.
                 'Install it with: composer require laravel/cashier'
@@ -193,18 +205,18 @@ class PlanUsageServiceProvider extends PackageServiceProvider
     protected function registerWebhookListeners(): void
     {
         // Register Stripe webhook listener
-        if ($this->isStripeProvider() && class_exists(\Laravel\Cashier\Events\WebhookHandled::class)) {
+        if ($this->isStripeProvider() && class_exists(WebhookHandled::class)) {
             \Event::listen(
-                \Laravel\Cashier\Events\WebhookHandled::class,
-                \Develupers\PlanUsage\Providers\Stripe\StripeWebhookListener::class
+                WebhookHandled::class,
+                StripeWebhookListener::class
             );
         }
 
         // Register Paddle webhook listener
-        if ($this->isPaddleProvider() && class_exists(\Laravel\Paddle\Events\WebhookReceived::class)) {
+        if ($this->isPaddleProvider() && class_exists(WebhookReceived::class)) {
             \Event::listen(
-                \Laravel\Paddle\Events\WebhookReceived::class,
-                \Develupers\PlanUsage\Providers\Paddle\PaddleWebhookListener::class
+                WebhookReceived::class,
+                PaddleWebhookListener::class
             );
         }
     }

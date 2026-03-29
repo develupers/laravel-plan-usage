@@ -7,6 +7,7 @@ namespace Develupers\PlanUsage\Traits;
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
+use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Models\Quota;
 use Develupers\PlanUsage\Models\Usage;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -152,7 +153,7 @@ trait HasPlanFeatures
     /**
      * Resolve the plan price from options.
      */
-    protected function resolvePlanPrice(Plan $plan, array $options): ?\Develupers\PlanUsage\Models\PlanPrice
+    protected function resolvePlanPrice(Plan $plan, array $options): ?PlanPrice
     {
         if (isset($options['plan_price_id'])) {
             return $plan->prices->firstWhere('id', (int) $options['plan_price_id']);

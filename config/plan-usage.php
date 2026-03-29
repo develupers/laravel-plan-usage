@@ -1,5 +1,15 @@
 <?php
 
+use Develupers\PlanUsage\Http\Middleware\CheckFeature;
+use Develupers\PlanUsage\Http\Middleware\CheckQuota;
+use Develupers\PlanUsage\Http\Middleware\ConsumeQuota;
+use Develupers\PlanUsage\Models\Feature;
+use Develupers\PlanUsage\Models\Plan;
+use Develupers\PlanUsage\Models\PlanFeature;
+use Develupers\PlanUsage\Models\PlanPrice;
+use Develupers\PlanUsage\Models\Quota;
+use Develupers\PlanUsage\Models\Usage;
+
 return [
     /*
     |--------------------------------------------------------------------------
@@ -44,12 +54,12 @@ return [
     */
     'models' => [
         'billable' => null, // e.g., App\Models\User::class or App\Models\Account::class
-        'plan' => \Develupers\PlanUsage\Models\Plan::class,
-        'plan_price' => \Develupers\PlanUsage\Models\PlanPrice::class,
-        'feature' => \Develupers\PlanUsage\Models\Feature::class,
-        'plan_feature' => \Develupers\PlanUsage\Models\PlanFeature::class,
-        'usage' => \Develupers\PlanUsage\Models\Usage::class,
-        'quota' => \Develupers\PlanUsage\Models\Quota::class,
+        'plan' => Plan::class,
+        'plan_price' => PlanPrice::class,
+        'feature' => Feature::class,
+        'plan_feature' => PlanFeature::class,
+        'usage' => Usage::class,
+        'quota' => Quota::class,
     ],
 
     /*
@@ -322,9 +332,9 @@ return [
     |
     */
     'middleware' => [
-        'check-feature' => \Develupers\PlanUsage\Http\Middleware\CheckFeature::class,
-        'check-quota' => \Develupers\PlanUsage\Http\Middleware\CheckQuota::class,
-        'consume-quota' => \Develupers\PlanUsage\Http\Middleware\ConsumeQuota::class,
+        'check-feature' => CheckFeature::class,
+        'check-quota' => CheckQuota::class,
+        'consume-quota' => ConsumeQuota::class,
     ],
 
     /*

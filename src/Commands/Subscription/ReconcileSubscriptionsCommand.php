@@ -7,8 +7,11 @@ namespace Develupers\PlanUsage\Commands\Subscription;
 use Carbon\Carbon;
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Contracts\BillingProvider;
+use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
+use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+use Stripe\Exception\ApiErrorException;
 
 class ReconcileSubscriptionsCommand extends Command
 {
@@ -207,8 +210,8 @@ class ReconcileSubscriptionsCommand extends Command
     {
         try {
             return match ($name) {
-                'stripe' => new \Develupers\PlanUsage\Providers\Stripe\StripeProvider,
-                'paddle' => new \Develupers\PlanUsage\Providers\Paddle\PaddleProvider,
+                'stripe' => new StripeProvider,
+                'paddle' => new PaddleProvider,
                 default => throw new \InvalidArgumentException("Unknown provider: {$name}"),
             };
         } catch (\InvalidArgumentException $e) {
@@ -346,7 +349,7 @@ class ReconcileSubscriptionsCommand extends Command
             ]);
 
             return 'skipped';
-        } catch (\Stripe\Exception\ApiErrorException $e) {
+        } catch (ApiErrorException $e) {
             $this->error("  Stripe API Error: {$e->getMessage()}");
             $this->warn('  Skipping - unable to verify with Stripe');
 

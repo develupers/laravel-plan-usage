@@ -6,6 +6,7 @@ use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanFeature;
 use Develupers\PlanUsage\Services\PlanManager;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
 beforeEach(function () {
@@ -20,7 +21,7 @@ describe('PlanManager', function () {
         $plans = $this->planManager->getAllPlans();
 
         expect($plans)->toHaveCount(3)
-            ->and($plans)->toBeInstanceOf(\Illuminate\Support\Collection::class);
+            ->and($plans)->toBeInstanceOf(Collection::class);
     });
 
     it('caches plans for performance', function () {

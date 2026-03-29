@@ -9,6 +9,7 @@ use Develupers\PlanUsage\Events\UsageRecorded;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Usage;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
@@ -167,7 +168,7 @@ class UsageTracker
         Model $billable,
         ?string $featureSlug = null,
         ?int $limit = null
-    ): \Illuminate\Support\Collection {
+    ): Collection {
         $query = $this->usageModel::query()
             ->where('billable_type', $billable->getMorphClass())
             ->where('billable_id', $billable->getKey())
@@ -218,7 +219,7 @@ class UsageTracker
         CarbonInterface $from,
         CarbonInterface $to,
         string $groupBy = 'day'
-    ): \Illuminate\Support\Collection {
+    ): Collection {
         $feature = $this->featureModel::where('slug', $featureSlug)->firstOrFail();
 
         // Use database-specific date formatting

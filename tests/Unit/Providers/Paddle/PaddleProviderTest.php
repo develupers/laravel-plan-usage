@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
+use Laravel\Paddle\Cashier;
+use Laravel\Paddle\Events\WebhookReceived;
 
 /**
  * Test suite for PaddleProvider implementation.
@@ -35,12 +37,12 @@ describe('PaddleProvider', function () {
 
     it('returns correct webhook event class', function () {
         expect($this->provider->getWebhookEventClass())
-            ->toBe(\Laravel\Paddle\Events\WebhookReceived::class);
+            ->toBe(WebhookReceived::class);
     });
 
     it('isInstalled returns true when cashier paddle available', function () {
         $isInstalled = $this->provider->isInstalled();
-        $paddleExists = class_exists(\Laravel\Paddle\Cashier::class);
+        $paddleExists = class_exists(Cashier::class);
 
         expect($isInstalled)->toBe($paddleExists);
     });

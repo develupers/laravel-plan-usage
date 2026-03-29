@@ -8,6 +8,7 @@ use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Usage;
 use Develupers\PlanUsage\Services\UsageTracker;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Event;
 
 beforeEach(function () {
@@ -141,7 +142,7 @@ describe('UsageTracker', function () {
 
         // Assert
         expect($history)->toHaveCount(5)
-            ->and($history)->toBeInstanceOf(\Illuminate\Support\Collection::class);
+            ->and($history)->toBeInstanceOf(Collection::class);
     });
 
     it('can limit history results', function () {

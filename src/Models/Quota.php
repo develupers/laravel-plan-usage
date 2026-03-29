@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -19,10 +20,10 @@ use Illuminate\Support\Facades\DB;
  * @property int $feature_id
  * @property float|null $limit
  * @property float $used
- * @property \Illuminate\Support\Carbon|null $reset_at
+ * @property Carbon|null $reset_at
  * @property array|null $metadata
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  * @property-read Model $billable
  * @property-read Feature $feature
  */

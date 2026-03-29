@@ -9,6 +9,9 @@ use Develupers\PlanUsage\Contracts\CheckoutSession;
 use Illuminate\Database\Eloquent\Model;
 use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Events\WebhookHandled;
+use Stripe\Price;
+use Stripe\Product;
+use Stripe\Stripe;
 
 /**
  * Stripe billing provider implementation.
@@ -102,7 +105,7 @@ class StripeProvider implements BillingProvider
         $dryRun = $options['dry_run'] ?? false;
         $force = $options['force'] ?? false;
 
-        \Stripe\Stripe::setApiKey(config('cashier.secret') ?? config('services.stripe.secret'));
+        Stripe::setApiKey(config('cashier.secret') ?? config('services.stripe.secret'));
 
         foreach ($plans as $plan) {
             try {
@@ -119,7 +122,7 @@ class StripeProvider implements BillingProvider
                 // Create or update Stripe product
                 if ($plan->stripe_product_id && ! $force) {
                     // Product exists, update it
-                    $product = \Stripe\Product::update($plan->stripe_product_id, [
+                    $product = Product::update($plan->stripe_product_id, [
                         'name' => $plan->display_name ?? $plan->name,
                         'description' => $plan->description,
                         'metadata' => $plan->metadata ?? [],
@@ -127,7 +130,7 @@ class StripeProvider implements BillingProvider
                     $results['updated'][] = $plan->slug;
                 } else {
                     // Create new product
-                    $product = \Stripe\Product::create([
+                    $product = Product::create([
                         'name' => $plan->display_name ?? $plan->name,
                         'description' => $plan->description,
                         'metadata' => array_merge($plan->metadata ?? [], [
@@ -144,7 +147,7 @@ class StripeProvider implements BillingProvider
                 // Sync prices for the plan
                 foreach ($plan->prices as $planPrice) {
                     if (! $planPrice->stripe_price_id || $force) {
-                        $price = \Stripe\Price::create([
+                        $price = Price::create([
                             'product' => $plan->stripe_product_id,
                             'unit_amount' => (int) ($planPrice->price * 100),
                             'currency' => strtolower($planPrice->currency),
