@@ -24,9 +24,9 @@ trait EnforcesQuotas
     }
 
     /**
-     * Check if a feature quota is exceeded.
+     * Check if a feature's quota limit has been reached.
      */
-    public function isQuotaExceeded(string $featureSlug): bool
+    public function isLimitReached(string $featureSlug): bool
     {
         $quota = $this->quotaEnforcer()->getQuota($this, $featureSlug);
 
@@ -34,8 +34,7 @@ trait EnforcesQuotas
             return false;
         }
 
-        // Check if quota limit is exceeded
-        return ! is_null($quota->limit) && $quota->used > $quota->limit;
+        return $quota->isLimitReached();
     }
 
     /**
@@ -66,7 +65,7 @@ trait EnforcesQuotas
     {
         $allowed = $this->quotaEnforcer()->enforce($this, $featureSlug, $amount);
 
-        if ($allowed && method_exists($this, 'usageTracker')) {
+        if ($allowed) {
             try {
                 $this->usageTracker()->record($this, $featureSlug, $amount, $metadata ?: null);
             } catch (\Exception $e) {
@@ -177,7 +176,7 @@ trait EnforcesQuotas
                 'used' => $quota->used,
                 'remaining' => $this->quotaEnforcer()->getRemaining($this, $quota->feature->slug),
                 'percentage' => $this->quotaEnforcer()->getUsagePercentage($this, $quota->feature->slug),
-                'exceeded' => ! is_null($quota->limit) && $quota->used > $quota->limit,
+                'limit_reached' => $quota->isLimitReached(),
                 'reset_at' => $quota->reset_at,
             ];
         });

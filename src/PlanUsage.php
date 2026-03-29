@@ -58,12 +58,12 @@ class PlanUsage
     /**
      * Consume a feature: enforce quota, increment usage, and log.
      */
-    public function consume($billable, string $featureSlug, float $amount = 1, ?array $metadata = null): bool
+    public function consume($billable, string $featureSlug, float $amount = 1, array $metadata = []): bool
     {
         $allowed = $this->quotaEnforcer->enforce($billable, $featureSlug, $amount);
 
         if ($allowed) {
-            $this->usageTracker->record($billable, $featureSlug, $amount, $metadata);
+            $this->usageTracker->record($billable, $featureSlug, $amount, $metadata ?: null);
         }
 
         return $allowed;

@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 
 class QuotaEnforcer
 {
@@ -37,10 +38,21 @@ class QuotaEnforcer
     }
 
     /**
+     * Validate that amount is positive.
+     */
+    protected function validateAmount(float $amount): void
+    {
+        if ($amount <= 0) {
+            throw new \InvalidArgumentException('Amount must be a positive number.');
+        }
+    }
+
+    /**
      * Check if a billable can use a feature
      */
     public function canUse(Model $billable, string $featureSlug, float $amount = 1): bool
     {
+        $this->validateAmount($amount);
         $quota = $this->getOrCreateQuota($billable, $featureSlug);
 
         if (! $quota) {
@@ -63,6 +75,8 @@ class QuotaEnforcer
      */
     public function enforce(Model $billable, string $featureSlug, float $amount = 1): bool
     {
+        $this->validateAmount($amount);
+
         $quota = $this->getOrCreateQuota($billable, $featureSlug);
 
         if (! $quota) {
@@ -202,9 +216,17 @@ class QuotaEnforcer
      */
     public function increment(Model $billable, string $featureSlug, float $amount = 1): void
     {
+        $this->validateAmount($amount);
+
         $quota = $this->getOrCreateQuota($billable, $featureSlug);
 
         if (! $quota) {
+            Log::warning('Cannot increment quota: feature not available for billable', [
+                'feature' => $featureSlug,
+                'billable_type' => $billable->getMorphClass(),
+                'billable_id' => $billable->getKey(),
+            ]);
+
             return;
         }
 
@@ -237,9 +259,17 @@ class QuotaEnforcer
      */
     public function decrement(Model $billable, string $featureSlug, float $amount = 1): void
     {
+        $this->validateAmount($amount);
+
         $quota = $this->getQuota($billable, $featureSlug);
 
         if (! $quota) {
+            Log::warning('Cannot decrement quota: no quota found for feature', [
+                'feature' => $featureSlug,
+                'billable_type' => $billable->getMorphClass(),
+                'billable_id' => $billable->getKey(),
+            ]);
+
             return;
         }
 
@@ -337,8 +367,12 @@ class QuotaEnforcer
     {
         $quota = $this->getQuota($billable, $featureSlug);
 
-        if (! $quota || is_null($quota->limit) || $quota->limit == 0) {
+        if (! $quota || is_null($quota->limit)) {
             return null;
+        }
+
+        if ($quota->limit == 0) {
+            return 100.0;
         }
 
         return round(($quota->used / $quota->limit) * 100, 2);
@@ -423,9 +457,11 @@ class QuotaEnforcer
         $warningThresholds = config('plan-usage.quota.warning_thresholds', [80, 100]);
         $usagePercentage = ($quota->used / $quota->limit) * 100;
 
-        // Check if any warning threshold is crossed
+        // Check the highest crossed threshold (sort descending)
+        rsort($warningThresholds);
+
         foreach ($warningThresholds as $threshold) {
-            if ($usagePercentage >= $threshold && $usagePercentage < 100) {
+            if ($usagePercentage >= $threshold) {
                 $feature = $this->featureModel::where('slug', $featureSlug)->first();
                 Event::dispatch(new QuotaWarning($billable, $feature, (int) $usagePercentage, $quota));
                 break;

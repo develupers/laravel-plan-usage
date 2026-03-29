@@ -12,6 +12,7 @@ use Develupers\PlanUsage\Models\Usage;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -86,30 +87,7 @@ trait HasPlanFeatures
     {
         $plan->loadMissing(['defaultPrice', 'prices']);
 
-        $selectedPlanPrice = null;
-
-        if (isset($options['plan_price_id'])) {
-            $selectedPlanPrice = $plan->prices
-                ->firstWhere('id', (int) $options['plan_price_id']);
-        }
-
-        // Check for provider-specific price ID option
-        if (! $selectedPlanPrice && isset($options['price_id'])) {
-            $selectedPlanPrice = $plan->prices
-                ->first(fn ($price) => $price->getProviderPriceId() === $options['price_id']);
-        }
-
-        // Legacy support for stripe_price_id option
-        if (! $selectedPlanPrice && isset($options['stripe_price_id'])) {
-            $selectedPlanPrice = $plan->prices
-                ->firstWhere('stripe_price_id', $options['stripe_price_id']);
-        }
-
-        // Legacy support for paddle_price_id option
-        if (! $selectedPlanPrice && isset($options['paddle_price_id'])) {
-            $selectedPlanPrice = $plan->prices
-                ->firstWhere('paddle_price_id', $options['paddle_price_id']);
-        }
+        $selectedPlanPrice = $this->resolvePlanPrice($plan, $options);
 
         $defaultPlanPrice = $plan->defaultPrice
             ?? $plan->prices
@@ -119,17 +97,32 @@ trait HasPlanFeatures
 
         $planPriceToAssign = $selectedPlanPrice ?? $defaultPlanPrice;
 
-        // Update the plan_id on the billable model
-        $this->plan_id = $plan->id;
+        // Validate that a requested price was found when one was specified
+        $priceWasRequested = isset($options['plan_price_id'])
+            || isset($options['price_id'])
+            || isset($options['stripe_price_id'])
+            || isset($options['paddle_price_id']);
 
-        if ($planPriceToAssign && $this->supportsPlanPriceColumn()) {
-            $this->plan_price_id = $planPriceToAssign->id;
+        if ($priceWasRequested && ! $selectedPlanPrice) {
+            throw new \InvalidArgumentException(
+                'The specified price does not belong to this plan.'
+            );
         }
 
-        $this->save();
+        // Wrap plan assignment + quota sync in a transaction to prevent race conditions
+        DB::transaction(function () use ($plan, $planPriceToAssign) {
+            $this->plan_id = $plan->id;
 
-        // Sync quotas: remove orphaned quotas from old plan, initialize new ones, clear cache
-        $this->syncQuotasWithPlan();
+            if ($planPriceToAssign && $this->supportsPlanPriceColumn()) {
+                $this->plan_price_id = $planPriceToAssign->id;
+            }
+
+            $this->save();
+
+            // Sync quotas: remove orphaned quotas from old plan, initialize new ones
+            $this->syncQuotasWithPlan();
+        });
+
         $this->quotaEnforcer()->clearQuotaCache($this);
 
         // Handle billing provider subscription if configured
@@ -154,6 +147,31 @@ trait HasPlanFeatures
         }
 
         return $this;
+    }
+
+    /**
+     * Resolve the plan price from options.
+     */
+    protected function resolvePlanPrice(Plan $plan, array $options): ?\Develupers\PlanUsage\Models\PlanPrice
+    {
+        if (isset($options['plan_price_id'])) {
+            return $plan->prices->firstWhere('id', (int) $options['plan_price_id']);
+        }
+
+        if (isset($options['price_id'])) {
+            return $plan->prices
+                ->first(fn ($price) => $price->getProviderPriceId() === $options['price_id']);
+        }
+
+        if (isset($options['stripe_price_id'])) {
+            return $plan->prices->firstWhere('stripe_price_id', $options['stripe_price_id']);
+        }
+
+        if (isset($options['paddle_price_id'])) {
+            return $plan->prices->firstWhere('paddle_price_id', $options['paddle_price_id']);
+        }
+
+        return null;
     }
 
     /**
@@ -227,7 +245,7 @@ trait HasPlanFeatures
         if ($feature->type === 'limit' || $feature->type === 'quota') {
             $quota = $this->quotas()->where('feature_id', $feature->id)->first();
 
-            return $quota ? ! $quota->isExceeded() : true;
+            return $quota ? ! $quota->isLimitReached() : true;
         }
 
         return false;

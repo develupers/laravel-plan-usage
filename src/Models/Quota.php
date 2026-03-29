@@ -93,9 +93,9 @@ class Quota extends Model
     }
 
     /**
-     * Check if the quota has been exceeded.
+     * Check if the quota limit has been reached (at or beyond limit).
      */
-    public function isExceeded(): bool
+    public function isLimitReached(): bool
     {
         if ($this->limit === null) {
             return false; // Unlimited
@@ -107,7 +107,7 @@ class Quota extends Model
             $graceAmount = $this->limit * ($gracePercentage / 100);
         }
 
-        return $this->used > ($this->limit + $graceAmount);
+        return $this->used >= ($this->limit + $graceAmount);
     }
 
     /**
@@ -148,8 +148,12 @@ class Quota extends Model
      */
     public function usagePercentage(): ?float
     {
-        if ($this->limit === null || $this->limit == 0) {
-            return null;
+        if ($this->limit === null) {
+            return null; // Unlimited
+        }
+
+        if ($this->limit == 0) {
+            return 100.0;
         }
 
         return min(100, ($this->used / $this->limit) * 100);

@@ -233,6 +233,77 @@ describe('QuotaEnforcer', function () {
         expect($percentage)->toBe(75.0);
     });
 
+    it('handles zero limit correctly for usage percentage and limit reached', function () {
+        // Arrange
+        $billable = createBillable();
+        $billable->plan_id = null;
+        $feature = Feature::factory()->create(['slug' => 'zero-limit-feature']);
+
+        // Zero limit with no usage — limit is already reached, percentage is 100%
+        $quota = Quota::create([
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
+            'feature_id' => $feature->id,
+            'limit' => 0,
+            'used' => 0,
+        ]);
+
+        expect($this->quotaEnforcer->getUsagePercentage($billable, 'zero-limit-feature'))->toBe(100.0)
+            ->and($quota->usagePercentage())->toBe(100.0)
+            ->and($quota->isLimitReached())->toBeTrue();
+
+        // Zero limit with usage — still at limit
+        $quota->update(['used' => 5]);
+
+        expect($this->quotaEnforcer->getUsagePercentage($billable, 'zero-limit-feature'))->toBe(100.0)
+            ->and($quota->fresh()->usagePercentage())->toBe(100.0)
+            ->and($quota->fresh()->isLimitReached())->toBeTrue();
+    });
+
+    it('returns null usage percentage for unlimited features', function () {
+        // Arrange
+        $billable = createBillable();
+        $billable->plan_id = null;
+        $feature = Feature::factory()->create(['slug' => 'unlimited-feature']);
+
+        Quota::create([
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
+            'feature_id' => $feature->id,
+            'limit' => null,
+            'used' => 999,
+        ]);
+
+        // Act & Assert
+        expect($this->quotaEnforcer->getUsagePercentage($billable, 'unlimited-feature'))->toBeNull();
+    });
+
+    it('rejects negative amounts', function () {
+        $billable = createBillable();
+
+        expect(fn () => $this->quotaEnforcer->canUse($billable, 'any-feature', -1))
+            ->toThrow(\InvalidArgumentException::class, 'Amount must be a positive number.')
+            ->and(fn () => $this->quotaEnforcer->enforce($billable, 'any-feature', -5))
+            ->toThrow(\InvalidArgumentException::class)
+            ->and(fn () => $this->quotaEnforcer->increment($billable, 'any-feature', -10))
+            ->toThrow(\InvalidArgumentException::class)
+            ->and(fn () => $this->quotaEnforcer->decrement($billable, 'any-feature', -1))
+            ->toThrow(\InvalidArgumentException::class);
+    });
+
+    it('rejects zero amounts', function () {
+        $billable = createBillable();
+
+        expect(fn () => $this->quotaEnforcer->canUse($billable, 'any-feature', 0))
+            ->toThrow(\InvalidArgumentException::class, 'Amount must be a positive number.')
+            ->and(fn () => $this->quotaEnforcer->enforce($billable, 'any-feature', 0))
+            ->toThrow(\InvalidArgumentException::class)
+            ->and(fn () => $this->quotaEnforcer->increment($billable, 'any-feature', 0))
+            ->toThrow(\InvalidArgumentException::class)
+            ->and(fn () => $this->quotaEnforcer->decrement($billable, 'any-feature', 0))
+            ->toThrow(\InvalidArgumentException::class);
+    });
+
     it('dispatches warning event at threshold', function () {
         // Arrange
         Event::fake();

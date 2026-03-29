@@ -27,13 +27,11 @@ trait TracksUsage
     }
 
     /**
-     * Record usage for a feature.
-     */
-    /**
      * Log usage for a feature (log only, no quota enforcement).
      *
      * This logs to the usage table without checking or incrementing quotas.
      * For full enforcement + logging, use consume() instead.
+     *
      * @see \Develupers\PlanUsage\Traits\EnforcesQuotas::consume()
      */
     public function logUsage(string $featureSlug, float $quantity = 1.0, array $metadata = []): bool
