@@ -84,7 +84,11 @@ class QuotaEnforcer
             return false;
         }
 
-        return DB::transaction(function () use ($billable, $featureSlug, $amount, $quota) {
+        // Resolve feature before the transaction to avoid lazy-loading inside the row lock,
+        // which would execute a query outside the lock's protection and break atomicity.
+        $feature = $quota->feature ?? $this->featureModel::where('slug', $featureSlug)->first();
+
+        return DB::transaction(function () use ($billable, $feature, $amount, $quota) {
             $lockedQuota = $this->quotaModel::lockForUpdate()->find($quota->id);
 
             if (! $lockedQuota) {
@@ -94,7 +98,7 @@ class QuotaEnforcer
             // Check if quota needs reset under lock
             if ($this->shouldReset($lockedQuota)) {
                 $lockedQuota->used = 0;
-                $lockedQuota->reset_at = $this->calculateResetTime($lockedQuota->feature);
+                $lockedQuota->reset_at = $this->calculateResetTime($feature);
                 $lockedQuota->save();
             }
 
@@ -111,14 +115,13 @@ class QuotaEnforcer
             $effectiveLimit = $lockedQuota->limit + $graceAmount;
 
             if (($lockedQuota->used + $amount) > $effectiveLimit) {
-                $feature = $this->featureModel::where('slug', $featureSlug)->first();
                 Event::dispatch(new QuotaExceeded($billable, $feature, $lockedQuota));
 
                 return false;
             }
 
             $lockedQuota->increment('used', $amount);
-            $this->checkWarningThreshold($billable, $featureSlug, $lockedQuota->fresh());
+            $this->checkWarningThreshold($billable, $feature, $lockedQuota->fresh());
             $this->clearQuotaCache($billable);
 
             return true;
@@ -231,7 +234,10 @@ class QuotaEnforcer
             return;
         }
 
-        DB::transaction(function () use ($quota, $billable, $featureSlug, $amount) {
+        // Resolve feature before the transaction to avoid lazy-loading inside the row lock.
+        $feature = $quota->feature ?? $this->featureModel::where('slug', $featureSlug)->first();
+
+        DB::transaction(function () use ($quota, $billable, $amount, $feature) {
             $lockedQuota = $this->quotaModel::lockForUpdate()->find($quota->id);
 
             if (! $lockedQuota) {
@@ -241,14 +247,14 @@ class QuotaEnforcer
             // Check if quota needs reset under lock
             if ($this->shouldReset($lockedQuota)) {
                 $lockedQuota->used = 0;
-                $lockedQuota->reset_at = $this->calculateResetTime($lockedQuota->feature);
+                $lockedQuota->reset_at = $this->calculateResetTime($feature);
                 $lockedQuota->save();
             }
 
             $lockedQuota->increment('used', $amount);
 
             // Check for warning threshold
-            $this->checkWarningThreshold($billable, $featureSlug, $lockedQuota->fresh());
+            $this->checkWarningThreshold($billable, $feature, $lockedQuota->fresh());
         });
 
         // Clear cache
@@ -291,7 +297,10 @@ class QuotaEnforcer
             return;
         }
 
-        DB::transaction(function () use ($quota) {
+        // Resolve feature before the transaction to avoid lazy-loading inside the row lock.
+        $feature = $quota->feature;
+
+        DB::transaction(function () use ($quota, $feature) {
             $locked = $this->quotaModel::lockForUpdate()->find($quota->id);
 
             if (! $locked) {
@@ -299,7 +308,7 @@ class QuotaEnforcer
             }
 
             $locked->used = 0;
-            $locked->reset_at = $this->calculateResetTime($locked->feature);
+            $locked->reset_at = $this->calculateResetTime($feature);
             $locked->save();
         });
 
@@ -396,7 +405,10 @@ class QuotaEnforcer
      */
     protected function resetQuota(Quota $quota): void
     {
-        DB::transaction(function () use ($quota) {
+        // Resolve feature before the transaction to avoid lazy-loading inside the row lock.
+        $feature = $quota->feature;
+
+        DB::transaction(function () use ($quota, $feature) {
             $locked = $this->quotaModel::lockForUpdate()->find($quota->id);
 
             if (! $locked) {
@@ -409,7 +421,7 @@ class QuotaEnforcer
             }
 
             $locked->used = 0;
-            $locked->reset_at = $this->calculateResetTime($locked->feature);
+            $locked->reset_at = $this->calculateResetTime($feature);
             $locked->save();
         });
 
@@ -449,7 +461,7 @@ class QuotaEnforcer
     /**
      * Check if warning threshold is reached
      */
-    protected function checkWarningThreshold(Model $billable, string $featureSlug, Quota $quota): void
+    protected function checkWarningThreshold(Model $billable, Feature $feature, Quota $quota): void
     {
         if (is_null($quota->limit)) {
             return;
@@ -463,7 +475,6 @@ class QuotaEnforcer
 
         foreach ($warningThresholds as $threshold) {
             if ($usagePercentage >= $threshold) {
-                $feature = $this->featureModel::where('slug', $featureSlug)->first();
                 Event::dispatch(new QuotaWarning($billable, $feature, (int) $usagePercentage, $quota));
                 break;
             }

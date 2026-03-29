@@ -9,6 +9,7 @@ use Develupers\PlanUsage\Services\PlanManager;
 use Develupers\PlanUsage\Services\QuotaEnforcer;
 use Develupers\PlanUsage\Services\UsageTracker;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 class PlanUsage
 {
@@ -65,7 +66,15 @@ class PlanUsage
         $allowed = $this->quotaEnforcer->enforce($billable, $featureSlug, $amount);
 
         if ($allowed) {
-            $this->usageTracker->record($billable, $featureSlug, $amount, $metadata ?: null);
+            try {
+                $this->usageTracker->record($billable, $featureSlug, $amount, $metadata ?: null);
+            } catch (\Exception $e) {
+                Log::error('Failed to record usage after quota enforcement', [
+                    'feature' => $featureSlug,
+                    'amount' => $amount,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
 
         return $allowed;

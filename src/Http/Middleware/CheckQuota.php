@@ -10,13 +10,15 @@ use Symfony\Component\HttpFoundation\Response;
 
 class CheckQuota
 {
+    use ResolvesBillable;
+
     /**
      * Handle an incoming request.
      *
      * Read-only gate — blocks the request if quota is exceeded.
      * Actual quota consumption is handled by ConsumeQuota middleware or consume() method.
      *
-     * @param  Closure(Request): (Response)  $next
+     * @param  \Closure(Request): (Response)  $next
      */
     public function handle(Request $request, Closure $next, string $featureSlug, float $amount = 1): Response
     {
@@ -42,38 +44,5 @@ class CheckQuota
         }
 
         return $next($request);
-    }
-
-    /**
-     * Get the billable entity from the request
-     */
-    protected function getBillable(Request $request): mixed
-    {
-        // Try to get billable from authenticated user
-        if ($request->user()) {
-            // Check if user has a billable relationship
-            if (method_exists($request->user(), 'billable')) {
-                return $request->user()->billable();
-            }
-
-            // Check if user itself is billable
-            if (method_exists($request->user(), 'checkQuota')) {
-                return $request->user();
-            }
-
-            // Check for account relationship
-            /** @var object $user */
-            $user = $request->user();
-            if (method_exists($user, 'account') && property_exists($user, 'account')) {
-                return $user->account;
-            }
-
-            // Check for current team
-            if (method_exists($user, 'currentTeam') && property_exists($user, 'currentTeam')) {
-                return $user->currentTeam;
-            }
-        }
-
-        return null;
     }
 }

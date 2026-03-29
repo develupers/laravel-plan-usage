@@ -109,6 +109,11 @@ describe('CheckFeature Middleware', function () {
                     {
                         return $slug === 'account-feature';
                     }
+
+                    public function consume($slug, $amount = 1, $meta = [])
+                    {
+                        return true;
+                    }
                 };
             }
         };
@@ -137,6 +142,11 @@ describe('CheckFeature Middleware', function () {
                     public function hasFeature($slug)
                     {
                         return $slug === 'team-feature';
+                    }
+
+                    public function consume($slug, $amount = 1, $meta = [])
+                    {
+                        return true;
                     }
                 };
             }
