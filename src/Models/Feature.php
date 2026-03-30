@@ -7,13 +7,13 @@ namespace Develupers\PlanUsage\Models;
 use Carbon\CarbonInterface;
 use Develupers\PlanUsage\Enums\Period;
 use Illuminate\Database\Eloquent\Builder;
+use Develupers\PlanUsage\Traits\DetectsBillingProvider;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
-use Laravel\Paddle\Cashier;
 
 /**
  * @property int $id
@@ -26,6 +26,7 @@ use Laravel\Paddle\Cashier;
  * @property Period|null $reset_period
  * @property string|null $stripe_meter_id
  * @property string|null $paddle_meter_id
+ * @property string|null $lemon_squeezy_meter_id
  * @property bool $is_consumable
  * @property int $sort_order
  * @property array|null $metadata
@@ -38,6 +39,7 @@ use Laravel\Paddle\Cashier;
  */
 class Feature extends Model
 {
+    use DetectsBillingProvider;
     use HasFactory;
 
     protected $fillable = [
@@ -50,6 +52,7 @@ class Feature extends Model
         'reset_period',
         'stripe_meter_id',
         'paddle_meter_id',
+        'lemon_squeezy_meter_id',
         'is_consumable',
         'sort_order',
         'metadata',
@@ -191,15 +194,9 @@ class Feature extends Model
      */
     public function getProviderMeterId(): ?string
     {
-        $provider = config('plan-usage.billing.provider', 'auto');
-
-        // If auto, detect from installed package
-        if ($provider === 'auto') {
-            $provider = class_exists(Cashier::class) ? 'paddle' : 'stripe';
-        }
-
-        return match ($provider) {
+        return match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_meter_id,
+            'lemon-squeezy' => $this->lemon_squeezy_meter_id,
             default => $this->stripe_meter_id,
         };
     }
@@ -209,15 +206,9 @@ class Feature extends Model
      */
     public function setProviderMeterId(string $meterId): void
     {
-        $provider = config('plan-usage.billing.provider', 'auto');
-
-        // If auto, detect from installed package
-        if ($provider === 'auto') {
-            $provider = class_exists(Cashier::class) ? 'paddle' : 'stripe';
-        }
-
-        match ($provider) {
+        match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_meter_id = $meterId,
+            'lemon-squeezy' => $this->lemon_squeezy_meter_id = $meterId,
             default => $this->stripe_meter_id = $meterId,
         };
     }

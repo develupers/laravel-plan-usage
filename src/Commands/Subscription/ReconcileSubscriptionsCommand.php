@@ -7,6 +7,7 @@ namespace Develupers\PlanUsage\Commands\Subscription;
 use Carbon\Carbon;
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Contracts\BillingProvider;
+use Develupers\PlanUsage\Providers\LemonSqueezy\LemonSqueezyProvider;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
 use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
 use Illuminate\Console\Command;
@@ -24,7 +25,7 @@ class ReconcileSubscriptionsCommand extends Command
     protected $signature = 'subscriptions:reconcile
                             {--dry-run : Show what would happen without making changes}
                             {--force : Skip confirmation prompt}
-                            {--provider= : Override the billing provider (stripe or paddle)}';
+                            {--provider= : Override the billing provider (stripe, paddle, or lemon-squeezy)}';
 
     /**
      * The console command description.
@@ -113,6 +114,9 @@ class ReconcileSubscriptionsCommand extends Command
         } elseif ($provider->name() === 'stripe') {
             $this->info('Pre-fetching subscriptions from Stripe API...');
             $batchSubscriptions = $this->fetchAllStripeSubscriptions();
+        } elseif ($provider->name() === 'lemon-squeezy') {
+            $this->info('Pre-fetching subscriptions from LemonSqueezy API...');
+            $batchSubscriptions = $this->fetchAllLemonSqueezySubscriptions();
         }
 
         if ($batchSubscriptions !== null) {
@@ -230,11 +234,12 @@ class ReconcileSubscriptionsCommand extends Command
             return match ($name) {
                 'stripe' => new StripeProvider,
                 'paddle' => new PaddleProvider,
+                'lemon-squeezy' => new LemonSqueezyProvider,
                 default => throw new \InvalidArgumentException("Unknown provider: {$name}"),
             };
         } catch (\InvalidArgumentException $e) {
             $this->error($e->getMessage());
-            $this->info('Supported providers: stripe, paddle');
+            $this->info('Supported providers: stripe, paddle, lemon-squeezy');
 
             return null;
         }
@@ -258,6 +263,10 @@ class ReconcileSubscriptionsCommand extends Command
 
         if ($provider->name() === 'paddle') {
             return $this->reconcilePaddleSubscription($billable, $subscription, $dryRun, $batchSubscriptions);
+        }
+
+        if ($provider->name() === 'lemon-squeezy') {
+            return $this->reconcileLemonSqueezySubscription($billable, $subscription, $dryRun, $batchSubscriptions);
         }
 
         $this->warn("  Provider {$provider->name()} reconciliation not implemented");
@@ -398,7 +407,7 @@ class ReconcileSubscriptionsCommand extends Command
             }
 
             $this->info("  Subscription ID: {$subscriptionId}");
-            $this->info("  Local ends_at: ".($subscription->ends_at ? $subscription->ends_at->toDateTimeString() : 'null'));
+            $this->info('  Local ends_at: '.($subscription->ends_at ? $subscription->ends_at->toDateTimeString() : 'null'));
 
             // Look up from pre-fetched batch first, fall back to individual API call
             $paddleSubscription = $batchSubscriptions?->get($subscriptionId)
@@ -688,6 +697,271 @@ class ReconcileSubscriptionsCommand extends Command
         }
 
         return $subscriptions;
+    }
+
+    /**
+     * Reconcile a LemonSqueezy subscription.
+     */
+    protected function reconcileLemonSqueezySubscription($billable, $subscription, bool $dryRun, ?Collection $batchSubscriptions = null): string
+    {
+        try {
+            $subscriptionId = $subscription->lemon_squeezy_id ?? $subscription->id ?? null;
+
+            if (! $subscriptionId) {
+                $this->warn('  No LemonSqueezy subscription ID found');
+
+                return 'skipped';
+            }
+
+            $this->info("  Subscription ID: {$subscriptionId}");
+            $this->info('  Local ends_at: '.($subscription->ends_at ? $subscription->ends_at->toDateTimeString() : 'null'));
+
+            // Look up from pre-fetched batch first, fall back to individual API call
+            $lsSubscription = $batchSubscriptions?->get($subscriptionId)
+                ?? $this->fetchLemonSqueezySubscription($subscriptionId);
+
+            if (! $lsSubscription) {
+                $this->warn('  Could not fetch subscription from LemonSqueezy API, falling back to local status');
+
+                return $this->reconcileLemonSqueezyFromLocalStatus($billable, $subscription, $dryRun, $subscriptionId);
+            }
+
+            $lsStatus = $lsSubscription['attributes']['status'] ?? $lsSubscription['status'] ?? 'unknown';
+
+            $this->info("  LemonSqueezy status: {$lsStatus}");
+
+            // Handle based on LemonSqueezy status
+            // Statuses: on_trial, active, paused, past_due, unpaid, cancelled, expired
+            if (in_array($lsStatus, ['cancelled', 'expired'])) {
+                $this->warn("  LemonSqueezy confirms subscription is {$lsStatus}");
+
+                if (! $dryRun) {
+                    app(DeleteSubscriptionAction::class)->execute($billable);
+                    $this->info('  Removed plan from billable');
+                    Log::info('ReconcileSubscriptions: LemonSqueezy confirmed cancellation, removed plan', [
+                        'billable_type' => get_class($billable),
+                        'billable_id' => $billable->getKey(),
+                        'ls_status' => $lsStatus,
+                        'ls_subscription_id' => $subscriptionId,
+                    ]);
+                } else {
+                    $this->line('  [DRY-RUN] Would remove plan from billable');
+                }
+
+                return 'removed';
+            }
+
+            if ($lsStatus === 'active') {
+                if ($subscription->ends_at) {
+                    $this->warn('  Subscription was REACTIVATED in LemonSqueezy!');
+
+                    if (! $dryRun) {
+                        $subscription->ends_at = null;
+                        $subscription->save();
+                        $this->info('  Cleared ends_at - subscription is active');
+                        Log::warning('ReconcileSubscriptions: Subscription was reactivated in LemonSqueezy', [
+                            'billable_type' => get_class($billable),
+                            'billable_id' => $billable->getKey(),
+                            'ls_subscription_id' => $subscriptionId,
+                        ]);
+                    } else {
+                        $this->line('  [DRY-RUN] Would clear ends_at date');
+                    }
+
+                    return 'reactivated';
+                }
+
+                $this->info('  Subscription status OK');
+
+                return 'skipped';
+            }
+
+            if ($lsStatus === 'paused') {
+                $this->warn('  Subscription is paused');
+                $this->info('  Skipping - needs manual review');
+
+                return 'skipped';
+            }
+
+            // Other statuses (on_trial, past_due, unpaid)
+            $this->warn("  Subscription has special status: {$lsStatus}");
+            $this->info('  Skipping - needs manual review');
+
+            Log::info('ReconcileSubscriptions: Subscription has special status, skipping', [
+                'billable_type' => get_class($billable),
+                'billable_id' => $billable->getKey(),
+                'ls_status' => $lsStatus,
+            ]);
+
+            return 'skipped';
+        } catch (\Exception $e) {
+            $this->error("  LemonSqueezy Error: {$e->getMessage()}");
+            $this->warn('  Skipping - unable to verify with LemonSqueezy');
+
+            Log::error('ReconcileSubscriptions: Failed to check LemonSqueezy subscription status', [
+                'billable_type' => get_class($billable),
+                'billable_id' => $billable->getKey(),
+                'error' => $e->getMessage(),
+            ]);
+
+            return 'error';
+        }
+    }
+
+    /**
+     * Fetch a single subscription from the LemonSqueezy API.
+     */
+    protected function fetchLemonSqueezySubscription(string $subscriptionId): ?array
+    {
+        $apiKey = config('lemon-squeezy.api_key') ?? config('plan-usage.lemon-squeezy.api_key');
+
+        if (! $apiKey) {
+            return null;
+        }
+
+        try {
+            $ch = curl_init();
+
+            curl_setopt_array($ch, [
+                CURLOPT_URL => "https://api.lemonsqueezy.com/v1/subscriptions/{$subscriptionId}",
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HTTPHEADER => [
+                    "Authorization: Bearer {$apiKey}",
+                    'Accept: application/vnd.api+json',
+                    'Content-Type: application/vnd.api+json',
+                ],
+            ]);
+
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($httpCode >= 400 || ! $response) {
+                return null;
+            }
+
+            $data = json_decode($response, true);
+
+            return $data['data'] ?? null;
+        } catch (\Exception $e) {
+            Log::warning('Failed to fetch LemonSqueezy subscription', [
+                'subscription_id' => $subscriptionId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Fetch all subscriptions from the LemonSqueezy API in batch using pagination.
+     *
+     * Returns a collection keyed by subscription ID, or null if the API is unavailable.
+     */
+    protected function fetchAllLemonSqueezySubscriptions(): ?Collection
+    {
+        $apiKey = config('lemon-squeezy.api_key') ?? config('plan-usage.lemon-squeezy.api_key');
+
+        if (! $apiKey) {
+            return null;
+        }
+
+        $subscriptions = collect();
+
+        try {
+            $url = 'https://api.lemonsqueezy.com/v1/subscriptions?page[size]=100';
+
+            while ($url) {
+                $ch = curl_init();
+
+                curl_setopt_array($ch, [
+                    CURLOPT_URL => $url,
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_HTTPHEADER => [
+                        "Authorization: Bearer {$apiKey}",
+                        'Accept: application/vnd.api+json',
+                        'Content-Type: application/vnd.api+json',
+                    ],
+                ]);
+
+                $response = curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+
+                if ($httpCode >= 400 || ! $response) {
+                    Log::warning('Failed to fetch LemonSqueezy subscriptions batch', [
+                        'http_code' => $httpCode,
+                    ]);
+
+                    return null;
+                }
+
+                $data = json_decode($response, true);
+
+                foreach ($data['data'] ?? [] as $sub) {
+                    if (isset($sub['id'])) {
+                        $subscriptions->put($sub['id'], $sub);
+                    }
+                }
+
+                // JSON:API pagination uses links.next
+                $url = $data['links']['next'] ?? null;
+            }
+        } catch (\Exception $e) {
+            Log::warning('Failed to batch-fetch LemonSqueezy subscriptions', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        return $subscriptions;
+    }
+
+    /**
+     * Fallback reconciliation using local status when LemonSqueezy API is unavailable.
+     */
+    protected function reconcileLemonSqueezyFromLocalStatus($billable, $subscription, bool $dryRun, string $subscriptionId): string
+    {
+        $status = $subscription->status ?? 'unknown';
+
+        $this->info("  Local status: {$status}");
+
+        if (in_array($status, ['cancelled', 'expired'])) {
+            $this->warn("  Subscription is {$status}");
+
+            if (! $dryRun) {
+                app(DeleteSubscriptionAction::class)->execute($billable);
+                $this->info('  Removed plan from billable');
+            } else {
+                $this->line('  [DRY-RUN] Would remove plan from billable');
+            }
+
+            return 'removed';
+        }
+
+        // Check if grace period has expired
+        if ($subscription->ends_at && $subscription->ends_at->isPast()) {
+            $this->warn('  Subscription grace period has ended');
+
+            if (! $dryRun) {
+                app(DeleteSubscriptionAction::class)->execute($billable);
+                $this->info('  Removed plan from billable');
+                Log::info('ReconcileSubscriptions: LemonSqueezy subscription grace period ended, removed plan', [
+                    'billable_type' => get_class($billable),
+                    'billable_id' => $billable->getKey(),
+                    'ls_subscription_id' => $subscriptionId,
+                ]);
+            } else {
+                $this->line('  [DRY-RUN] Would remove plan from billable');
+            }
+
+            return 'removed';
+        }
+
+        $this->info('  Subscription status OK (local only - could not verify with LemonSqueezy)');
+
+        return 'skipped';
     }
 
     /**

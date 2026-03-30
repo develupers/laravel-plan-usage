@@ -16,6 +16,7 @@ return new class extends Migration
             $table->text('description')->nullable();
             $table->string('stripe_product_id')->nullable()->index(); // Stripe Product ID
             $table->string('paddle_product_id')->nullable()->index(); // Paddle Product ID
+            $table->string('lemon_squeezy_product_id')->nullable()->index(); // LemonSqueezy Product ID
             $table->integer('trial_days')->default(0); // Trial period applies to the plan
             $table->integer('sort_order')->default(0);
             $table->boolean('is_active')->default(true);

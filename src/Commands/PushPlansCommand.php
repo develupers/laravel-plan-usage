@@ -7,6 +7,7 @@ namespace Develupers\PlanUsage\Commands;
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanPrice;
+use Develupers\PlanUsage\Providers\LemonSqueezy\LemonSqueezyProvider;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
 use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
 use Illuminate\Console\Command;
@@ -25,7 +26,7 @@ class PushPlansCommand extends Command
      * @var string
      */
     protected $signature = 'plans:push
-                            {--provider= : Override the billing provider (stripe or paddle)}
+                            {--provider= : Override the billing provider (stripe, paddle, or lemon-squeezy)}
                             {--force : Force update existing products}
                             {--dry-run : Show what would be created without actually creating}';
 
@@ -34,7 +35,7 @@ class PushPlansCommand extends Command
      *
      * @var string
      */
-    protected $description = 'Sync local plans to the billing provider (Stripe or Paddle)';
+    protected $description = 'Sync local plans to the billing provider (Stripe, Paddle, or LemonSqueezy)';
 
     /**
      * Execute the console command.
@@ -57,9 +58,12 @@ class PushPlansCommand extends Command
         // Check if the provider is installed
         if (! $provider->isInstalled()) {
             $this->error("The {$provider->name()} provider is not installed.");
-            $this->info($provider->name() === 'stripe'
-                ? 'Install it with: composer require laravel/cashier'
-                : 'Install it with: composer require laravel/cashier-paddle');
+            $this->info(match ($provider->name()) {
+                'stripe' => 'Install it with: composer require laravel/cashier',
+                'paddle' => 'Install it with: composer require laravel/cashier-paddle',
+                'lemon-squeezy' => 'Install it with: composer require lemonsqueezy/laravel',
+                default => 'Install the required provider package',
+            });
 
             return 1;
         }
@@ -100,11 +104,12 @@ class PushPlansCommand extends Command
             return match ($name) {
                 'stripe' => new StripeProvider,
                 'paddle' => new PaddleProvider,
+                'lemon-squeezy' => new LemonSqueezyProvider,
                 default => throw new \InvalidArgumentException("Unknown provider: {$name}"),
             };
         } catch (\InvalidArgumentException $e) {
             $this->error($e->getMessage());
-            $this->info('Supported providers: stripe, paddle');
+            $this->info('Supported providers: stripe, paddle, lemon-squeezy');
 
             return null;
         }

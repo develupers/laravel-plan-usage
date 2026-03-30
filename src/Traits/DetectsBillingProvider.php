@@ -5,26 +5,35 @@ declare(strict_types=1);
 namespace Develupers\PlanUsage\Traits;
 
 use Laravel\Paddle\Cashier;
+use LemonSqueezy\Laravel\LemonSqueezy;
 
 /**
  * Trait for detecting the configured billing provider.
  *
- * This trait provides a centralized way to determine whether Stripe or Paddle
- * is the active billing provider based on configuration or auto-detection.
+ * This trait provides a centralized way to determine whether Stripe, Paddle,
+ * or LemonSqueezy is the active billing provider based on configuration or auto-detection.
  */
 trait DetectsBillingProvider
 {
     /**
      * Detect the current billing provider.
      *
-     * @return string 'stripe' or 'paddle'
+     * @return string 'stripe', 'paddle', or 'lemon-squeezy'
      */
     protected function detectBillingProvider(): string
     {
         $provider = config('plan-usage.billing.provider', 'auto');
 
         if ($provider === 'auto') {
-            return class_exists(Cashier::class) ? 'paddle' : 'stripe';
+            if (class_exists(Cashier::class)) {
+                return 'paddle';
+            }
+
+            if (class_exists(LemonSqueezy::class)) {
+                return 'lemon-squeezy';
+            }
+
+            return 'stripe';
         }
 
         return $provider;
@@ -44,5 +53,13 @@ trait DetectsBillingProvider
     protected function isPaddleProvider(): bool
     {
         return $this->detectBillingProvider() === 'paddle';
+    }
+
+    /**
+     * Check if the current provider is LemonSqueezy.
+     */
+    protected function isLemonSqueezyProvider(): bool
+    {
+        return $this->detectBillingProvider() === 'lemon-squeezy';
     }
 }

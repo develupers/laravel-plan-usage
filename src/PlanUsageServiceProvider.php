@@ -14,6 +14,8 @@ use Develupers\PlanUsage\Commands\Stripe\PushPlansStripeCommand;
 use Develupers\PlanUsage\Commands\Subscription\ReconcileSubscriptionsCommand;
 use Develupers\PlanUsage\Commands\WarmCacheCommand;
 use Develupers\PlanUsage\Contracts\BillingProvider;
+use Develupers\PlanUsage\Providers\LemonSqueezy\LemonSqueezyProvider;
+use Develupers\PlanUsage\Providers\LemonSqueezy\LemonSqueezyWebhookListener;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
 use Develupers\PlanUsage\Providers\Paddle\PaddleWebhookListener;
 use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
@@ -103,8 +105,9 @@ class PlanUsageServiceProvider extends PackageServiceProvider
         return match ($provider) {
             'stripe' => $this->resolveStripeProvider(),
             'paddle' => $this->resolvePaddleProvider(),
+            'lemon-squeezy' => $this->resolveLemonSqueezyProvider(),
             default => throw new \InvalidArgumentException(
-                "Unknown billing provider: {$provider}. Supported providers are: stripe, paddle"
+                "Unknown billing provider: {$provider}. Supported providers are: stripe, paddle, lemon-squeezy"
             ),
         };
     }
@@ -137,6 +140,21 @@ class PlanUsageServiceProvider extends PackageServiceProvider
         }
 
         return new PaddleProvider;
+    }
+
+    /**
+     * Resolve the LemonSqueezy provider with validation.
+     */
+    protected function resolveLemonSqueezyProvider(): LemonSqueezyProvider
+    {
+        if (! class_exists(\LemonSqueezy\Laravel\LemonSqueezy::class)) {
+            throw new \RuntimeException(
+                'LemonSqueezy provider configured but lemonsqueezy/laravel is not installed. '.
+                'Install it with: composer require lemonsqueezy/laravel'
+            );
+        }
+
+        return new LemonSqueezyProvider;
     }
 
     /**
@@ -173,6 +191,7 @@ class PlanUsageServiceProvider extends PackageServiceProvider
 
         $billableMigration = match ($provider) {
             'paddle' => 'add_billable_columns_paddle',
+            'lemon-squeezy' => 'add_billable_columns_lemon_squeezy',
             'stripe' => 'add_billable_columns_stripe',
             default => 'add_billable_columns_stripe', // Fallback to Stripe
         };
@@ -217,6 +236,14 @@ class PlanUsageServiceProvider extends PackageServiceProvider
             \Event::listen(
                 WebhookReceived::class,
                 PaddleWebhookListener::class
+            );
+        }
+
+        // Register LemonSqueezy webhook listener
+        if ($this->isLemonSqueezyProvider() && class_exists(\LemonSqueezy\Laravel\Events\WebhookHandled::class)) {
+            \Event::listen(
+                \LemonSqueezy\Laravel\Events\WebhookHandled::class,
+                LemonSqueezyWebhookListener::class
             );
         }
     }

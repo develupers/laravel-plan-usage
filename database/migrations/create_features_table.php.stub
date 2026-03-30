@@ -19,6 +19,7 @@ return new class extends Migration
             $table->string('reset_period')->nullable(); // hour, day, week, month, year
             $table->string('stripe_meter_id')->nullable(); // For Stripe metered billing
             $table->string('paddle_meter_id')->nullable(); // For Paddle metered billing
+            $table->string('lemon_squeezy_meter_id')->nullable(); // For LemonSqueezy metered billing (future)
             $table->boolean('is_consumable')->default(false); // Whether usage is consumed (true) or just counted
             $table->integer('sort_order')->default(0);
             $table->json('metadata')->nullable();

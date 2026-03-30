@@ -41,6 +41,10 @@ parameters:
         -
             identifier: class.notFound
             path: src/Providers/Paddle/*
+        # LemonSqueezy is an optional dependency — classes don't exist unless installed
+        -
+            identifier: class.notFound
+            path: src/Providers/LemonSqueezy/*
         # Cashier Checkout internals accessed via magic properties
         -
             identifier: property.notFound
