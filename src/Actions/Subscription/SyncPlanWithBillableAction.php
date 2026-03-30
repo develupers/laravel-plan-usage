@@ -83,7 +83,7 @@ class SyncPlanWithBillableAction
                 $billable->syncQuotasWithPlan();
             } else {
                 // Use the facade to sync quotas if the model doesn't have the method
-                PlanUsage::quotas()->syncWithPlan($billable);
+                PlanUsage::quotas()->syncWithPlan($billable); // @phpstan-ignore argument.type
             }
 
             Log::info('Successfully synced quotas for billable', [

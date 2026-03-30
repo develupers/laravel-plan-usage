@@ -378,26 +378,36 @@ class ReconcileSubscriptionsCommand extends Command
             }
 
             $this->info("  Subscription ID: {$subscriptionId}");
-            $this->info("  Local ends_at: {$subscription->ends_at->toDateTimeString()}");
+            $this->info("  Local ends_at: ".($subscription->ends_at ? $subscription->ends_at->toDateTimeString() : 'null'));
 
-            // Check with Paddle for the real status
-            // Note: Paddle Cashier stores status differently
-            $status = $subscription->status ?? 'unknown';
+            // Query Paddle API for the real subscription status
+            $paddleSubscription = $this->fetchPaddleSubscription($subscriptionId);
 
-            $this->info("  Local status: {$status}");
+            if (! $paddleSubscription) {
+                $this->warn('  Could not fetch subscription from Paddle API, falling back to local status');
+
+                return $this->reconcilePaddleFromLocalStatus($billable, $subscription, $dryRun, $subscriptionId);
+            }
+
+            $paddleStatus = $paddleSubscription['status'] ?? 'unknown';
+            $scheduledChange = $paddleSubscription['scheduled_change'] ?? null;
+            $cancelAtPeriodEnd = $scheduledChange && ($scheduledChange['action'] ?? null) === 'cancel';
+
+            $this->info("  Paddle status: {$paddleStatus}");
+            $this->info('  Cancel at period end: '.($cancelAtPeriodEnd ? 'Yes' : 'No'));
 
             // Handle based on Paddle status
             // Paddle statuses: active, canceled, past_due, paused, trialing
-            if (in_array($status, ['canceled'])) {
-                $this->warn("  Subscription is {$status}");
+            if ($paddleStatus === 'canceled') {
+                $this->warn('  Paddle confirms subscription is canceled');
 
                 if (! $dryRun) {
                     app(DeleteSubscriptionAction::class)->execute($billable);
                     $this->info('  Removed plan from billable');
-                    Log::info('ReconcileSubscriptions: Paddle subscription canceled, removed plan', [
+                    Log::info('ReconcileSubscriptions: Paddle confirmed cancellation, removed plan', [
                         'billable_type' => get_class($billable),
                         'billable_id' => $billable->getKey(),
-                        'paddle_status' => $status,
+                        'paddle_status' => $paddleStatus,
                         'paddle_subscription_id' => $subscriptionId,
                     ]);
                 } else {
@@ -407,45 +417,81 @@ class ReconcileSubscriptionsCommand extends Command
                 return 'removed';
             }
 
-            if ($status === 'active' && ! $subscription->ends_at) {
-                $this->warn('  Subscription is active with no end date');
+            if ($paddleStatus === 'active' && ! $cancelAtPeriodEnd) {
+                // Paddle says active with no pending cancellation
+                if ($subscription->ends_at) {
+                    $this->warn('  Subscription was REACTIVATED in Paddle!');
 
-                if (! $dryRun && $subscription->ends_at) {
-                    $subscription->ends_at = null;
-                    $subscription->save();
-                    $this->info('  Cleared ends_at - subscription is active');
+                    if (! $dryRun) {
+                        $subscription->ends_at = null;
+                        $subscription->save();
+                        $this->info('  Cleared ends_at - subscription is active');
+                        Log::warning('ReconcileSubscriptions: Subscription was reactivated in Paddle', [
+                            'billable_type' => get_class($billable),
+                            'billable_id' => $billable->getKey(),
+                            'paddle_subscription_id' => $subscriptionId,
+                        ]);
+                    } else {
+                        $this->line('  [DRY-RUN] Would clear ends_at date');
+                    }
+
+                    return 'reactivated';
                 }
 
-                return 'reactivated';
+                $this->info('  Subscription status OK');
+
+                return 'skipped';
             }
 
-            if ($status === 'paused') {
+            if ($paddleStatus === 'active' && $cancelAtPeriodEnd) {
+                // Grace period — sync the end date from Paddle
+                $periodEnd = isset($paddleSubscription['current_billing_period']['ends_at'])
+                    ? Carbon::parse($paddleSubscription['current_billing_period']['ends_at'])
+                    : null;
+
+                if ($periodEnd && (! $subscription->ends_at || ! $subscription->ends_at->equalTo($periodEnd))) {
+                    $this->warn('  Grace period end date mismatch');
+                    $this->info('     Local: '.($subscription->ends_at ? $subscription->ends_at->toDateTimeString() : 'null'));
+                    $this->info("     Paddle: {$periodEnd->toDateTimeString()}");
+
+                    if (! $dryRun) {
+                        $subscription->ends_at = $periodEnd;
+                        $subscription->save();
+                        $this->info('  Updated grace period end date');
+                        Log::info('ReconcileSubscriptions: Updated grace period end date from Paddle', [
+                            'billable_type' => get_class($billable),
+                            'billable_id' => $billable->getKey(),
+                            'old_ends_at' => $subscription->ends_at,
+                            'new_ends_at' => $periodEnd,
+                        ]);
+                    } else {
+                        $this->line('  [DRY-RUN] Would update grace period end date');
+                    }
+
+                    return 'updated';
+                }
+
+                $this->info('  Grace period end date is correct');
+
+                return 'skipped';
+            }
+
+            if ($paddleStatus === 'paused') {
                 $this->warn('  Subscription is paused');
                 $this->info('  Skipping - needs manual review');
 
                 return 'skipped';
             }
 
-            // Check if subscription should have ended
-            if ($subscription->ends_at && $subscription->ends_at->isPast()) {
-                $this->warn('  Subscription grace period has ended');
+            // Other statuses (trialing, past_due)
+            $this->warn("  Subscription has special status: {$paddleStatus}");
+            $this->info('  Skipping - needs manual review');
 
-                if (! $dryRun) {
-                    app(DeleteSubscriptionAction::class)->execute($billable);
-                    $this->info('  Removed plan from billable');
-                    Log::info('ReconcileSubscriptions: Paddle subscription grace period ended, removed plan', [
-                        'billable_type' => get_class($billable),
-                        'billable_id' => $billable->getKey(),
-                        'paddle_subscription_id' => $subscriptionId,
-                    ]);
-                } else {
-                    $this->line('  [DRY-RUN] Would remove plan from billable');
-                }
-
-                return 'removed';
-            }
-
-            $this->info('  Subscription status OK');
+            Log::info('ReconcileSubscriptions: Subscription has special status, skipping', [
+                'billable_type' => get_class($billable),
+                'billable_id' => $billable->getKey(),
+                'paddle_status' => $paddleStatus,
+            ]);
 
             return 'skipped';
         } catch (\Exception $e) {
@@ -460,6 +506,101 @@ class ReconcileSubscriptionsCommand extends Command
 
             return 'error';
         }
+    }
+
+    /**
+     * Fetch subscription details from the Paddle API.
+     */
+    protected function fetchPaddleSubscription(string $subscriptionId): ?array
+    {
+        $apiKey = config('cashier.api_key') ?? config('plan-usage.paddle.api_key');
+
+        if (! $apiKey) {
+            return null;
+        }
+
+        $sandbox = config('cashier.sandbox', config('plan-usage.paddle.sandbox', true));
+        $baseUrl = $sandbox
+            ? 'https://sandbox-api.paddle.com'
+            : 'https://api.paddle.com';
+
+        try {
+            $ch = curl_init();
+
+            curl_setopt_array($ch, [
+                CURLOPT_URL => "{$baseUrl}/subscriptions/{$subscriptionId}",
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HTTPHEADER => [
+                    "Authorization: Bearer {$apiKey}",
+                    'Content-Type: application/json',
+                ],
+            ]);
+
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($httpCode >= 400 || ! $response) {
+                return null;
+            }
+
+            $data = json_decode($response, true);
+
+            return $data['data'] ?? null;
+        } catch (\Exception $e) {
+            Log::warning('Failed to fetch Paddle subscription', [
+                'subscription_id' => $subscriptionId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Fallback reconciliation using local status when Paddle API is unavailable.
+     */
+    protected function reconcilePaddleFromLocalStatus($billable, $subscription, bool $dryRun, string $subscriptionId): string
+    {
+        $status = $subscription->status ?? 'unknown';
+
+        $this->info("  Local status: {$status}");
+
+        if ($status === 'canceled') {
+            $this->warn("  Subscription is {$status}");
+
+            if (! $dryRun) {
+                app(DeleteSubscriptionAction::class)->execute($billable);
+                $this->info('  Removed plan from billable');
+            } else {
+                $this->line('  [DRY-RUN] Would remove plan from billable');
+            }
+
+            return 'removed';
+        }
+
+        // Check if grace period has expired
+        if ($subscription->ends_at && $subscription->ends_at->isPast()) {
+            $this->warn('  Subscription grace period has ended');
+
+            if (! $dryRun) {
+                app(DeleteSubscriptionAction::class)->execute($billable);
+                $this->info('  Removed plan from billable');
+                Log::info('ReconcileSubscriptions: Paddle subscription grace period ended, removed plan', [
+                    'billable_type' => get_class($billable),
+                    'billable_id' => $billable->getKey(),
+                    'paddle_subscription_id' => $subscriptionId,
+                ]);
+            } else {
+                $this->line('  [DRY-RUN] Would remove plan from billable');
+            }
+
+            return 'removed';
+        }
+
+        $this->info('  Subscription status OK (local only - could not verify with Paddle)');
+
+        return 'skipped';
     }
 
     /**

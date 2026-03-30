@@ -182,7 +182,9 @@ class Quota extends Model
         }
 
         $this->used = 0;
-        $this->reset_at = $this->feature->getNextResetDate();
+        /** @var \Illuminate\Support\Carbon|null $nextReset */
+        $nextReset = $this->feature->getNextResetDate();
+        $this->reset_at = $nextReset;
         $this->save();
 
         return $this;

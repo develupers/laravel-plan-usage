@@ -21,3 +21,31 @@ parameters:
         # env() is correctly used in config files - this is standard Laravel practice
         - identifier: larastan.noEnvCallsOutsideOfConfig
           path: config/*.php
+        # Billable contract doesn't declare Cashier/Eloquent methods (subscription, subscribed,
+        # newSubscription, getKey, save, etc.) — they exist at runtime via traits but PHPStan
+        # can't see through the interface. These are safe to ignore.
+        -
+            identifier: method.notFound
+            path: src/Actions/Subscription/*
+        # SyncPlanWithBillableAction accepts mixed Plan/PlanPrice/string identifiers by design
+        -
+            identifier: function.alreadyNarrowedType
+            path: src/Actions/Subscription/SyncPlanWithBillableAction.php
+        -
+            identifier: argument.type
+            path: src/Actions/Subscription/SyncPlanWithBillableAction.php
+        -
+            identifier: method.notFound
+            path: src/Providers/*/
+        # Paddle is an optional dependency — classes don't exist unless installed
+        -
+            identifier: class.notFound
+            path: src/Providers/Paddle/*
+        # Cashier Checkout internals accessed via magic properties
+        -
+            identifier: property.notFound
+            path: src/Providers/Stripe/StripeCheckoutSession.php
+        # Deprecated classes still registered in service provider for backwards compatibility
+        -
+            identifier: classConstant.deprecatedClass
+            path: src/PlanUsageServiceProvider.php

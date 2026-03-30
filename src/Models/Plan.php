@@ -130,6 +130,7 @@ class Plan extends Model
             $interval = Interval::from($interval);
         }
 
+        /** @var PlanPrice|null */
         return $this->prices()
             ->where('interval', $interval->value)
             ->where('is_active', true)
