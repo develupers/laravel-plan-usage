@@ -194,7 +194,7 @@ class PlanPrice extends Model
      */
     public static function findByProviderPriceId(string $priceId): ?self
     {
-        $instance = new static;
+        $instance = new self;
         $column = match ($instance->detectBillingProvider()) {
             'paddle' => 'paddle_price_id',
             default => 'stripe_price_id',

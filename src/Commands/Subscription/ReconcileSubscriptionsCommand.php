@@ -10,6 +10,7 @@ use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
 use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
 use Illuminate\Console\Command;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Stripe\Exception\ApiErrorException;
 
@@ -104,7 +105,23 @@ class ReconcileSubscriptionsCommand extends Command
         $errors = 0;
         $skipped = 0;
 
-        $query->each(function ($billable) use ($provider, $dryRun, &$processed, &$removed, &$reactivated, &$updated, &$errors, &$skipped) {
+        // Pre-fetch all subscriptions in batch to avoid per-billable API calls
+        $batchSubscriptions = null;
+        if ($provider->name() === 'paddle') {
+            $this->info('Pre-fetching subscriptions from Paddle API...');
+            $batchSubscriptions = $this->fetchAllPaddleSubscriptions();
+        } elseif ($provider->name() === 'stripe') {
+            $this->info('Pre-fetching subscriptions from Stripe API...');
+            $batchSubscriptions = $this->fetchAllStripeSubscriptions();
+        }
+
+        if ($batchSubscriptions !== null) {
+            $this->info("Fetched {$batchSubscriptions->count()} subscription(s) from {$provider->name()}");
+        } else {
+            $this->warn("Could not pre-fetch from {$provider->name()} API, will fall back to per-subscription calls");
+        }
+
+        $query->each(function ($billable) use ($provider, $dryRun, $batchSubscriptions, &$processed, &$removed, &$reactivated, &$updated, &$errors, &$skipped) {
             $processed++;
             $billableIdentifier = $this->getBillableIdentifier($billable);
             $this->info("\nChecking {$billableIdentifier}");
@@ -139,7 +156,8 @@ class ReconcileSubscriptionsCommand extends Command
                     $provider,
                     $billable,
                     $subscription,
-                    $dryRun
+                    $dryRun,
+                    $batchSubscriptions
                 );
 
                 switch ($result) {
@@ -231,14 +249,15 @@ class ReconcileSubscriptionsCommand extends Command
         BillingProvider $provider,
         $billable,
         $subscription,
-        bool $dryRun
+        bool $dryRun,
+        ?Collection $batchSubscriptions = null
     ): string {
         if ($provider->name() === 'stripe') {
-            return $this->reconcileStripeSubscription($billable, $subscription, $dryRun);
+            return $this->reconcileStripeSubscription($billable, $subscription, $dryRun, $batchSubscriptions);
         }
 
         if ($provider->name() === 'paddle') {
-            return $this->reconcilePaddleSubscription($billable, $subscription, $dryRun);
+            return $this->reconcilePaddleSubscription($billable, $subscription, $dryRun, $batchSubscriptions);
         }
 
         $this->warn("  Provider {$provider->name()} reconciliation not implemented");
@@ -249,7 +268,7 @@ class ReconcileSubscriptionsCommand extends Command
     /**
      * Reconcile a Stripe subscription.
      */
-    protected function reconcileStripeSubscription($billable, $subscription, bool $dryRun): string
+    protected function reconcileStripeSubscription($billable, $subscription, bool $dryRun, ?Collection $batchSubscriptions = null): string
     {
         try {
             $subscriptionId = $subscription->stripe_id ?? null;
@@ -263,8 +282,9 @@ class ReconcileSubscriptionsCommand extends Command
             $this->info("  Subscription ID: {$subscriptionId}");
             $this->info("  Local ends_at: {$subscription->ends_at->toDateTimeString()}");
 
-            // Check with Stripe for the real status
-            $stripeSubscription = $subscription->asStripeSubscription();
+            // Look up from pre-fetched batch first, fall back to individual API call
+            $stripeSubscription = $batchSubscriptions?->get($subscriptionId)
+                ?? $subscription->asStripeSubscription();
 
             $this->info("  Stripe status: {$stripeSubscription->status}");
             $this->info('  Cancel at period end: '.($stripeSubscription->cancel_at_period_end ? 'Yes' : 'No'));
@@ -366,7 +386,7 @@ class ReconcileSubscriptionsCommand extends Command
     /**
      * Reconcile a Paddle subscription.
      */
-    protected function reconcilePaddleSubscription($billable, $subscription, bool $dryRun): string
+    protected function reconcilePaddleSubscription($billable, $subscription, bool $dryRun, ?Collection $batchSubscriptions = null): string
     {
         try {
             $subscriptionId = $subscription->paddle_id ?? $subscription->id ?? null;
@@ -380,8 +400,9 @@ class ReconcileSubscriptionsCommand extends Command
             $this->info("  Subscription ID: {$subscriptionId}");
             $this->info("  Local ends_at: ".($subscription->ends_at ? $subscription->ends_at->toDateTimeString() : 'null'));
 
-            // Query Paddle API for the real subscription status
-            $paddleSubscription = $this->fetchPaddleSubscription($subscriptionId);
+            // Look up from pre-fetched batch first, fall back to individual API call
+            $paddleSubscription = $batchSubscriptions?->get($subscriptionId)
+                ?? $this->fetchPaddleSubscription($subscriptionId);
 
             if (! $paddleSubscription) {
                 $this->warn('  Could not fetch subscription from Paddle API, falling back to local status');
@@ -509,6 +530,45 @@ class ReconcileSubscriptionsCommand extends Command
     }
 
     /**
+     * Fetch all subscriptions from the Stripe API in batch using auto-pagination.
+     *
+     * Returns a collection keyed by subscription ID, or null if the API is unavailable.
+     */
+    protected function fetchAllStripeSubscriptions(): ?Collection
+    {
+        try {
+            $stripe = \Laravel\Cashier\Cashier::stripe();
+            $subscriptions = collect();
+
+            // Fetch all non-draft subscriptions in a single paginated pass.
+            // Stripe's 'all' status excludes only 'incomplete' — this covers
+            // active, canceled, incomplete_expired, past_due, trialing, paused, unpaid.
+            $params = ['limit' => 100, 'status' => 'all'];
+
+            do {
+                $response = $stripe->subscriptions->all($params);
+
+                foreach ($response->data as $sub) {
+                    $subscriptions->put($sub->id, $sub);
+                }
+
+                // Cursor-based pagination: use the last ID as starting_after
+                if ($response->has_more && count($response->data) > 0) {
+                    $params['starting_after'] = end($response->data)->id;
+                }
+            } while ($response->has_more);
+
+            return $subscriptions;
+        } catch (\Exception $e) {
+            Log::warning('Failed to batch-fetch Stripe subscriptions', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
      * Fetch subscription details from the Paddle API.
      */
     protected function fetchPaddleSubscription(string $subscriptionId): ?array
@@ -555,6 +615,79 @@ class ReconcileSubscriptionsCommand extends Command
 
             return null;
         }
+    }
+
+    /**
+     * Fetch all subscriptions from the Paddle API in batch using pagination.
+     *
+     * Returns a collection keyed by subscription ID, or null if the API is unavailable.
+     */
+    protected function fetchAllPaddleSubscriptions(): ?Collection
+    {
+        $apiKey = config('cashier.api_key') ?? config('plan-usage.paddle.api_key');
+
+        if (! $apiKey) {
+            return null;
+        }
+
+        $sandbox = config('cashier.sandbox', config('plan-usage.paddle.sandbox', true));
+        $baseUrl = $sandbox
+            ? 'https://sandbox-api.paddle.com'
+            : 'https://api.paddle.com';
+
+        $subscriptions = collect();
+
+        try {
+            // Fetch both active and canceled subscriptions
+            foreach (['active', 'canceled'] as $status) {
+                $url = "{$baseUrl}/subscriptions?status={$status}&per_page=200";
+
+                while ($url) {
+                    $ch = curl_init();
+
+                    curl_setopt_array($ch, [
+                        CURLOPT_URL => $url,
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_HTTPHEADER => [
+                            "Authorization: Bearer {$apiKey}",
+                            'Content-Type: application/json',
+                        ],
+                    ]);
+
+                    $response = curl_exec($ch);
+                    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    curl_close($ch);
+
+                    if ($httpCode >= 400 || ! $response) {
+                        Log::warning('Failed to fetch Paddle subscriptions batch', [
+                            'status' => $status,
+                            'http_code' => $httpCode,
+                        ]);
+
+                        return null;
+                    }
+
+                    $data = json_decode($response, true);
+
+                    foreach ($data['data'] ?? [] as $sub) {
+                        if (isset($sub['id'])) {
+                            $subscriptions->put($sub['id'], $sub);
+                        }
+                    }
+
+                    // Follow pagination
+                    $url = $data['meta']['pagination']['next'] ?? null;
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning('Failed to batch-fetch Paddle subscriptions', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        return $subscriptions;
     }
 
     /**

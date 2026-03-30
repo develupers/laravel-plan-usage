@@ -107,10 +107,6 @@ class PushPlansCommand extends Command
             $this->info('Supported providers: stripe, paddle');
 
             return null;
-        } catch (\RuntimeException $e) {
-            $this->error($e->getMessage());
-
-            return null;
         }
     }
 

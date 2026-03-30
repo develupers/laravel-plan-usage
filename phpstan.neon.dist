@@ -49,3 +49,14 @@ parameters:
         -
             identifier: classConstant.deprecatedClass
             path: src/PlanUsageServiceProvider.php
+        # Factory afterCreating closure is typed to Plan but PHPStan expects generic Model
+        -
+            identifier: argument.type
+            path: database/factories/PlanFactory.php
+        # Collection covariance limitations with flatMap/map — not a real bug
+        -
+            identifier: argument.type
+            path: src/Commands/Stripe/PushPlansStripeCommand.php
+        -
+            identifier: return.type
+            path: src/Commands/Stripe/PushPlansStripeCommand.php
