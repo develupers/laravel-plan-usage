@@ -17,7 +17,7 @@ class ConsumeQuota
      *
      * On successful responses, enforces quota, increments usage, and logs.
      *
-     * @param  \Closure(Request): (Response)  $next
+     * @param  Closure(Request): (Response)  $next
      */
     public function handle(Request $request, Closure $next, string $featureSlug, float $amount = 1): Response
     {
