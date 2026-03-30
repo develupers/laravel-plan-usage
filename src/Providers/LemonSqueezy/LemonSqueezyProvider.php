@@ -7,6 +7,8 @@ namespace Develupers\PlanUsage\Providers\LemonSqueezy;
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Contracts\CheckoutSession;
 use Illuminate\Database\Eloquent\Model;
+use LemonSqueezy\Laravel\Customer;
+use LemonSqueezy\Laravel\Events\WebhookHandled;
 use LemonSqueezy\Laravel\LemonSqueezy;
 
 /**
@@ -57,7 +59,7 @@ class LemonSqueezyProvider implements BillingProvider
      */
     public function getWebhookEventClass(): string
     {
-        return \LemonSqueezy\Laravel\Events\WebhookHandled::class;
+        return WebhookHandled::class;
     }
 
     /**
@@ -378,8 +380,8 @@ class LemonSqueezyProvider implements BillingProvider
         }
 
         // Fall back to querying through the LemonSqueezy Customer model
-        if (class_exists(\LemonSqueezy\Laravel\Customer::class)) {
-            $customer = \LemonSqueezy\Laravel\Customer::where('lemon_squeezy_id', $customerId)->first();
+        if (class_exists(Customer::class)) {
+            $customer = Customer::where('lemon_squeezy_id', $customerId)->first();
             if ($customer && $customer->billable) {
                 return $customer->billable;
             }

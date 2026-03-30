@@ -27,6 +27,7 @@ use Develupers\PlanUsage\Traits\DetectsBillingProvider;
 use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Events\WebhookHandled;
 use Laravel\Paddle\Events\WebhookReceived;
+use LemonSqueezy\Laravel\LemonSqueezy;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -147,7 +148,7 @@ class PlanUsageServiceProvider extends PackageServiceProvider
      */
     protected function resolveLemonSqueezyProvider(): LemonSqueezyProvider
     {
-        if (! class_exists(\LemonSqueezy\Laravel\LemonSqueezy::class)) {
+        if (! class_exists(LemonSqueezy::class)) {
             throw new \RuntimeException(
                 'LemonSqueezy provider configured but lemonsqueezy/laravel is not installed. '.
                 'Install it with: composer require lemonsqueezy/laravel'

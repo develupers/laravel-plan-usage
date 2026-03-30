@@ -13,6 +13,7 @@ use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Laravel\Cashier\Cashier;
 use Stripe\Exception\ApiErrorException;
 
 class ReconcileSubscriptionsCommand extends Command
@@ -546,7 +547,7 @@ class ReconcileSubscriptionsCommand extends Command
     protected function fetchAllStripeSubscriptions(): ?Collection
     {
         try {
-            $stripe = \Laravel\Cashier\Cashier::stripe();
+            $stripe = Cashier::stripe();
             $subscriptions = collect();
 
             // Fetch all non-draft subscriptions in a single paginated pass.

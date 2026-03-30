@@ -8,6 +8,7 @@ use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use LemonSqueezy\Laravel\Customer;
 use LemonSqueezy\Laravel\Events\WebhookHandled;
 
 /**
@@ -212,8 +213,8 @@ class LemonSqueezyWebhookListener
         }
 
         // Fall back to LemonSqueezy Customer model
-        if (class_exists(\LemonSqueezy\Laravel\Customer::class)) {
-            $customer = \LemonSqueezy\Laravel\Customer::where('lemon_squeezy_id', $customerId)->first();
+        if (class_exists(Customer::class)) {
+            $customer = Customer::where('lemon_squeezy_id', $customerId)->first();
             if ($customer && $customer->billable) {
                 return $customer->billable;
             }
