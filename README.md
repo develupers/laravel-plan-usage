@@ -6,7 +6,7 @@
 [![Total Downloads](https://img.shields.io/packagist/dt/develupers/laravel-plan-usage.svg?style=flat-square)](https://packagist.org/packages/develupers/laravel-plan-usage)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A powerful Laravel package for managing subscription plans, features, quotas, and usage tracking. Perfect for SaaS applications that need flexible plan management with feature access control and usage monitoring. Seamlessly integrates with Laravel Cashier for billing with support for **both Stripe and Paddle**.
+A powerful Laravel package for managing subscription plans, features, quotas, and usage tracking. Perfect for SaaS applications that need flexible plan management with feature access control and usage monitoring. Seamlessly integrates with Laravel Cashier for billing with support for **Stripe, Paddle, and LemonSqueezy**.
 
 ## ✨ Features
 
@@ -14,8 +14,8 @@ A powerful Laravel package for managing subscription plans, features, quotas, an
 - 🎯 **Feature Access Control** - Define boolean, limit, and quota-based features
 - 📈 **Usage Tracking** - Monitor and track feature consumption in real-time
 - 🚦 **Quota Enforcement** - Automatic quota limits with configurable warning thresholds
-- 💳 **Multi-Provider Billing** - Support for both Stripe and Paddle billing providers
-- 🌍 **Paddle MoR Support** - Use Paddle as Merchant of Record for simplified tax/VAT handling
+- 💳 **Multi-Provider Billing** - Support for Stripe, Paddle, and LemonSqueezy billing providers
+- 🌍 **MoR Support** - Use Paddle or LemonSqueezy as Merchant of Record for simplified tax/VAT handling
 - 💱 **Multi-Currency Support** - Support for different currencies per pricing option
 - 📅 **Flexible Pricing Intervals** - Daily, weekly, monthly, yearly, or lifetime pricing
 - 🔄 **Periodic Reset Options** - Daily, weekly, monthly, or yearly quota resets
@@ -31,6 +31,7 @@ A powerful Laravel package for managing subscription plans, features, quotas, an
 - **One of the following billing packages:**
   - Laravel Cashier 15.x (for Stripe)
   - Laravel Cashier Paddle 2.x (for Paddle Billing)
+  - LemonSqueezy Laravel (for LemonSqueezy)
 
 ## 🚀 Installation
 
@@ -89,6 +90,7 @@ return [
         // 'auto' = detect from installed package
         // 'stripe' = force Stripe provider
         // 'paddle' = force Paddle provider
+        // 'lemon-squeezy' = force LemonSqueezy provider
         'provider' => env('BILLING_PROVIDER', 'auto'),
     ],
 
@@ -106,6 +108,13 @@ return [
         'api_key' => env('PADDLE_API_KEY'),
         'webhook_secret' => env('PADDLE_WEBHOOK_SECRET'),
         'client_side_token' => env('PADDLE_CLIENT_SIDE_TOKEN'),
+    ],
+
+    // LemonSqueezy-specific configuration (only needed if using LemonSqueezy)
+    'lemon-squeezy' => [
+        'api_key' => env('LEMON_SQUEEZY_API_KEY'),
+        'store' => env('LEMON_SQUEEZY_STORE'),
+        'webhook_secret' => env('LEMON_SQUEEZY_SIGNING_SECRET'),
     ],
 ];
 ```
@@ -141,7 +150,7 @@ echo $account->plan->name; // "Free"
 
 ## 💳 Billing Provider Setup
 
-This package supports both **Stripe** and **Paddle** as billing providers. You can only use one provider at a time.
+This package supports **Stripe**, **Paddle**, and **LemonSqueezy** as billing providers. You can only use one provider at a time.
 
 ### Option 1: Stripe (Default)
 
@@ -181,9 +190,28 @@ PADDLE_WEBHOOK_SECRET=your-webhook-secret
 PADDLE_CLIENT_SIDE_TOKEN=your-client-token
 ```
 
+### Option 3: LemonSqueezy (Merchant of Record)
+
+LemonSqueezy acts as Merchant of Record, similar to Paddle. It uses "variants" instead of "prices" for different pricing options.
+
+Install the LemonSqueezy Laravel package:
+
+```bash
+composer require lemonsqueezy/laravel
+```
+
+Add to your `.env`:
+
+```env
+BILLING_PROVIDER=lemon-squeezy
+LEMON_SQUEEZY_API_KEY=your-api-key
+LEMON_SQUEEZY_STORE=your-store-id
+LEMON_SQUEEZY_SIGNING_SECRET=your-webhook-secret
+```
+
 ### Auto-Detection
 
-If `BILLING_PROVIDER` is set to `auto` (or not set), the package will automatically detect which Cashier package is installed and use the appropriate provider.
+If `BILLING_PROVIDER` is set to `auto` (or not set), the package will automatically detect which billing package is installed and use the appropriate provider. Detection priority: Paddle > LemonSqueezy > Stripe.
 
 ### Automatic Migration Selection
 
@@ -191,10 +219,11 @@ The package automatically publishes the correct migration for your billable tabl
 
 - **Stripe**: Adds `stripe_id`, `pm_type`, `pm_last_four`, `trial_ends_at` columns
 - **Paddle**: Adds `paddle_id`, `trial_ends_at` columns
+- **LemonSqueezy**: Adds `lemon_squeezy_id`, `trial_ends_at` columns
 
-Both migrations also add plan tracking columns: `plan_id`, `plan_price_id`, `plan_changed_at`.
+All migrations also add plan tracking columns: `plan_id`, `plan_price_id`, `plan_changed_at`.
 
-> **Important**: You still need to publish and run the Cashier migrations separately. The package only adds the billable columns to your model's table - it does not create the `subscriptions`, `customers`, or `transactions` tables that Cashier requires.
+> **Important**: You still need to publish and run the billing provider's own migrations separately. The package only adds the billable columns to your model's table.
 
 ```bash
 # For Stripe
@@ -202,6 +231,9 @@ php artisan vendor:publish --tag=cashier-migrations
 
 # For Paddle
 php artisan vendor:publish --provider="Laravel\Paddle\CashierServiceProvider"
+
+# For LemonSqueezy
+php artisan vendor:publish --tag="lemon-squeezy-migrations"
 
 # Then run migrations
 php artisan migrate
@@ -233,6 +265,17 @@ class Account extends Model
 }
 ```
 
+**For LemonSqueezy:**
+```php
+use Develupers\PlanUsage\Traits\HasPlanFeatures;
+use LemonSqueezy\Laravel\Billable;
+
+class Account extends Model
+{
+    use Billable, HasPlanFeatures;
+}
+```
+
 ### 2. Create Plans and Features
 
 ```php
@@ -247,8 +290,9 @@ $plan = Plan::create([
     'slug' => 'professional',
     'display_name' => 'Professional Plan',
     'description' => 'Perfect for growing businesses',
-    'stripe_product_id' => 'prod_123456',   // Stripe Product ID (if using Stripe)
-    'paddle_product_id' => 'pro_01abc123',  // Paddle Product ID (if using Paddle)
+    'stripe_product_id' => 'prod_123456',          // Stripe Product ID (if using Stripe)
+    'paddle_product_id' => 'pro_01abc123',         // Paddle Product ID (if using Paddle)
+    'lemon_squeezy_product_id' => '12345',         // LemonSqueezy Product ID (if using LemonSqueezy)
     'trial_days' => 14,
     'type' => 'public',
 ]);
@@ -256,8 +300,9 @@ $plan = Plan::create([
 // Create pricing options for the plan
 $monthlyPrice = PlanPrice::create([
     'plan_id' => $plan->id,
-    'stripe_price_id' => 'price_monthly123', // Stripe Price ID
-    'paddle_price_id' => 'pri_01xyz789',     // Paddle Price ID
+    'stripe_price_id' => 'price_monthly123',       // Stripe Price ID
+    'paddle_price_id' => 'pri_01xyz789',           // Paddle Price ID
+    'lemon_squeezy_variant_id' => '67890',         // LemonSqueezy Variant ID
     'price' => 49.00,
     'currency' => 'USD',
     'interval' => 'month',
@@ -269,6 +314,7 @@ $yearlyPrice = PlanPrice::create([
     'plan_id' => $plan->id,
     'stripe_price_id' => 'price_yearly456',
     'paddle_price_id' => 'pri_01abc456',
+    'lemon_squeezy_variant_id' => '67891',
     'price' => 490.00, // Discounted yearly price
     'currency' => 'USD',
     'interval' => 'year',
@@ -425,8 +471,8 @@ $customPrice = $plan->getPriceByInterval('week');
 // Get all active prices
 $activePrices = $plan->activePrices;
 
-// Find plan by any of its Stripe price IDs
-$plan = Plan::findByStripePriceId('price_monthly123');
+// Find plan by any provider price ID (auto-detects current provider)
+$plan = Plan::findByProviderPriceId('price_monthly123');
 
 // Calculate savings
 $yearlyPrice = $plan->getYearlyPrice();
@@ -573,14 +619,14 @@ The package seamlessly integrates with Laravel Cashier for both Stripe and Paddl
 // Get the current provider's price ID for a plan price
 $priceId = $planPrice->getProviderPriceId();
 
-// Find a plan by its provider's price ID (works with both Stripe and Paddle)
+// Find a plan by its provider's price ID (works with Stripe, Paddle, and LemonSqueezy)
 $plan = Plan::findByProviderPriceId($priceId);
 
 // Get/set the provider's product ID
 $productId = $plan->getProviderProductId();
 $plan->setProviderProductId('prod_ABC123');
 
-// Creating subscription (works with both providers)
+// Creating subscription (works with all providers)
 $billable->newSubscription('default', $planPrice->getProviderPriceId())->create();
 ```
 
@@ -595,6 +641,7 @@ php artisan plans:push
 # Sync to specific provider
 php artisan plans:push --provider=stripe
 php artisan plans:push --provider=paddle
+php artisan plans:push --provider=lemon-squeezy
 
 # Preview what would be synced (no changes made)
 php artisan plans:push --dry-run
@@ -614,6 +661,7 @@ php artisan subscriptions:reconcile
 # Reconcile with specific provider
 php artisan subscriptions:reconcile --provider=stripe
 php artisan subscriptions:reconcile --provider=paddle
+php artisan subscriptions:reconcile --provider=lemon-squeezy
 
 # Preview changes
 php artisan subscriptions:reconcile --dry-run
@@ -637,6 +685,16 @@ $plan->paddle_product_id = 'pro_01ABC123';
 
 // Each price connects to Paddle Prices
 $price->paddle_price_id = 'pri_01XYZ789';
+```
+
+### LemonSqueezy-Specific
+
+```php
+// Plans connect to LemonSqueezy Products
+$plan->lemon_squeezy_product_id = '12345';
+
+// Each price connects to LemonSqueezy Variants
+$price->lemon_squeezy_variant_id = '67890';
 ```
 
 ## 🔄 Plan Comparison
