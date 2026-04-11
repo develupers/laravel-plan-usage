@@ -10,6 +10,7 @@ use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Develupers\PlanUsage\Commands\PlanUsageCommand;
 use Develupers\PlanUsage\Commands\PushPlansCommand;
+use Develupers\PlanUsage\Commands\EnforcePlanSubscriptionsCommand;
 use Develupers\PlanUsage\Commands\ResetQuotasCommand;
 use Develupers\PlanUsage\Commands\Stripe\PushPlansStripeCommand;
 use Develupers\PlanUsage\Commands\Subscription\ReconcileSubscriptionsCommand;
@@ -180,6 +181,7 @@ class PlanUsageServiceProvider extends PackageServiceProvider
                 PushPlansCommand::class,
                 PushPlansStripeCommand::class, // Deprecated, kept for backward compatibility
                 ResetQuotasCommand::class,
+                EnforcePlanSubscriptionsCommand::class,
             ]);
     }
 

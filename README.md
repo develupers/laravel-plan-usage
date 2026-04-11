@@ -778,6 +778,54 @@ ResetExpiredQuotasJob::dispatchSync();
 
 The job finds all quotas where `reset_at` has passed and `used > 0`, resets the usage to 0, and sets the next `reset_at` date based on the feature's reset period.
 
+### Enforcing Plan Subscriptions
+
+Plan enforcement ensures that billables with a paid plan but no active subscription get their plan revoked. Lifetime plans are automatically exempt.
+
+**Command:**
+
+```bash
+# Run synchronously
+php artisan plan-usage:enforce-subscriptions
+
+# Dispatch as a queued job
+php artisan plan-usage:enforce-subscriptions --dispatch
+```
+
+**Schedule it** in your `routes/console.php`:
+
+```php
+use Illuminate\Support\Facades\Schedule;
+
+// Enforce plan subscriptions daily
+Schedule::command('plan-usage:enforce-subscriptions --dispatch')->daily();
+```
+
+**What it does:**
+
+1. Finds all billables with a `plan_id` where the plan is NOT lifetime (`is_lifetime = false`)
+2. Checks if they have an active subscription or are on a grace period
+3. If not, clears `plan_id` (or sets to `default_plan_id` from config)
+4. Dispatches a `PlanRevoked` event for each revoked plan
+
+**Listen for revocations:**
+
+```php
+use Develupers\PlanUsage\Events\PlanRevoked;
+
+// In your EventServiceProvider or via Laravel auto-discovery
+protected $listen = [
+    PlanRevoked::class => [
+        \App\Listeners\NotifyPlanRevoked::class,
+    ],
+];
+```
+
+The `PlanRevoked` event contains:
+- `$event->billable` — the account/user that lost their plan
+- `$event->previousPlan` — the plan that was removed
+- `$event->reason` — why it was revoked (e.g. `no_active_subscription`)
+
 ### Reconciling Subscriptions
 
 If webhooks are missed, you can reconcile local subscription status with the billing provider:
