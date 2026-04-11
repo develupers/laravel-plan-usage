@@ -46,9 +46,11 @@ class Plan extends Model
     // Type constants
     public const string TYPE_PUBLIC = 'public';
 
+    public const string TYPE_PRIVATE = 'private';
+
     public const string TYPE_LEGACY = 'legacy';
 
-    public const string TYPE_PRIVATE = 'private';
+    public const string TYPE_HIDDEN = 'hidden';
 
     protected $fillable = [
         'name',
@@ -324,6 +326,14 @@ class Plan extends Model
     }
 
     /**
+     * Check if plan is private.
+     */
+    public function isPrivate(): bool
+    {
+        return $this->type === self::TYPE_PRIVATE;
+    }
+
+    /**
      * Check if plan is legacy.
      */
     public function isLegacy(): bool
@@ -332,11 +342,19 @@ class Plan extends Model
     }
 
     /**
-     * Check if plan is private.
+     * Check if plan is hidden.
      */
-    public function isPrivate(): bool
+    public function isHidden(): bool
     {
-        return $this->type === self::TYPE_PRIVATE;
+        return $this->type === self::TYPE_HIDDEN;
+    }
+
+    /**
+     * Scope to hidden plans.
+     */
+    public function scopeHidden(Builder $query): Builder
+    {
+        return $query->where('type', self::TYPE_HIDDEN);
     }
 
     /**

@@ -22,6 +22,8 @@ A powerful Laravel package for managing subscription plans, features, quotas, an
 - 🎪 **Event-Driven Architecture** - React to usage events and quota warnings
 - 🛡️ **Middleware Protection** - Route-level feature and quota enforcement
 - 🏷️ **Plan Types** - Support for public, legacy, and private plans
+- ♾️ **Lifetime Plans** - Mark plans as lifetime to exempt them from subscription enforcement
+- ⏰ **Quota Reset Scheduling** - Built-in command and job for resetting expired quotas
 - 📊 **Usage Analytics** - Built-in statistics and reporting capabilities
 
 ## 📋 Requirements
@@ -403,13 +405,14 @@ The package provides two main methods for checking features:
 
 ## 🏷️ Plan Types
 
-Plans can be categorized by visibility/distribution type:
+Plans can be categorized by visibility and distribution type:
 
-| Type | Description | Use Case |
-|------|-------------|----------|
-| **public** | Available for new subscriptions | Displayed on pricing pages |
-| **legacy** | Grandfathered plans | Only for existing customers |
-| **private** | Custom/enterprise plans | Negotiated individually |
+| Type | Description | Purchasable | Visible to |
+|------|-------------|-------------|------------|
+| **public** | Current plans on pricing page | Yes, self-service checkout | Everyone |
+| **private** | Gated plans requiring access code, invite, or membership | Yes, with access | Invited/authorized users |
+| **legacy** | Discontinued plans, grandfathered for existing subscribers | No, existing subscribers only | Current holders only |
+| **hidden** | Internal/admin-only plans (lifetime deals, staff plans) | No, manually assigned | Admin only |
 
 ```php
 // Only show public plans on pricing page
@@ -418,11 +421,78 @@ $availablePlans = Plan::availableForPurchase()->get(); // active + public
 // Get legacy plans for existing customers
 $legacyPlans = Plan::legacy()->get();
 
-// Check plan availability
+// Get hidden plans (admin use only)
+$hiddenPlans = Plan::hidden()->get();
+
+// Check plan type
 if ($plan->isAvailableForPurchase()) {
     // Show "Subscribe" button
 }
+
+if ($plan->isHidden()) {
+    // Only show in admin panel
+}
+
+// Plan type lifecycle: public → legacy (when retired)
+// Private plans are for gated access (access codes, invitations)
+// Hidden plans are never exposed to users (lifetime deals, internal use)
 ```
+
+## ♾️ Lifetime Plans
+
+Lifetime plans are plans that don't require an active billing subscription. They're ideal for one-time purchase deals, promotional offers, or manually assigned plans that should never be revoked by subscription enforcement.
+
+### Creating a Lifetime Plan
+
+```php
+$plan = Plan::create([
+    'name' => 'Growth Lifetime',
+    'slug' => 'growth-lifetime',
+    'display_name' => 'Growth Lifetime',
+    'description' => 'Growth plan with lifetime access',
+    'type' => 'hidden',        // Not shown on public pricing pages
+    'is_lifetime' => true,     // Exempt from subscription enforcement
+    'is_active' => true,
+]);
+```
+
+### Querying Lifetime Plans
+
+```php
+// Get all lifetime plans
+$lifetimePlans = Plan::lifetime()->get();
+
+// Get plans that require an active subscription
+$subscriptionPlans = Plan::requiresSubscription()->get();
+
+// Check if a specific plan is lifetime
+if ($plan->isLifetime()) {
+    // Skip subscription enforcement
+}
+```
+
+### How Lifetime Plans Work
+
+| Aspect | Regular Plan | Lifetime Plan |
+|--------|-------------|---------------|
+| Requires subscription | Yes | No |
+| Quotas reset periodically | Yes | Yes |
+| Subject to plan enforcement | Yes | No |
+| Shown on pricing page | If `type = public` | Typically `type = hidden` |
+| Assigned via | Stripe/Paddle/LemonSqueezy checkout | Admin panel, seeder, or manual assignment |
+
+Lifetime plans still benefit from quota resets — a lifetime plan with 8,000 monthly credits will reset to 0 used credits each month. The only difference is that the plan is never removed due to a missing subscription.
+
+### Migration
+
+If upgrading from a previous version, publish and run the migration:
+
+```bash
+php artisan vendor:publish --tag=plan-usage-migrations
+php artisan migrate
+```
+
+This adds the `is_lifetime` boolean column (default: `false`) to the plans table.
 
 ## 💰 Pricing Structure
 
@@ -670,6 +740,43 @@ php artisan plans:push --dry-run
 # Force update existing products
 php artisan plans:push --force
 ```
+
+### Resetting Expired Quotas
+
+Quotas with a reset period (daily, weekly, monthly, yearly) need to be periodically reset. The package provides a command and a queued job for this.
+
+**Command:**
+
+```bash
+# Run synchronously
+php artisan plan-usage:reset-quotas
+
+# Dispatch as a queued job
+php artisan plan-usage:reset-quotas --dispatch
+```
+
+**Schedule it** in your `routes/console.php`:
+
+```php
+use Illuminate\Support\Facades\Schedule;
+
+// Reset expired quotas every hour
+Schedule::command('plan-usage:reset-quotas --dispatch')->hourly();
+```
+
+**Dispatch the job directly** from your code:
+
+```php
+use Develupers\PlanUsage\Jobs\ResetExpiredQuotasJob;
+
+// Queued
+ResetExpiredQuotasJob::dispatch();
+
+// Synchronous
+ResetExpiredQuotasJob::dispatchSync();
+```
+
+The job finds all quotas where `reset_at` has passed and `used > 0`, resets the usage to 0, and sets the next `reset_at` date based on the feature's reset period.
 
 ### Reconciling Subscriptions
 
