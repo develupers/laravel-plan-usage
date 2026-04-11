@@ -669,6 +669,7 @@ The package dispatches events you can listen to:
 - `UsageRecorded` - When usage is recorded
 - `QuotaWarning` - When usage reaches warning threshold (80%, 100%)
 - `QuotaExceeded` - When quota limit is exceeded
+- `PlanRevoked` - When a plan is revoked due to no active subscription (see [Enforcing Plan Subscriptions](#enforcing-plan-subscriptions))
 
 ```php
 // In your EventServiceProvider or via Laravel auto-discovery
@@ -678,6 +679,9 @@ protected $listen = [
     ],
     \Develupers\PlanUsage\Events\QuotaExceeded::class => [
         \App\Listeners\HandleQuotaExceeded::class,
+    ],
+    \Develupers\PlanUsage\Events\PlanRevoked::class => [
+        \App\Listeners\NotifyPlanRevoked::class,
     ],
 ];
 ```

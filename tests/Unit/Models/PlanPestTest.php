@@ -20,9 +20,12 @@ describe('Plan Model', function () {
                 'display_name',
                 'description',
                 'stripe_product_id',
+                'paddle_product_id',
+                'lemon_squeezy_product_id',
                 'trial_days',
                 'sort_order',
                 'is_active',
+                'is_lifetime',
                 'type',
                 'metadata'
             );
@@ -135,23 +138,45 @@ describe('Plan type helpers', function () {
 
     it('has correct type constants and helpers', function () {
         expect(Plan::TYPE_PUBLIC)->toBe('public')
+            ->and(Plan::TYPE_PRIVATE)->toBe('private')
             ->and(Plan::TYPE_LEGACY)->toBe('legacy')
-            ->and(Plan::TYPE_PRIVATE)->toBe('private');
+            ->and(Plan::TYPE_HIDDEN)->toBe('hidden');
 
         $publicPlan = Plan::factory()->create(['type' => 'public']);
-        $legacyPlan = Plan::factory()->legacy()->create();
         $privatePlan = Plan::factory()->private()->create();
+        $legacyPlan = Plan::factory()->legacy()->create();
+        $hiddenPlan = Plan::factory()->hidden()->create();
 
         expect($publicPlan->isPublic())->toBeTrue()
+            ->and($privatePlan->isPrivate())->toBeTrue()
             ->and($legacyPlan->isLegacy())->toBeTrue()
-            ->and($privatePlan->isPrivate())->toBeTrue();
+            ->and($hiddenPlan->isHidden())->toBeTrue();
     });
 
     it('scopes by plan type', function () {
         Plan::factory()->count(3)->create(['type' => 'public']);
         Plan::factory()->count(2)->legacy()->create();
+        Plan::factory()->count(1)->hidden()->create();
 
         expect(Plan::ofType('public')->count())->toBe(3)
-            ->and(Plan::ofType('legacy')->count())->toBe(2);
+            ->and(Plan::ofType('legacy')->count())->toBe(2)
+            ->and(Plan::hidden()->count())->toBe(1);
+    });
+
+    it('identifies lifetime plans', function () {
+        $lifetimePlan = Plan::factory()->lifetime()->hidden()->create();
+        $regularPlan = Plan::factory()->create();
+
+        expect($lifetimePlan->isLifetime())->toBeTrue()
+            ->and($lifetimePlan->isHidden())->toBeTrue()
+            ->and($regularPlan->isLifetime())->toBeFalse();
+    });
+
+    it('scopes lifetime and requires subscription plans', function () {
+        Plan::factory()->count(2)->create(['is_lifetime' => false]);
+        Plan::factory()->lifetime()->create();
+
+        expect(Plan::lifetime()->count())->toBe(1)
+            ->and(Plan::requiresSubscription()->count())->toBe(2);
     });
 });

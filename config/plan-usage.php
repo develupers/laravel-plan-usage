@@ -386,6 +386,9 @@ return [
             // \Develupers\PlanUsage\Events\QuotaExceeded::class => [
             //     \App\Listeners\YourQuotaListener::class,
             // ],
+            // \Develupers\PlanUsage\Events\PlanRevoked::class => [
+            //     \App\Listeners\YourPlanRevokedListener::class,
+            // ],
         ],
     ],
 ];

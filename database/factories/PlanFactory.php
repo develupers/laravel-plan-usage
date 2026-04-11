@@ -23,6 +23,7 @@ class PlanFactory extends Factory
             'stripe_product_id' => 'prod_'.$this->faker->unique()->regexify('[A-Za-z0-9]{14}'),
             'lemon_squeezy_product_id' => null,
             'is_active' => true,
+            'is_lifetime' => false,
             'type' => 'public',
             'metadata' => [
                 'features' => $this->faker->words(3),
@@ -60,6 +61,20 @@ class PlanFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'type' => 'private',
+        ]);
+    }
+
+    public function hidden(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'type' => 'hidden',
+        ]);
+    }
+
+    public function lifetime(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'is_lifetime' => true,
         ]);
     }
 }
