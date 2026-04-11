@@ -40,7 +40,7 @@ class ResetQuotasCommand extends Command
 
         ResetExpiredQuotasJob::dispatchSync();
 
-        $this->info("Done.");
+        $this->info('Done.');
 
         return Command::SUCCESS;
     }

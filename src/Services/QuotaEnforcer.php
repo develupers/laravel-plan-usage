@@ -531,7 +531,7 @@ class QuotaEnforcer
     protected function getEventCacheTtl(Quota $quota): \DateTimeInterface|int
     {
         if ($quota->reset_at) {
-            return \Illuminate\Support\Carbon::parse($quota->reset_at);
+            return Carbon::parse($quota->reset_at);
         }
 
         return 86400; // 24 hours fallback
