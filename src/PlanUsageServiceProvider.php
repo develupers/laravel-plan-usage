@@ -10,6 +10,7 @@ use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Develupers\PlanUsage\Commands\PlanUsageCommand;
 use Develupers\PlanUsage\Commands\PushPlansCommand;
+use Develupers\PlanUsage\Commands\ResetQuotasCommand;
 use Develupers\PlanUsage\Commands\Stripe\PushPlansStripeCommand;
 use Develupers\PlanUsage\Commands\Subscription\ReconcileSubscriptionsCommand;
 use Develupers\PlanUsage\Commands\WarmCacheCommand;
@@ -178,6 +179,7 @@ class PlanUsageServiceProvider extends PackageServiceProvider
                 ReconcileSubscriptionsCommand::class,
                 PushPlansCommand::class,
                 PushPlansStripeCommand::class, // Deprecated, kept for backward compatibility
+                ResetQuotasCommand::class,
             ]);
     }
 
@@ -205,6 +207,7 @@ class PlanUsageServiceProvider extends PackageServiceProvider
             'create_usage_table',
             'create_quotas_table',
             $billableMigration,
+            'add_lifetime_to_plans_table',
         ];
     }
 

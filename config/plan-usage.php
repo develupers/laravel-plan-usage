@@ -139,6 +139,11 @@ return [
 
         // Send notifications at these usage percentages
         'warning_thresholds' => [80, 100],
+
+        // Only fire each threshold/exceeded event once per billing period.
+        // When true, a cache key prevents the same event from dispatching
+        // again until the quota resets. Requires a cache driver to be available.
+        'trigger_once' => false,
     ],
 
     /*

@@ -115,7 +115,7 @@ class QuotaEnforcer
             $effectiveLimit = $lockedQuota->limit + $graceAmount;
 
             if (($lockedQuota->used + $amount) > $effectiveLimit) {
-                Event::dispatch(new QuotaExceeded($billable, $feature, $lockedQuota));
+                $this->dispatchExceededEvent($billable, $feature, $lockedQuota);
 
                 return false;
             }
@@ -475,10 +475,66 @@ class QuotaEnforcer
 
         foreach ($warningThresholds as $threshold) {
             if ($usagePercentage >= $threshold) {
+                if ($this->shouldTriggerOnce()) {
+                    $cacheKey = $this->getEventCacheKey($billable, $feature, "warning:{$threshold}");
+
+                    if (Cache::has($cacheKey)) {
+                        break;
+                    }
+
+                    Cache::put($cacheKey, true, $this->getEventCacheTtl($quota));
+                }
+
                 Event::dispatch(new QuotaWarning($billable, $feature, (int) $usagePercentage, $quota));
                 break;
             }
         }
+    }
+
+    /**
+     * Dispatch quota exceeded event with optional deduplication.
+     */
+    protected function dispatchExceededEvent(Model $billable, Feature $feature, Quota $quota): void
+    {
+        if ($this->shouldTriggerOnce()) {
+            $cacheKey = $this->getEventCacheKey($billable, $feature, 'exceeded');
+
+            if (Cache::has($cacheKey)) {
+                return;
+            }
+
+            Cache::put($cacheKey, true, $this->getEventCacheTtl($quota));
+        }
+
+        Event::dispatch(new QuotaExceeded($billable, $feature, $quota));
+    }
+
+    /**
+     * Check if events should only fire once per billing period.
+     */
+    protected function shouldTriggerOnce(): bool
+    {
+        return (bool) config('plan-usage.quota.trigger_once', false);
+    }
+
+    /**
+     * Build a cache key for event deduplication.
+     */
+    protected function getEventCacheKey(Model $billable, Feature $feature, string $eventType): string
+    {
+        return "plan-usage.event.{$billable->getMorphClass()}.{$billable->getKey()}.{$feature->slug}.{$eventType}";
+    }
+
+    /**
+     * Get TTL for event deduplication cache. Uses quota reset_at or falls back to 24 hours.
+     */
+    protected function getEventCacheTtl(Quota $quota): \DateTimeInterface|int
+    {
+        if ($quota->reset_at) {
+            return \Illuminate\Support\Carbon::parse($quota->reset_at);
+        }
+
+        return 86400; // 24 hours fallback
     }
 
     /**

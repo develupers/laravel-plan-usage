@@ -82,7 +82,10 @@ return [
 
     'quota' => [
         'throw_exception' => true,
+        'soft_limit' => false,
+        'grace_percentage' => 0,
         'warning_thresholds' => [80, 100],
+        'trigger_once' => false, // Only fire each threshold event once per billing period
     ],
 
     // Billing provider configuration
@@ -598,7 +601,7 @@ The package dispatches events you can listen to:
 - `QuotaExceeded` - When quota limit is exceeded
 
 ```php
-// In your EventServiceProvider
+// In your EventServiceProvider or via Laravel auto-discovery
 protected $listen = [
     \Develupers\PlanUsage\Events\QuotaWarning::class => [
         \App\Listeners\SendQuotaWarningNotification::class,
@@ -608,6 +611,24 @@ protected $listen = [
     ],
 ];
 ```
+
+### Event Deduplication (`trigger_once`)
+
+By default, `QuotaWarning` and `QuotaExceeded` events fire on **every** `consume()` call where usage exceeds a threshold. This can result in duplicate notifications (e.g., an email on every API request after 80% usage).
+
+Set `trigger_once` to `true` to fire each event only once per billing period:
+
+```php
+// config/plan-usage.php
+'quota' => [
+    'warning_thresholds' => [80, 100],
+    'trigger_once' => true,
+],
+```
+
+When enabled, the package uses a cache key scoped to the billable, feature, and threshold. The key expires at the quota's `reset_at` timestamp (or 24 hours if no reset period is configured). Each threshold fires independently — crossing 80% sends one event, and later crossing 100% sends another.
+
+This is handled at the package level, so your listeners don't need any deduplication logic.
 
 ## 💳 Billing Provider Integration
 

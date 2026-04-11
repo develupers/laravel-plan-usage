@@ -28,6 +28,7 @@ use Illuminate\Support\Collection;
  * @property int $trial_days
  * @property int $sort_order
  * @property bool $is_active
+ * @property bool $is_lifetime
  * @property string $type
  * @property array|null $metadata
  * @property Carbon|null $created_at
@@ -60,6 +61,7 @@ class Plan extends Model
         'trial_days',
         'sort_order',
         'is_active',
+        'is_lifetime',
         'type',
         'metadata',
     ];
@@ -68,6 +70,7 @@ class Plan extends Model
         'trial_days' => 'integer',
         'sort_order' => 'integer',
         'is_active' => 'boolean',
+        'is_lifetime' => 'boolean',
         'metadata' => 'array',
     ];
 
@@ -342,5 +345,29 @@ class Plan extends Model
     public function isAvailableForPurchase(): bool
     {
         return $this->is_active && $this->type === self::TYPE_PUBLIC;
+    }
+
+    /**
+     * Check if plan is a lifetime plan.
+     */
+    public function isLifetime(): bool
+    {
+        return $this->is_lifetime;
+    }
+
+    /**
+     * Scope to lifetime plans.
+     */
+    public function scopeLifetime(Builder $query): Builder
+    {
+        return $query->where('is_lifetime', true);
+    }
+
+    /**
+     * Scope to plans that require an active subscription.
+     */
+    public function scopeRequiresSubscription(Builder $query): Builder
+    {
+        return $query->where('is_lifetime', false);
     }
 }

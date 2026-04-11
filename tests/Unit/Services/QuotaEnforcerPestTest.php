@@ -409,6 +409,183 @@ describe('QuotaEnforcer', function () {
     });
 });
 
+describe('QuotaEnforcer trigger_once', function () {
+
+    it('fires warning event only once per threshold when trigger_once is true', function () {
+        // Arrange
+        Event::fake();
+        config(['plan-usage.quota.trigger_once' => true]);
+        config(['plan-usage.quota.warning_thresholds' => [80, 100]]);
+
+        $billable = createBillable();
+        $billable->plan_id = null;
+        $feature = Feature::factory()->create(['slug' => 'api-calls']);
+
+        Quota::create([
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
+            'feature_id' => $feature->id,
+            'limit' => 100,
+            'used' => 79,
+        ]);
+
+        // Act — first increment crosses 80% threshold
+        $this->quotaEnforcer->increment($billable, 'api-calls', 2);
+
+        // Assert — event fired once
+        Event::assertDispatchedTimes(QuotaWarning::class, 1);
+
+        // Act — second increment still above 80%
+        Event::fake();
+        $this->quotaEnforcer->increment($billable, 'api-calls', 1);
+
+        // Assert — event NOT fired again (deduplicated)
+        Event::assertNotDispatched(QuotaWarning::class);
+    });
+
+    it('fires warning event every time when trigger_once is false', function () {
+        // Arrange
+        Event::fake();
+        config(['plan-usage.quota.trigger_once' => false]);
+        config(['plan-usage.quota.warning_thresholds' => [80]]);
+
+        $billable = createBillable();
+        $billable->plan_id = null;
+        $feature = Feature::factory()->create(['slug' => 'api-calls']);
+
+        Quota::create([
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
+            'feature_id' => $feature->id,
+            'limit' => 100,
+            'used' => 80,
+        ]);
+
+        // Act — two increments both above threshold
+        $this->quotaEnforcer->increment($billable, 'api-calls', 1);
+        $this->quotaEnforcer->increment($billable, 'api-calls', 1);
+
+        // Assert — event fired both times
+        Event::assertDispatchedTimes(QuotaWarning::class, 2);
+    });
+
+    it('fires different thresholds independently when trigger_once is true', function () {
+        // Arrange
+        Event::fake();
+        config(['plan-usage.quota.trigger_once' => true]);
+        config(['plan-usage.quota.warning_thresholds' => [80, 100]]);
+
+        $billable = createBillable();
+        $billable->plan_id = null;
+        $feature = Feature::factory()->create(['slug' => 'api-calls']);
+
+        Quota::create([
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
+            'feature_id' => $feature->id,
+            'limit' => 100,
+            'used' => 79,
+        ]);
+
+        // Act — cross 80% threshold
+        $this->quotaEnforcer->increment($billable, 'api-calls', 2);
+        Event::assertDispatchedTimes(QuotaWarning::class, 1);
+
+        // Act — cross 100% threshold
+        Event::fake();
+        $this->quotaEnforcer->increment($billable, 'api-calls', 19);
+
+        // Assert — 100% threshold fires (different from 80%)
+        Event::assertDispatchedTimes(QuotaWarning::class, 1);
+    });
+
+    it('fires exceeded event only once when trigger_once is true', function () {
+        // Arrange
+        Event::fake();
+        config(['plan-usage.quota.trigger_once' => true]);
+
+        $feature = Feature::factory()->create(['slug' => 'api-calls']);
+
+        Quota::create([
+            'billable_type' => $this->billable->getMorphClass(),
+            'billable_id' => $this->billable->getKey(),
+            'feature_id' => $feature->id,
+            'limit' => 100,
+            'used' => 99,
+        ]);
+
+        // Act — first enforce exceeds
+        $this->quotaEnforcer->enforce($this->billable, 'api-calls', 5);
+        Event::assertDispatchedTimes(QuotaExceeded::class, 1);
+
+        // Act — second enforce also exceeds
+        Event::fake();
+        $this->quotaEnforcer->enforce($this->billable, 'api-calls', 5);
+
+        // Assert — not fired again
+        Event::assertNotDispatched(QuotaExceeded::class);
+    });
+
+    it('fires exceeded event every time when trigger_once is false', function () {
+        // Arrange
+        Event::fake();
+        config(['plan-usage.quota.trigger_once' => false]);
+
+        $feature = Feature::factory()->create(['slug' => 'api-calls']);
+
+        Quota::create([
+            'billable_type' => $this->billable->getMorphClass(),
+            'billable_id' => $this->billable->getKey(),
+            'feature_id' => $feature->id,
+            'limit' => 100,
+            'used' => 99,
+        ]);
+
+        // Act
+        $this->quotaEnforcer->enforce($this->billable, 'api-calls', 5);
+        $this->quotaEnforcer->enforce($this->billable, 'api-calls', 5);
+
+        // Assert — fired both times
+        Event::assertDispatchedTimes(QuotaExceeded::class, 2);
+    });
+
+    it('resets trigger_once cache when quota resets', function () {
+        // Arrange
+        Event::fake();
+        config(['plan-usage.quota.trigger_once' => true]);
+        config(['plan-usage.quota.warning_thresholds' => [80]]);
+
+        $billable = createBillable();
+        $billable->plan_id = null;
+        $feature = Feature::factory()->create([
+            'slug' => 'api-calls',
+            'reset_period' => Period::MONTH->value,
+        ]);
+
+        Quota::create([
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
+            'feature_id' => $feature->id,
+            'limit' => 100,
+            'used' => 79,
+            'reset_at' => Carbon::now()->addMonth(),
+        ]);
+
+        // Act — first trigger at 80%
+        $this->quotaEnforcer->increment($billable, 'api-calls', 2);
+        Event::assertDispatchedTimes(QuotaWarning::class, 1);
+
+        // Simulate cache expiry (quota reset)
+        $cacheKey = "plan-usage.event.{$billable->getMorphClass()}.{$billable->getKey()}.api-calls.warning:80";
+        Cache::forget($cacheKey);
+
+        // Act — fires again after cache cleared
+        Event::fake();
+        $this->quotaEnforcer->increment($billable, 'api-calls', 1);
+        Event::assertDispatchedTimes(QuotaWarning::class, 1);
+    });
+});
+
 describe('QuotaEnforcer with datasets', function () {
 
     it('handles different quota limits correctly', function (?float $limit) {
