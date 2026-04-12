@@ -877,6 +877,23 @@ $plan->lemon_squeezy_product_id = '12345';
 $price->lemon_squeezy_variant_id = '67890';
 ```
 
+## ⏰ Recommended Schedule
+
+Add both commands to your `routes/console.php` to keep quotas and plans in sync:
+
+```php
+use Illuminate\Support\Facades\Schedule;
+
+// Reset expired quotas (e.g. monthly credit resets)
+Schedule::command('plan-usage:reset-quotas --dispatch')->hourly();
+
+// Revoke plans from accounts without active subscriptions (lifetime plans exempt)
+Schedule::command('plan-usage:enforce-subscriptions --dispatch')->daily();
+
+// Reconcile local subscriptions with billing provider to catch missed webhooks
+Schedule::command('subscriptions:reconcile')->daily();
+```
+
 ## 🔄 Plan Comparison
 
 Compare plans to show upgrade benefits:

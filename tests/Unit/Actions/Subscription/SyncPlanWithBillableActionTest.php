@@ -51,6 +51,7 @@ it('syncs plan from Stripe price ID string', function () {
 it('returns false when plan not found', function () {
     $billable = createBillable();
 
+    Log::shouldReceive('channel')->andReturnSelf()->byDefault();
     Log::shouldReceive('warning')->once()->withArgs(function ($message, $context) {
         return $message === 'No matching plan or plan price found for subscription sync' &&
                $context['identifier'] === 'price_nonexistent';
@@ -173,6 +174,7 @@ it('rejects mismatched plan and price', function () {
 
     $billable = createBillable();
 
+    Log::shouldReceive('channel')->andReturnSelf()->byDefault();
     Log::shouldReceive('error')->once()->withArgs(function ($message, $context) {
         return $message === 'Plan price does not belong to the specified plan';
     });
