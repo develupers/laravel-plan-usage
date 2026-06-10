@@ -74,6 +74,46 @@ class PaddleCheckoutSession implements CheckoutSession
     }
 
     /**
+     * Build a Paddle.Checkout.open() payload for the OVERLAY widget.
+     *
+     * Cashier Paddle's own Checkout::options() targets the inline widget
+     * (displayMode=inline plus a frame style) and its array_filter strips the
+     * allowLogout=false it sets, so it is not safe for overlay use. This
+     * payload pins the checkout to the attached customer: without
+     * allowLogout=false the buyer could "log out" inside the widget and pay
+     * under a different customer_id, which webhook listeners can never
+     * resolve back to the billable.
+     *
+     * @return array<string, mixed>
+     */
+    public function getOverlayOptions(): array
+    {
+        $settings = [
+            'displayMode' => 'overlay',
+            'allowLogout' => false,
+        ];
+
+        if (method_exists($this->checkout, 'getReturnUrl') && ($returnUrl = $this->checkout->getReturnUrl()) !== null) {
+            $settings['successUrl'] = $returnUrl;
+        }
+
+        $options = [
+            'items' => method_exists($this->checkout, 'getItems') ? $this->checkout->getItems() : [],
+            'settings' => $settings,
+        ];
+
+        if (method_exists($this->checkout, 'getCustomer') && ($customer = $this->checkout->getCustomer()) !== null) {
+            $options['customer'] = ['id' => $customer->paddle_id];
+        }
+
+        if (method_exists($this->checkout, 'getCustomData') && ($custom = $this->checkout->getCustomData()) !== []) {
+            $options['customData'] = $custom;
+        }
+
+        return $options;
+    }
+
+    /**
      * Get data needed for Paddle.js overlay checkout.
      */
     public function getOverlayData(): array

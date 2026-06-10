@@ -9,6 +9,7 @@ use Develupers\PlanUsage\Contracts\CheckoutSession;
 use Illuminate\Database\Eloquent\Model;
 use Laravel\Paddle\Cashier;
 use Laravel\Paddle\Events\WebhookReceived;
+use Laravel\Paddle\Exceptions\PaddleException;
 
 /**
  * Paddle billing provider implementation.
@@ -82,6 +83,38 @@ class PaddleProvider implements BillingProvider
         }
 
         return new PaddleCheckoutSession($checkout);
+    }
+
+    /**
+     * Propagate a billing-email change to the billable's existing Paddle customer.
+     *
+     * Cashier Paddle's createAsCustomer() only runs once per billable; after
+     * that, changing the email the app derives via paddleEmail() has no effect
+     * on Paddle (or the local customers row) unless it is pushed explicitly.
+     * Paddle also fires customer.updated after the PATCH, but the local row is
+     * updated here too so the change is visible without webhook latency.
+     *
+     * Returns true when an update was pushed, false when there was nothing to
+     * do (no Paddle customer yet, or the email is unchanged).
+     *
+     * @throws PaddleException when Paddle rejects the email (e.g. it already belongs to another customer)
+     */
+    public function updateCustomerEmail(Model $billable, string $email): bool
+    {
+        $customer = $billable->customer;
+
+        if ($customer === null || $customer->email === $email) {
+            return false;
+        }
+
+        Cashier::api('PATCH', "customers/{$customer->paddle_id}", [
+            'email' => $email,
+        ]);
+
+        $customer->email = $email;
+        $customer->save();
+
+        return true;
     }
 
     /**

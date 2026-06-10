@@ -383,4 +383,42 @@ trait HasPlanFeatures
         // Update or create quotas for current plan features
         $this->initializeQuotasForPlan($this->plan);
     }
+
+    /**
+     * Determine if the billable's subscription has fully ended.
+     *
+     * Cashier (Stripe and Paddle alike) preserves canceled subscription rows
+     * forever, so "a row exists" never means "there is a live subscription".
+     * A row that is canceled AND past its grace period is fully ended: the
+     * billable may start a fresh checkout, and the row must never be swapped
+     * (the provider rejects updates to dead subscriptions).
+     */
+    public function subscriptionHasEnded(string $type = 'default'): bool
+    {
+        $subscription = $this->subscription($type);
+
+        return $subscription !== null
+            && $subscription->canceled()
+            && ! $subscription->onGracePeriod();
+    }
+
+    /**
+     * Determine if the billable has a LIVE subscription row of any status.
+     *
+     * Broader than Cashier's subscribed(): paused and past_due subscriptions
+     * are not "valid" but still exist on the provider (resumable / in payment
+     * retry). Starting a fresh checkout while one exists would create a
+     * duplicate subscription and double-bill the billable — gate checkout on
+     * this, not on subscribed() alone.
+     */
+    public function hasLiveSubscription(string $type = 'default'): bool
+    {
+        $subscription = $this->subscription($type);
+
+        if ($subscription === null) {
+            return false;
+        }
+
+        return ! ($subscription->canceled() && ! $subscription->onGracePeriod());
+    }
 }

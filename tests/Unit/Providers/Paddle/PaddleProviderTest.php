@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Develupers\PlanUsage\Contracts\BillingProvider;
+use Develupers\PlanUsage\Providers\Paddle\PaddleCheckoutSession;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
 use Illuminate\Database\Eloquent\Model;
 use Laravel\Paddle\Cashier;
@@ -69,6 +70,37 @@ describe('PaddleProvider', function () {
         // With no plans to sync, created and updated should be empty
         expect($result['created'])->toBeEmpty()
             ->and($result['updated'])->toBeEmpty();
+    });
+
+    it('getOverlayOptions builds a pinned paddle-js overlay payload', function () {
+        $customer = (new Customer)->forceFill(['paddle_id' => 'ctm_overlay_1']);
+        $checkout = Checkout::customer($customer, ['pri_overlay_1' => 1])
+            ->customData(['subscription_type' => 'default'])
+            ->returnTo('https://example.com/success');
+
+        $options = (new PaddleCheckoutSession($checkout))->getOverlayOptions();
+
+        expect($options['settings'])->toBe([
+            'displayMode' => 'overlay',
+            'allowLogout' => false,
+            'successUrl' => 'https://example.com/success',
+        ])
+            ->and($options['items'])->toBe([['priceId' => 'pri_overlay_1', 'quantity' => 1]])
+            ->and($options['customer'])->toBe(['id' => 'ctm_overlay_1'])
+            ->and($options['customData'])->toBe(['subscription_type' => 'default']);
+    });
+
+    it('getOverlayOptions omits successUrl and customer when absent', function () {
+        $checkout = Checkout::guest(['pri_overlay_2' => 1]);
+
+        $options = (new PaddleCheckoutSession($checkout))->getOverlayOptions();
+
+        expect($options['settings'])->toBe([
+            'displayMode' => 'overlay',
+            'allowLogout' => false,
+        ])
+            ->and($options)->not->toHaveKey('customer')
+            ->and($options)->not->toHaveKey('customData');
     });
 
     it('createCheckoutSession builds a paddle checkout with subscription type and return url', function () {
