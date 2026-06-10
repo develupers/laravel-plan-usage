@@ -8,6 +8,8 @@ use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+use Laravel\Paddle\Cashier;
 use Laravel\Paddle\Events\WebhookReceived;
 
 /**
@@ -117,8 +119,10 @@ class PaddleWebhookListener
             return;
         }
 
-        // Update the paddle_id on the billable if not set
-        if (empty($billable->paddle_id)) {
+        // Backfill the paddle_id column when the billable was resolved through
+        // Cashier Paddle's customers table (e.g. the first webhook for a newly
+        // created customer) so subsequent lookups hit the fast path.
+        if (Schema::hasColumn($billable->getTable(), 'paddle_id') && empty($billable->paddle_id)) {
             $billable->paddle_id = $customerId;
             $billable->save();
         }
@@ -211,16 +215,26 @@ class PaddleWebhookListener
             return null;
         }
 
-        // Check if the table has paddle_id column
+        // Fast path: a paddle_id column on the billable table itself.
         $table = (new $billableClass)->getTable();
-        if (! \Schema::hasColumn($table, 'paddle_id')) {
-            Log::error('Billable table does not have paddle_id column', [
-                'table' => $table,
-            ]);
+        if (Schema::hasColumn($table, 'paddle_id')) {
+            $billable = $billableClass::where('paddle_id', $paddleId)->first();
 
-            return null;
+            if ($billable !== null) {
+                return $billable;
+            }
         }
 
-        return $billableClass::where('paddle_id', $paddleId)->first();
+        // Fallback: resolve through Cashier Paddle's polymorphic customers
+        // table. Cashier Paddle writes paddle_id to its own customers table —
+        // never to the billable — so the first webhook for a freshly created
+        // customer can only be resolved this way.
+        $billable = Cashier::findBillable($paddleId);
+
+        if ($billable instanceof $billableClass) {
+            return $billable;
+        }
+
+        return null;
     }
 }

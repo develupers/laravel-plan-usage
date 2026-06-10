@@ -55,6 +55,12 @@ class TestCase extends Orchestra
         config()->set('plan-usage.cache.use_tags', false); // Database driver doesn't support tags
         config()->set('plan-usage.tables.billable', 'test_billables');
 
+        // Pin the provider: with laravel/cashier-paddle in require-dev, 'auto'
+        // detection would resolve to paddle and silently flip provider-aware
+        // helpers (findByProviderPriceId, etc.) for every legacy test. Paddle
+        // tests opt in via config()->set('plan-usage.billing.provider', 'paddle').
+        config()->set('plan-usage.billing.provider', 'stripe');
+
         // Disable Stripe integration for tests
         config()->set('plan-usage.stripe.enabled', false);
 

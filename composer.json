@@ -31,9 +31,10 @@
         "laravel/cashier": "^15.0||^16.0"
     },
     "require-dev": {
+        "larastan/larastan": "^3.0",
+        "laravel/cashier-paddle": "^2.8",
         "laravel/pint": "^1.14",
         "nunomaduro/collision": "^8.8",
-        "larastan/larastan": "^3.0",
         "orchestra/testbench": "^11.0.0||^10.0.0||^9.0.0",
         "pestphp/pest": "^3.0||^4.0",
         "pestphp/pest-plugin-arch": "^3.0||^4.0",

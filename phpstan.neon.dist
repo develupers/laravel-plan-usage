@@ -37,10 +37,6 @@ parameters:
         -
             identifier: method.notFound
             path: src/Providers/*/
-        # Paddle is an optional dependency — classes don't exist unless installed
-        -
-            identifier: class.notFound
-            path: src/Providers/Paddle/*
         # LemonSqueezy is an optional dependency — classes don't exist unless installed
         -
             identifier: class.notFound

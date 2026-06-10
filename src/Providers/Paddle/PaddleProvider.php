@@ -63,32 +63,23 @@ class PaddleProvider implements BillingProvider
      */
     public function createCheckoutSession(Model $billable, string $priceId, array $options = []): CheckoutSession
     {
-        // Ensure the billable has a Paddle customer
-        if (method_exists($billable, 'createAsCustomer') && ! $billable->paddleId()) {
-            $billable->createAsCustomer();
-        }
-
         $subscriptionName = $options['subscription_name'] ?? 'default';
 
-        // Build checkout options
-        $checkoutOptions = [];
+        // Cashier Paddle has no Stripe-style SubscriptionBuilder flow: its
+        // checkout() ensures the Paddle customer exists and returns a Checkout
+        // object consumed by Paddle.js (overlay/inline). The subscription_type
+        // entry in customData is what makes Cashier Paddle create a local
+        // subscription of that type when the webhook arrives — this mirrors
+        // $billable->subscribe(), while still allowing caller custom data.
+        $checkout = $billable->checkout($priceId)
+            ->customData(array_merge(
+                $options['custom_data'] ?? [],
+                ['subscription_type' => $subscriptionName],
+            ));
 
         if (isset($options['success_url'])) {
-            $checkoutOptions['success_url'] = $options['success_url'];
+            $checkout->returnTo($options['success_url']);
         }
-
-        if (isset($options['cancel_url'])) {
-            // Paddle uses return_url for cancel
-        }
-
-        // Custom data to pass through
-        if (isset($options['custom_data'])) {
-            $checkoutOptions['custom_data'] = $options['custom_data'];
-        }
-
-        // Create checkout session
-        $checkout = $billable->newSubscription($subscriptionName, $priceId)
-            ->checkout($checkoutOptions);
 
         return new PaddleCheckoutSession($checkout);
     }
