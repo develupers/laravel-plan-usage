@@ -62,13 +62,6 @@ return new class extends Migration
             if (! Schema::hasColumn($tableName, 'plan_changed_at')) {
                 $table->timestamp('plan_changed_at')->nullable();
             }
-
-            // Per-billable billing email override (falls back to the owner/user
-            // email). Lets each billable carry its own billing identity, which
-            // some providers require — e.g. Paddle allows one customer per email.
-            if (! Schema::hasColumn($tableName, 'billing_email')) {
-                $table->string('billing_email')->nullable();
-            }
         });
     }
 
@@ -100,7 +93,6 @@ return new class extends Migration
                 'plan_id',
                 'plan_price_id',
                 'plan_changed_at',
-                'billing_email',
             ];
 
             foreach ($checkColumns as $column) {

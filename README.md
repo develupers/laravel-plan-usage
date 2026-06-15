@@ -223,10 +223,12 @@ If `BILLING_PROVIDER` is set to `auto` (or not set), the package will automatica
 The package automatically publishes the correct migration for your billable table based on the detected billing provider:
 
 - **Stripe**: Adds `stripe_id`, `pm_type`, `pm_last_four`, `trial_ends_at` columns
-- **Paddle**: Adds `paddle_id`, `trial_ends_at` columns
+- **Paddle**: Adds `paddle_id`, `trial_ends_at`, `billing_email` columns
 - **LemonSqueezy**: Adds `lemon_squeezy_id`, `trial_ends_at` columns
 
-All migrations also add plan tracking columns: `plan_id`, `plan_price_id`, `plan_changed_at`, and a `billing_email` override (falls back to the owner/user email; required where a provider allows only one customer per email, e.g. Paddle).
+All migrations also add plan tracking columns: `plan_id`, `plan_price_id`, `plan_changed_at`.
+
+> The Paddle stub also adds a `billing_email` override (falls back to the owner/user email). Paddle allows only one customer per email, so each billable needs its own billing identity to subscribe independently; `PaddleProvider::updateCustomerEmail()` pushes changes to Paddle.
 
 > **Important**: You still need to publish and run the billing provider's own migrations separately. The package only adds the billable columns to your model's table.
 

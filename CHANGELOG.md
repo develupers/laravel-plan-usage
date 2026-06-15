@@ -5,7 +5,7 @@ All notable changes to `laravel-plan-usage` will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- Added `billing_email` column to all billable migration stubs (base, Stripe, Paddle, LemonSqueezy) for a per-billable billing identity that falls back to the owner/user email — required where a provider allows only one customer per email (e.g. Paddle)
+- Added `billing_email` column to the Paddle billable migration stub for a per-billable billing identity that falls back to the owner/user email — Paddle allows only one customer per email, so each billable needs its own; pairs with the existing `PaddleProvider::updateCustomerEmail()`
 - Added `plan_prices` table for multiple pricing intervals per plan (monthly, yearly, etc.)
 - Added `plan_price_id` column to billable table to track specific pricing selection
 - Added `PlanPrice` model for managing multiple price variants per plan
