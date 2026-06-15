@@ -226,7 +226,7 @@ The package automatically publishes the correct migration for your billable tabl
 - **Paddle**: Adds `paddle_id`, `trial_ends_at` columns
 - **LemonSqueezy**: Adds `lemon_squeezy_id`, `trial_ends_at` columns
 
-All migrations also add plan tracking columns: `plan_id`, `plan_price_id`, `plan_changed_at`.
+All migrations also add plan tracking columns: `plan_id`, `plan_price_id`, `plan_changed_at`, and a `billing_email` override (falls back to the owner/user email; required where a provider allows only one customer per email, e.g. Paddle).
 
 > **Important**: You still need to publish and run the billing provider's own migrations separately. The package only adds the billable columns to your model's table.
 
