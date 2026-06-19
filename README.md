@@ -390,6 +390,8 @@ $remaining = $account->getRemainingQuota('api-calls');
 // Get detailed usage information
 $usage = $account->getFeatureUsage('api-calls');
 // Returns: ['limit' => 5000, 'used' => 1250, 'remaining' => 3750]
+// Returns null when there's nothing to meter — see "getFeatureUsage() can
+// return null" under Usage Tracking & Analytics.
 ```
 
 ## 🔍 Understanding Feature Checks
@@ -623,6 +625,40 @@ foreach ($featuresStatus as $status) {
     echo "{$status['name']}: {$status['used']}/{$status['limit']}\n";
 }
 ```
+
+#### ⚠️ `getFeatureUsage()` can return `null` — always guard for it
+
+`getFeatureUsage()` returns `?array`. It gives back `null` whenever there is
+**nothing to meter**, which is deliberately different from a feature that is
+metered but exhausted (`['limit' => 0, ...]`). Treat `null` as "not applicable"
+rather than rendering it as a maxed-out progress bar.
+
+```php
+$usage = $account->getFeatureUsage('api-calls');
+
+if ($usage === null) {
+    // One of:
+    //  - the feature slug doesn't exist, or it's a boolean feature
+    //    (boolean features have no usage to report)
+    //  - the billable has no plan, or its plan doesn't include this feature
+    return; // nothing to show
+}
+
+// Granted but UNLIMITED → limit/remaining are null (never coerced to 0)
+if ($usage['limit'] === null) {
+    echo "{$usage['used']} used (unlimited)";
+} else {
+    echo "{$usage['used']} / {$usage['limit']} used, {$usage['remaining']} left";
+}
+```
+
+| Scenario | Return value |
+|----------|--------------|
+| Feature not found, or boolean type | `null` |
+| Billable has no plan | `null` |
+| Plan doesn't include the feature | `null` |
+| Granted, unlimited | `['limit' => null, 'used' => N, 'remaining' => null]` |
+| Granted with a limit | `['limit' => 5000, 'used' => 1250, 'remaining' => 3750]` |
 
 ### Track Usage
 
