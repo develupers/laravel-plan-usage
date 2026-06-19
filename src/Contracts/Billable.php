@@ -117,10 +117,14 @@ interface Billable
     /**
      * Get feature usage details with limit and used values.
      *
+     * Returns null when the feature is not metered or not granted by the
+     * current plan (distinct from a granted zero limit). Unlimited features
+     * return a null 'limit'/'remaining'.
+     *
      * @param  string  $featureSlug  The feature to check
-     * @return array Array with 'limit', 'used', and 'remaining' keys
+     * @return array{limit: int|float|null, used: int|float, remaining: int|float|null}|null
      */
-    public function getFeatureUsage(string $featureSlug): array;
+    public function getFeatureUsage(string $featureSlug): ?array;
 
     /**
      * Get all features with their current status.

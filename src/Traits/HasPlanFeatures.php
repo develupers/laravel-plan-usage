@@ -298,20 +298,39 @@ trait HasPlanFeatures
 
     /**
      * Get feature usage details with limit and used values.
+     *
+     * Returns null when there is nothing to meter: the feature is not a
+     * limit/quota type, or the current plan does not grant it. This is
+     * deliberately distinct from a granted-but-zero limit (`limit => 0`) so
+     * callers can tell "not applicable" from "exhausted" rather than rendering
+     * a missing feature as a full progress bar.
+     *
+     * A granted-but-unlimited feature (plan value null) returns `limit => null`
+     * (and `remaining => null`) — never coerced to 0.
+     *
+     * @return array{limit: int|float|null, used: int|float, remaining: int|float|null}|null
      */
-    public function getFeatureUsage(string $featureSlug): array
+    public function getFeatureUsage(string $featureSlug): ?array
     {
         $feature = Feature::where('slug', $featureSlug)->first();
 
         if (! $feature || ! in_array($feature->type, ['limit', 'quota'])) {
-            return ['limit' => 0, 'used' => 0, 'remaining' => 0];
+            return null;
+        }
+
+        // Metered, but this plan doesn't include the feature → nothing to
+        // report. Checked via the plan pivot directly (not getFeatureValue,
+        // which returns null for BOTH "unlimited" and "not granted").
+        if ($this->plan === null || ! $this->plan->features()->where('slug', $featureSlug)->exists()) {
+            return null;
         }
 
         $quota = $this->quotas()->where('feature_id', $feature->id)->first();
 
         if (! $quota) {
-            // Return plan limits with zero usage if quota not initialized
-            $limit = $this->getFeatureValue($featureSlug) ?? 0;
+            // Quota not initialized yet — fall back to the plan's granted
+            // value. A null value means unlimited; keep it null (not 0).
+            $limit = $this->getFeatureValue($featureSlug);
 
             return ['limit' => $limit, 'used' => 0, 'remaining' => $limit];
         }
