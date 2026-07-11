@@ -145,6 +145,14 @@ class CancelSubscriptionAction
                         : $defaultName;
                     $this->billingProvider->cancelSubscription($billable, $immediately, $subscriptionName);
 
+                    // Revoke as soon as the DEFAULT subscription's provider
+                    // cancellation succeeds — deferring until every add-on is
+                    // cancelled would leave the paid plan behind if a later
+                    // add-on cancellation throws (fail-open until repair).
+                    if ($immediately && $subscriptionName === $defaultName && ! $cancelledDefaultSubscription) {
+                        ($this->deleteSubscription ?? app(DeleteSubscriptionAction::class))->execute($billable);
+                    }
+
                     if ($subscriptionName === $defaultName) {
                         $cancelledDefaultSubscription = true;
                     }
@@ -165,12 +173,11 @@ class CancelSubscriptionAction
                 }
             }
 
-            // Only the default-type subscription controls the plan: revoking
-            // because an add-on was cancelled would delete an entitlement the
-            // still-active default subscription pays for.
-            if ($immediately && $cancelledDefaultSubscription) {
-                ($this->deleteSubscription ?? app(DeleteSubscriptionAction::class))->execute($billable);
-            }
+            // Local revocation already happened inline, immediately after
+            // the default subscription's provider cancellation — only the
+            // default-type subscription controls the plan, and revoking here
+            // (after the loop) would be skipped entirely if a later add-on
+            // cancellation threw.
         };
 
         // Serialize with plan changes and webhook processing when the shared

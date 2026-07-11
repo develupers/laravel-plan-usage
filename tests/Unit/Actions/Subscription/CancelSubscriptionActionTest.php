@@ -247,3 +247,38 @@ it('rejects a managed plan change for a non-default subscription name', function
     expect(fn () => $action->execute($billable, $price, SubscriptionChangeTiming::Immediate, 'addon'))
         ->toThrow(ValidationException::class, "Managed plan changes only apply to the 'default' subscription");
 });
+
+it('revokes immediately after the default cancellation even when a later add-on cancel fails', function () {
+    // Deferring revocation until every add-on is cancelled would leave the
+    // paid plan behind (fail-open) when a later add-on cancellation throws.
+    $defaultSub = Mockery::mock(Subscription::class);
+    $defaultSub->shouldReceive('canceled')->andReturn(false);
+    $defaultSub->shouldReceive('getAttribute')->with('type')->andReturn('default');
+
+    $addonSub = Mockery::mock(Subscription::class);
+    $addonSub->shouldReceive('canceled')->andReturn(false);
+    $addonSub->shouldReceive('getAttribute')->with('type')->andReturn('addon');
+
+    $query = Mockery::mock();
+    $query->shouldReceive('active')->andReturnSelf();
+    $query->shouldReceive('get')->andReturn(collect([$defaultSub, $addonSub]));
+
+    $billable = Mockery::mock(Model::class.', '.Billable::class);
+    $billable->shouldReceive('refresh')->andReturnSelf();
+    $billable->shouldReceive('unsetRelation')->andReturnSelf();
+    $billable->shouldReceive('subscriptions')->andReturn($query);
+
+    $provider = Mockery::mock(BillingProvider::class.', '.SubscriptionLifecycleProvider::class);
+    $provider->shouldReceive('cancelSubscription')->once()->with($billable, true, 'default');
+    $provider->shouldReceive('cancelSubscription')
+        ->once()
+        ->with($billable, true, 'addon')
+        ->andThrow(new RuntimeException('Add-on cancel failed'));
+
+    $deleteSubscription = Mockery::mock(DeleteSubscriptionAction::class);
+    $deleteSubscription->shouldReceive('execute')->once()->with($billable);
+
+    expect(fn () => (new CancelSubscriptionAction($provider, $deleteSubscription))
+        ->cancelAll($billable, immediately: true))
+        ->toThrow(RuntimeException::class, 'Add-on cancel failed');
+});

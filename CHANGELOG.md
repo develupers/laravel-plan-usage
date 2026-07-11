@@ -41,6 +41,7 @@ All notable changes to `laravel-plan-usage` will be documented in this file.
 - Added support for private/custom enterprise plans
 
 ### Fixed
+- **`cancelAll(immediately: true)` revokes inline**: local revocation now runs immediately after the default subscription's provider cancellation succeeds instead of after the whole loop — a later add-on cancellation failure previously skipped revocation entirely, leaving the paid plan behind until webhook/reconciliation repair
 - **Polar 'canceled' grace period is now contextual**: the policy revokes when the effective end (`ended_at ?? ends_at`, payload/local `ends_at`) has already passed — a delayed `subscription.canceled` delivery or a missed `subscription.revoked` can no longer preserve a paid plan indefinitely; enforcement and reconciliation apply the same end-date context
 - **KEEP never applies entitlements**: the Polar listener returns after bookkeeping on a KEEP decision — previously `syncPendingChange()` could apply a matured next-period upgrade while the subscription was past_due, granting an unpaid plan and resetting usage
 - **Lifetime plans are immune to subscription lifecycle events**: the Polar listener, all reconciliation paths, and the enforcement job skip mutation when the billable's current plan is lifetime — a historical (cancelled) subscription row, its delayed terminal webhook, or an enforcement race against `order.paid` can no longer revoke a lifetime plan (`order.refunded` remains the only lifetime-revocation path)
