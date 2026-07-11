@@ -6,14 +6,12 @@ namespace Develupers\PlanUsage\Commands\Subscription;
 
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
-use Develupers\PlanUsage\Actions\Subscription\ApplyPlanChangeAction;
+use Develupers\PlanUsage\Actions\Subscription\ConfirmPendingPlanChangeAction;
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Enums\SubscriptionChangeStatus;
-use Develupers\PlanUsage\Enums\SubscriptionChangeTiming;
 use Develupers\PlanUsage\Events\SubscriptionPlanChangeCancelled;
-use Develupers\PlanUsage\Events\SubscriptionPlanChanged;
 use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Models\SubscriptionPlanChange;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
@@ -418,48 +416,31 @@ class ReconcileSubscriptionsCommand extends Command
         $currentPlanPrice = $planPriceModel::query()
             ->where('polar_product_id', $remoteSubscription->productId)
             ->first();
-        $pendingChange = $this->planChangeModel()::query()
-            ->pending()
-            ->where('provider', 'polar')
-            ->where('provider_subscription_id', $subscriptionId)
-            ->latest('id')
-            ->first();
+        // Shared with the webhook listener so confirmation policy (refresh /
+        // apply / cancel a pending change) lives in exactly one place.
+        $pendingChange = app(ConfirmPendingPlanChangeAction::class)->execute(
+            $billable,
+            provider: 'polar',
+            providerSubscriptionId: $subscriptionId,
+            currentProductId: $remoteSubscription->productId,
+            pendingUpdate: $remoteSubscription->pendingUpdate !== null ? [
+                'id' => $remoteSubscription->pendingUpdate->id,
+                'product_id' => $remoteSubscription->pendingUpdate->productId,
+                'applies_at' => $remoteSubscription->pendingUpdate->appliesAt,
+            ] : null,
+            providerChange: fn (PlanPrice $target) => new ProviderSubscriptionChange(
+                providerSubscriptionId: $remoteSubscription->id,
+                currentProductId: $remoteSubscription->productId,
+                pendingProductId: null,
+                periodStart: CarbonImmutable::instance($remoteSubscription->currentPeriodStart),
+                periodEnd: CarbonImmutable::instance($remoteSubscription->currentPeriodEnd),
+            ),
+        );
 
-        if ($pendingChange !== null && $remoteSubscription->pendingUpdate !== null) {
-            $pendingChange->update([
-                'provider_change_id' => $remoteSubscription->pendingUpdate->id,
-                'effective_at' => $remoteSubscription->pendingUpdate->appliesAt,
-            ]);
-
+        // A refreshed (still pending) or just-applied change fully explains the
+        // remote state; a cancelled one falls through to the plan sync below.
+        if ($pendingChange !== null && $pendingChange->status !== SubscriptionChangeStatus::Cancelled) {
             return true;
-        }
-
-        if ($pendingChange !== null && $remoteSubscription->pendingUpdate === null) {
-            if ($pendingChange->toPlanPrice->polar_product_id === $remoteSubscription->productId) {
-                $providerChange = new ProviderSubscriptionChange(
-                    providerSubscriptionId: $remoteSubscription->id,
-                    currentProductId: $remoteSubscription->productId,
-                    pendingProductId: null,
-                    periodStart: CarbonImmutable::instance($remoteSubscription->currentPeriodStart),
-                    periodEnd: CarbonImmutable::instance($remoteSubscription->currentPeriodEnd),
-                );
-                // Mirror the webhook listener: only scheduled (next-period)
-                // changes reset usage; a stranded Immediate record is repaired
-                // with immediate semantics (prorate limit, preserve usage).
-                $adjustments = app(ApplyPlanChangeAction::class)->execute(
-                    $billable,
-                    $pendingChange->toPlanPrice,
-                    $providerChange,
-                    resetUsage: $pendingChange->timing === SubscriptionChangeTiming::NextPeriod,
-                );
-                $pendingChange->markApplied();
-                Event::dispatch(new SubscriptionPlanChanged($billable, $pendingChange, $adjustments));
-
-                return true;
-            }
-
-            $pendingChange->markCancelled();
-            Event::dispatch(new SubscriptionPlanChangeCancelled($billable, $pendingChange));
         }
 
         if ($currentPlanPrice !== null && (int) $billable->getAttribute('plan_price_id') !== $currentPlanPrice->id) {

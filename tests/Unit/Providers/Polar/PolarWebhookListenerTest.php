@@ -7,6 +7,7 @@ use Danestves\LaravelPolar\Billable as PolarBillable;
 use Danestves\LaravelPolar\Customer;
 use Danestves\LaravelPolar\Events\WebhookHandled;
 use Develupers\PlanUsage\Actions\Subscription\ApplyPlanChangeAction;
+use Develupers\PlanUsage\Actions\Subscription\ConfirmPendingPlanChangeAction;
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Develupers\PlanUsage\Contracts\Billable;
@@ -110,12 +111,11 @@ beforeEach(function () {
         'current_period_end' => '2026-08-01 00:00:00',
     ]);
 
-    $this->applyPlanChange = new ApplyPlanChangeAction(app(QuotaEnforcer::class));
     $this->listener = new PolarWebhookListener(
         new PolarProvider,
         new SyncPlanWithBillableAction,
         new DeleteSubscriptionAction,
-        $this->applyPlanChange,
+        new ConfirmPendingPlanChangeAction(new ApplyPlanChangeAction(app(QuotaEnforcer::class))),
         new SubscriptionStateLock,
     );
 });
@@ -375,7 +375,7 @@ it('rethrows processing failures and leaves the durable event retryable', functi
         new PolarProvider,
         new SyncPlanWithBillableAction,
         new DeleteSubscriptionAction,
-        $applyPlanChange,
+        new ConfirmPendingPlanChangeAction($applyPlanChange),
         new SubscriptionStateLock,
     );
 

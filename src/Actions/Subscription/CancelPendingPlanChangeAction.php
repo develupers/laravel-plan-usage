@@ -6,7 +6,7 @@ namespace Develupers\PlanUsage\Actions\Subscription;
 
 use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Contracts\BillingProvider;
-use Develupers\PlanUsage\Contracts\SubscriptionLifecycleProvider;
+use Develupers\PlanUsage\Contracts\SubscriptionPlanChangeProvider;
 use Develupers\PlanUsage\Events\SubscriptionPlanChangeCancelled;
 use Develupers\PlanUsage\Models\SubscriptionPlanChange;
 use Develupers\PlanUsage\Support\SubscriptionStateLock;
@@ -26,7 +26,7 @@ class CancelPendingPlanChangeAction
      */
     public function execute(Model $billable, string $subscriptionName = 'default'): SubscriptionPlanChange
     {
-        if (! $this->billingProvider instanceof SubscriptionLifecycleProvider) {
+        if (! $this->billingProvider instanceof SubscriptionPlanChangeProvider) {
             throw ValidationException::withMessages([
                 'subscription' => ["{$this->billingProvider->name()} does not support pending plan changes."],
             ]);

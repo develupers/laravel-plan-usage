@@ -6,7 +6,7 @@ namespace Develupers\PlanUsage\Actions\Subscription;
 
 use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Contracts\BillingProvider;
-use Develupers\PlanUsage\Contracts\SubscriptionLifecycleProvider;
+use Develupers\PlanUsage\Contracts\SubscriptionPlanChangeProvider;
 use Develupers\PlanUsage\Enums\SubscriptionChangeStatus;
 use Develupers\PlanUsage\Enums\SubscriptionChangeTiming;
 use Develupers\PlanUsage\Events\SubscriptionPlanChanged;
@@ -35,9 +35,17 @@ class ChangeSubscriptionPlanAction
         SubscriptionChangeTiming $timing,
         string $subscriptionName = 'default'
     ): SubscriptionPlanChange {
-        if (! $this->billingProvider instanceof SubscriptionLifecycleProvider) {
+        if (! $this->billingProvider instanceof SubscriptionPlanChangeProvider) {
             throw ValidationException::withMessages([
                 'subscription' => ["{$this->billingProvider->name()} does not support managed plan changes."],
+            ]);
+        }
+
+        // Gate before any state is created: an unsupported timing must not
+        // leave a pending (later failed) change record behind.
+        if (! $this->billingProvider->supportsTiming($timing)) {
+            throw ValidationException::withMessages([
+                'subscription' => ["{$this->billingProvider->name()} does not support the '{$timing->value}' plan change timing."],
             ]);
         }
 

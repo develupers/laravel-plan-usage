@@ -6,7 +6,7 @@ namespace Develupers\PlanUsage\Actions\Subscription;
 
 use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Contracts\BillingProvider;
-use Develupers\PlanUsage\Contracts\SubscriptionLifecycleProvider;
+use Develupers\PlanUsage\Contracts\SubscriptionCancellationProvider;
 use Develupers\PlanUsage\Support\SubscriptionStateLock;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\ValidationException;
@@ -44,7 +44,7 @@ class CancelSubscriptionAction
             ]);
         }
 
-        if ($this->billingProvider instanceof SubscriptionLifecycleProvider && $billable instanceof Model) {
+        if ($this->billingProvider instanceof SubscriptionCancellationProvider && $billable instanceof Model) {
             $cancel = function () use ($billable, $immediately, $subscriptionName): void {
                 $this->billingProvider->cancelSubscription($billable, $immediately, $subscriptionName);
 
@@ -101,7 +101,7 @@ class CancelSubscriptionAction
                     continue;
                 }
 
-                if ($this->billingProvider instanceof SubscriptionLifecycleProvider && $billable instanceof Model) {
+                if ($this->billingProvider instanceof SubscriptionCancellationProvider && $billable instanceof Model) {
                     $subscriptionName = method_exists($subscription, 'getAttribute')
                         ? (string) ($subscription->getAttribute('type') ?? 'default')
                         : 'default';
@@ -131,7 +131,7 @@ class CancelSubscriptionAction
 
         // Serialize with plan changes and webhook processing when the shared
         // lock is available and provider cancels will mutate local state.
-        if ($this->billingProvider instanceof SubscriptionLifecycleProvider
+        if ($this->billingProvider instanceof SubscriptionCancellationProvider
             && $billable instanceof Model
             && $this->stateLock !== null) {
             $this->stateLock->block($billable, $process, waitSeconds: 5);
@@ -160,7 +160,7 @@ class CancelSubscriptionAction
             ]);
         }
 
-        if ($this->billingProvider instanceof SubscriptionLifecycleProvider && $billable instanceof Model) {
+        if ($this->billingProvider instanceof SubscriptionCancellationProvider && $billable instanceof Model) {
             // Only a fully ended subscription is locally un-resumable. The
             // grace-period shape is provider-specific — Polar keeps a
             // period-end cancellation ACTIVE with cancel_at_period_end, so

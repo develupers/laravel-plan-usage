@@ -147,3 +147,8 @@ it('fails when the billable has no subscription', function () {
     expect(fn () => $this->provider->cancelSubscription(paddleLifecycleBillable(null)))
         ->toThrow(ValidationException::class, 'No active Paddle subscription found.');
 });
+
+it('reports supported plan change timings', function () {
+    expect($this->provider->supportsTiming(SubscriptionChangeTiming::Immediate))->toBeTrue()
+        ->and($this->provider->supportsTiming(SubscriptionChangeTiming::NextPeriod))->toBeFalse();
+});

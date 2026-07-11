@@ -6,14 +6,12 @@ namespace Develupers\PlanUsage\Providers\Polar;
 
 use Carbon\CarbonImmutable;
 use Danestves\LaravelPolar\Events\WebhookHandled;
-use Develupers\PlanUsage\Actions\Subscription\ApplyPlanChangeAction;
+use Develupers\PlanUsage\Actions\Subscription\ConfirmPendingPlanChangeAction;
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Enums\Interval;
-use Develupers\PlanUsage\Enums\SubscriptionChangeTiming;
 use Develupers\PlanUsage\Events\SubscriptionPlanChangeCancelled;
-use Develupers\PlanUsage\Events\SubscriptionPlanChanged;
 use Develupers\PlanUsage\Models\BillingWebhookEvent;
 use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Models\SubscriptionPlanChange;
@@ -31,7 +29,7 @@ class PolarWebhookListener
         private PolarProvider $provider,
         private SyncPlanWithBillableAction $syncPlanWithBillable,
         private DeleteSubscriptionAction $deleteSubscription,
-        private ApplyPlanChangeAction $applyPlanChange,
+        private ConfirmPendingPlanChangeAction $confirmPendingChange,
         private SubscriptionStateLock $stateLock,
     ) {}
 
@@ -272,61 +270,21 @@ class PolarWebhookListener
      */
     private function syncPendingChange(Model $billable, array $data): void
     {
-        $subscriptionId = (string) $data['id'];
-        $pendingChange = $this->planChangeModel()::query()
-            ->pending()
-            ->where('provider', 'polar')
-            ->where('provider_subscription_id', $subscriptionId)
-            ->latest('id')
-            ->lockForUpdate()
-            ->first();
-
-        if ($pendingChange === null) {
-            return;
-        }
-
         $pendingUpdate = $data['pending_update'] ?? null;
 
-        if (is_array($pendingUpdate) && is_string($pendingUpdate['product_id'] ?? null)) {
-            $targetProductId = $pendingChange->toPlanPrice->polar_product_id;
-
-            if ($pendingUpdate['product_id'] === $targetProductId) {
-                $pendingChange->update([
-                    'provider_change_id' => $pendingUpdate['id'] ?? $pendingChange->provider_change_id,
-                    'effective_at' => $pendingUpdate['applies_at'] ?? $pendingChange->effective_at,
-                    'metadata' => array_merge($pendingChange->metadata ?? [], [
-                        'pending_product_id' => $pendingUpdate['product_id'],
-                    ]),
-                ]);
-            }
-
-            return;
-        }
-
-        $currentProductId = $data['product_id'] ?? null;
-        $targetProductId = $pendingChange->toPlanPrice->polar_product_id;
-
-        if ($currentProductId !== $targetProductId) {
-            $pendingChange->markCancelled();
-            Event::dispatch(new SubscriptionPlanChangeCancelled($billable, $pendingChange));
-
-            return;
-        }
-
-        $providerChange = $this->providerChangeFromWebhook($data, $pendingChange->toPlanPrice);
-        // Only scheduled (next-period) changes start a fresh period whose usage
-        // resets. An Immediate pending record here means the action that created
-        // it did not finish (crash after the provider call) — repair it with the
-        // immediate semantics: prorate the limit, preserve current usage.
-        $adjustments = $this->applyPlanChange->execute(
+        $this->confirmPendingChange->execute(
             $billable,
-            $pendingChange->toPlanPrice,
-            $providerChange,
-            resetUsage: $pendingChange->timing === SubscriptionChangeTiming::NextPeriod,
+            provider: 'polar',
+            providerSubscriptionId: (string) $data['id'],
+            currentProductId: is_string($data['product_id'] ?? null) ? $data['product_id'] : null,
+            pendingUpdate: is_array($pendingUpdate) && is_string($pendingUpdate['product_id'] ?? null) ? [
+                'id' => $pendingUpdate['id'] ?? null,
+                'product_id' => $pendingUpdate['product_id'],
+                'applies_at' => $pendingUpdate['applies_at'] ?? null,
+            ] : null,
+            providerChange: fn (PlanPrice $target) => $this->providerChangeFromWebhook($data, $target),
+            lockForUpdate: true,
         );
-        $pendingChange->markApplied();
-
-        Event::dispatch(new SubscriptionPlanChanged($billable, $pendingChange, $adjustments));
     }
 
     /**

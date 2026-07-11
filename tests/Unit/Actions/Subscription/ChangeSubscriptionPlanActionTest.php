@@ -26,6 +26,7 @@ use Develupers\PlanUsage\Support\SubscriptionStateLock;
 use Develupers\PlanUsage\Traits\HasPlanFeatures;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Validation\ValidationException;
 
 class PlanChangeTestBillable extends Model implements Billable
 {
@@ -79,6 +80,7 @@ beforeEach(function () {
 
     $this->provider = Mockery::mock(BillingProvider::class.', '.SubscriptionLifecycleProvider::class);
     $this->provider->shouldReceive('name')->andReturn('polar')->byDefault();
+    $this->provider->shouldReceive('supportsTiming')->andReturn(true)->byDefault();
     $this->applyAction = new ApplyPlanChangeAction(app(QuotaEnforcer::class));
     $this->action = new ChangeSubscriptionPlanAction($this->provider, $this->applyAction, new SubscriptionStateLock);
 });
@@ -289,4 +291,20 @@ it('cancels a pending provider change and its local record', function () {
         ->and($cancelled->cancelled_at)->not->toBeNull();
 
     Event::assertDispatched(SubscriptionPlanChangeCancelled::class);
+});
+
+it('rejects an unsupported timing before creating any pending change record', function () {
+    $this->provider->shouldReceive('supportsTiming')
+        ->with(SubscriptionChangeTiming::NextPeriod)
+        ->andReturn(false);
+    $this->provider->shouldNotReceive('changeSubscription');
+
+    expect(fn () => $this->action->execute(
+        $this->billable,
+        $this->starterPrice,
+        SubscriptionChangeTiming::NextPeriod
+    ))->toThrow(ValidationException::class, "polar does not support the 'next_period' plan change timing.");
+
+    // The gate fires before record creation: no pending (or failed) row remains.
+    expect(SubscriptionPlanChange::query()->count())->toBe(0);
 });

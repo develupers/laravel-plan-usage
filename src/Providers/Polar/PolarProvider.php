@@ -204,6 +204,13 @@ class PolarProvider implements BillingProvider, SubscriptionLifecycleProvider
         return $subscriptions;
     }
 
+    public function supportsTiming(SubscriptionChangeTiming $timing): bool
+    {
+        // Polar natively supports both immediate swaps and pending updates
+        // applied at the next renewal.
+        return true;
+    }
+
     /**
      * @param  Model&Billable  $billable
      */

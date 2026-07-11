@@ -6,6 +6,7 @@ use Danestves\LaravelPolar\Billable as PolarBillable;
 use Danestves\LaravelPolar\Customer;
 use Danestves\LaravelPolar\Events\WebhookHandled;
 use Develupers\PlanUsage\Actions\Subscription\ApplyPlanChangeAction;
+use Develupers\PlanUsage\Actions\Subscription\ConfirmPendingPlanChangeAction;
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Develupers\PlanUsage\Contracts\Billable;
@@ -95,7 +96,7 @@ beforeEach(function () {
         new PolarProvider,
         new SyncPlanWithBillableAction,
         new DeleteSubscriptionAction,
-        new ApplyPlanChangeAction(app(QuotaEnforcer::class)),
+        new ConfirmPendingPlanChangeAction(new ApplyPlanChangeAction(app(QuotaEnforcer::class))),
         new SubscriptionStateLock,
     );
 });
@@ -200,7 +201,7 @@ it('leaves the event retryable when local application fails', function () {
         new PolarProvider,
         $sync,
         new DeleteSubscriptionAction,
-        new ApplyPlanChangeAction(app(QuotaEnforcer::class)),
+        new ConfirmPendingPlanChangeAction(new ApplyPlanChangeAction(app(QuotaEnforcer::class))),
         new SubscriptionStateLock,
     );
     $event = new WebhookHandled(polarOrderPayload(

@@ -445,6 +445,11 @@ class PaddleProvider implements BillingProvider, SubscriptionLifecycleProvider
         return null;
     }
 
+    public function supportsTiming(SubscriptionChangeTiming $timing): bool
+    {
+        return $timing === SubscriptionChangeTiming::Immediate;
+    }
+
     /**
      * Change the subscription to a different price.
      *

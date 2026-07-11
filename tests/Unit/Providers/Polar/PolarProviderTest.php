@@ -225,3 +225,8 @@ it('clears Polar pending updates through the current API', function () {
         && array_key_exists('pending_update', $request->data())
         && $request['pending_update'] === null);
 });
+
+it('reports support for both immediate and next-period plan change timings', function () {
+    expect($this->provider->supportsTiming(SubscriptionChangeTiming::Immediate))->toBeTrue()
+        ->and($this->provider->supportsTiming(SubscriptionChangeTiming::NextPeriod))->toBeTrue();
+});
