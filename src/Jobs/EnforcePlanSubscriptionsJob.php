@@ -88,6 +88,13 @@ class EnforcePlanSubscriptionsJob implements ShouldQueue
                         return false;
                     }
 
+                    // A Polar order.paid handler can assign a lifetime plan
+                    // while this job waits on the lock — lifetime entitlements
+                    // are only revocable via order.refunded, never here.
+                    if ($billable instanceof Model && ($billable->plan->is_lifetime ?? false)) {
+                        return false;
+                    }
+
                     app(DeleteSubscriptionAction::class)->execute($billable);
 
                     return true;
@@ -146,7 +153,9 @@ class EnforcePlanSubscriptionsJob implements ShouldQueue
         $status = $subscription->status ?? $subscription->stripe_status ?? null;
 
         if ($status !== null) {
-            return EntitlementStatusPolicy::statusHoldsEntitlements($provider, $status);
+            // ends_at gives Polar's 'canceled' its grace-period context: a
+            // past end no longer holds entitlements.
+            return EntitlementStatusPolicy::statusHoldsEntitlements($provider, $status, $subscription->ends_at ?? null);
         }
 
         return (bool) $subscription->active();

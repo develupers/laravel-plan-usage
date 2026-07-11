@@ -47,7 +47,7 @@ it('delegates changePlan to the change subscription action', function () {
             Mockery::on(fn ($billable) => $billable->is($this->billable)),
             Mockery::on(fn ($price) => $price->is($this->planPrice)),
             SubscriptionChangeTiming::Immediate,
-            'default'
+            null
         )
         ->andReturn($planChange);
     app()->instance(ChangeSubscriptionPlanAction::class, $action);
@@ -59,7 +59,7 @@ it('coerces string timing values to the enum', function () {
     $action = Mockery::mock(ChangeSubscriptionPlanAction::class);
     $action->shouldReceive('execute')
         ->once()
-        ->with(Mockery::any(), Mockery::any(), SubscriptionChangeTiming::NextPeriod, 'default')
+        ->with(Mockery::any(), Mockery::any(), SubscriptionChangeTiming::NextPeriod, null)
         ->andReturn(new SubscriptionPlanChange);
     app()->instance(ChangeSubscriptionPlanAction::class, $action);
 
@@ -71,7 +71,7 @@ it('delegates cancelPendingPlanChange to the cancel action', function () {
     $action = Mockery::mock(CancelPendingPlanChangeAction::class);
     $action->shouldReceive('execute')
         ->once()
-        ->with(Mockery::on(fn ($billable) => $billable->is($this->billable)), 'default')
+        ->with(Mockery::on(fn ($billable) => $billable->is($this->billable)), null)
         ->andReturn($planChange);
     app()->instance(CancelPendingPlanChangeAction::class, $action);
 
@@ -146,7 +146,7 @@ it('exposes changePlan and cancelPendingPlanChange through the facade', function
     $change = Mockery::mock(ChangeSubscriptionPlanAction::class);
     $change->shouldReceive('execute')
         ->once()
-        ->with(Mockery::any(), Mockery::any(), SubscriptionChangeTiming::Immediate, 'default')
+        ->with(Mockery::any(), Mockery::any(), SubscriptionChangeTiming::Immediate, null)
         ->andReturn($planChange);
     app()->instance(ChangeSubscriptionPlanAction::class, $change);
     $cancel = Mockery::mock(CancelPendingPlanChangeAction::class);

@@ -191,7 +191,7 @@ trait HasPlanFeatures
     public function changePlan(
         PlanPrice $targetPlanPrice,
         SubscriptionChangeTiming|string $timing = SubscriptionChangeTiming::Immediate,
-        string $subscriptionName = 'default'
+        ?string $subscriptionName = null
     ): SubscriptionPlanChange {
         if (is_string($timing)) {
             $timing = SubscriptionChangeTiming::from($timing);
@@ -204,7 +204,7 @@ trait HasPlanFeatures
     /**
      * Cancel a pending (scheduled) plan change before it takes effect.
      */
-    public function cancelPendingPlanChange(string $subscriptionName = 'default'): SubscriptionPlanChange
+    public function cancelPendingPlanChange(?string $subscriptionName = null): SubscriptionPlanChange
     {
         return app(CancelPendingPlanChangeAction::class)->execute($this, $subscriptionName);
     }
@@ -212,8 +212,10 @@ trait HasPlanFeatures
     /**
      * Get the pending (scheduled) plan change, if any.
      */
-    public function pendingPlanChange(string $subscriptionName = 'default'): ?SubscriptionPlanChange
+    public function pendingPlanChange(?string $subscriptionName = null): ?SubscriptionPlanChange
     {
+        $subscriptionName ??= config('plan-usage.subscription.default_name', 'default');
+
         // Read-only accessor: a misconfigured/uninstalled provider must not
         // turn a view-level check into an exception. No resolvable provider
         // also means no pending change the package could act on.

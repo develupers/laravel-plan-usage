@@ -33,8 +33,20 @@ class ChangeSubscriptionPlanAction
         Model $billable,
         PlanPrice $targetPlanPrice,
         SubscriptionChangeTiming $timing,
-        string $subscriptionName = 'default'
+        ?string $subscriptionName = null
     ): SubscriptionPlanChange {
+        $defaultName = config('plan-usage.subscription.default_name', 'default');
+        $subscriptionName ??= $defaultName;
+
+        // Only the configured default-type subscription controls the plan —
+        // applying a change through an add-on subscription would replace the
+        // entitlement the (still active) default subscription pays for.
+        if ($subscriptionName !== $defaultName) {
+            throw ValidationException::withMessages([
+                'subscription' => ["Managed plan changes only apply to the '{$defaultName}' subscription; '{$subscriptionName}' does not control the billable's plan."],
+            ]);
+        }
+
         if (! $this->billingProvider instanceof SubscriptionPlanChangeProvider) {
             throw ValidationException::withMessages([
                 'subscription' => ["{$this->billingProvider->name()} does not support managed plan changes."],

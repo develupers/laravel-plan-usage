@@ -418,3 +418,66 @@ it('revokes a stale plan when the default subscription reports a non-holding sta
         ->and($this->billable->fresh()->quotas()->count())->toBe(0)
         ->and(BillingWebhookEvent::query()->whereNotNull('processed_at')->count())->toBe(1);
 });
+
+it('revokes when a canceled subscription grace period has already ended', function () {
+    // Polar 'canceled' is a grace period only while the effective end is in
+    // the future — a delayed delivery after ends_at must revoke, not KEEP.
+    $payload = polarPlanUsagePayload(
+        $this->billable,
+        'subscription.canceled',
+        'prod_webhook_growth',
+        status: 'canceled',
+    );
+    $payload['data']['ends_at'] = '2026-07-01T00:00:00Z'; // already past
+
+    $this->listener->handle(new WebhookHandled($payload));
+
+    expect($this->billable->fresh()->plan_id)->toBeNull()
+        ->and(BillingWebhookEvent::query()->whereNotNull('processed_at')->count())->toBe(1);
+});
+
+it('does not apply a matured pending change while the subscription is past_due (KEEP)', function () {
+    // A next-period upgrade whose renewal payment failed: Polar reports
+    // past_due with the target product and the pending update gone. KEEP must
+    // not apply the unpaid upgrade.
+    SubscriptionPlanChange::query()->create([
+        'billable_type' => $this->billable->getMorphClass(),
+        'billable_id' => $this->billable->getKey(),
+        'provider' => 'polar',
+        'subscription_type' => 'default',
+        'provider_subscription_id' => 'sub_webhook_123',
+        'from_plan_price_id' => $this->growthPrice->id,
+        'to_plan_price_id' => $this->starterPrice->id,
+        'timing' => SubscriptionChangeTiming::NextPeriod,
+        'status' => SubscriptionChangeStatus::Pending,
+    ]);
+
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.updated',
+        'prod_webhook_starter', // provider already swapped to the target
+        status: 'past_due',
+    )));
+
+    // Plan unchanged, pending change still pending, event processed.
+    expect($this->billable->fresh()->plan_id)->toBe($this->growth->id)
+        ->and(SubscriptionPlanChange::query()->firstOrFail()->status)->toBe(SubscriptionChangeStatus::Pending)
+        ->and(BillingWebhookEvent::query()->whereNotNull('processed_at')->count())->toBe(1);
+});
+
+it('never lets a historical subscription event revoke a lifetime plan', function () {
+    // Cancel-then-buy-lifetime: the old default subscription row still exists
+    // and its delayed terminal event must not wipe the lifetime plan.
+    $lifetimePlan = Plan::factory()->create(['slug' => 'webhook-lifetime', 'is_lifetime' => true]);
+    $this->billable->update(['plan_id' => $lifetimePlan->id, 'plan_price_id' => null]);
+
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.revoked',
+        'prod_webhook_growth',
+        status: 'canceled',
+    )));
+
+    expect($this->billable->fresh()->plan_id)->toBe($lifetimePlan->id)
+        ->and(BillingWebhookEvent::query()->whereNotNull('ignored_at')->count())->toBe(1);
+});

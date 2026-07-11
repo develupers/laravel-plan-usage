@@ -291,6 +291,16 @@ class ReconcileSubscriptionsCommand extends Command
                 function () use ($provider, $billable, $dryRun): string {
                     $billable->refresh();
                     $billable->unsetRelation('subscriptions');
+
+                    // Lifetime plans are never governed by subscription rows —
+                    // a historical (cancelled) subscription must not revoke a
+                    // lifetime plan bought afterwards.
+                    if ($billable->plan->is_lifetime ?? false) {
+                        $this->line('  Skipped: billable holds a lifetime plan');
+
+                        return 'skipped';
+                    }
+
                     $subscription = $billable->subscription(config('plan-usage.subscription.default_name', 'default'));
 
                     if ($subscription === null) {
@@ -337,6 +347,16 @@ class ReconcileSubscriptionsCommand extends Command
                 // subscription itself may have been replaced.
                 $billable->refresh();
                 $billable->unsetRelation('subscriptions');
+
+                // Lifetime plans are only revocable via order.refunded — a
+                // historical (cancelled) subscription row must not revoke a
+                // lifetime plan bought afterwards.
+                if ($billable->plan->is_lifetime ?? false) {
+                    $this->line('  Skipped: billable holds a lifetime plan');
+
+                    return 'skipped';
+                }
+
                 $subscription = $billable->subscription(config('plan-usage.subscription.default_name', 'default'));
 
                 if ($subscription === null || $subscription->polar_id !== $subscriptionId) {
@@ -362,11 +382,12 @@ class ReconcileSubscriptionsCommand extends Command
                 // Shared policy, with Polar's grace semantics: 'canceled'
                 // KEEPs entitlements until ended_at passes (revocation
                 // arrives as subscription.revoked).
-                $decision = EntitlementStatusPolicy::decide('polar', $status);
-                $graceEnded = $remoteSubscription->endedAt !== null
-                    && CarbonImmutable::instance($remoteSubscription->endedAt)->isPast();
+                // The effective end is endedAt when the subscription has
+                // actually ended, otherwise the scheduled endsAt.
+                $effectiveEnd = $remoteSubscription->endedAt ?? $remoteSubscription->endsAt ?? null;
+                $decision = EntitlementStatusPolicy::decide('polar', $status, $effectiveEnd);
 
-                if ($decision === EntitlementStatusPolicy::REVOKE || ($status === 'canceled' && $graceEnded)) {
+                if ($decision === EntitlementStatusPolicy::REVOKE) {
                     if (! $dryRun) {
                         app(DeleteSubscriptionAction::class)->execute($billable);
                         $this->cancelPolarPendingChanges($billable, $subscriptionId);

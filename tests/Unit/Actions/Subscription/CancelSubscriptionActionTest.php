@@ -2,11 +2,16 @@
 
 declare(strict_types=1);
 
+use Develupers\PlanUsage\Actions\Subscription\ApplyPlanChangeAction;
 use Develupers\PlanUsage\Actions\Subscription\CancelSubscriptionAction;
+use Develupers\PlanUsage\Actions\Subscription\ChangeSubscriptionPlanAction;
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Contracts\SubscriptionLifecycleProvider;
+use Develupers\PlanUsage\Enums\SubscriptionChangeTiming;
+use Develupers\PlanUsage\Models\PlanPrice;
+use Develupers\PlanUsage\Support\SubscriptionStateLock;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\ValidationException;
 use Laravel\Cashier\Subscription;
@@ -47,6 +52,8 @@ it('removes local entitlements after a lifecycle provider confirms immediate rev
     $subscription = Mockery::mock(Subscription::class);
     $subscription->shouldReceive('canceled')->once()->andReturn(false);
     $billable = Mockery::mock(Model::class.', '.Billable::class);
+    $billable->shouldReceive('refresh')->andReturnSelf();
+    $billable->shouldReceive('unsetRelation')->andReturnSelf();
     $billable->shouldReceive('subscription')->with('default')->once()->andReturn($subscription);
     $provider = Mockery::mock(BillingProvider::class.', '.SubscriptionLifecycleProvider::class);
     $provider->shouldReceive('cancelSubscription')
@@ -164,6 +171,8 @@ it('resumes a polar-style period-end cancellation that never enters a local grac
     };
 
     $billable = Mockery::mock(Model::class.', '.Billable::class);
+    $billable->shouldReceive('refresh')->andReturnSelf();
+    $billable->shouldReceive('unsetRelation')->andReturnSelf();
     $billable->shouldReceive('subscription')->with('default')->once()->andReturn($subscription);
 
     $provider = Mockery::mock(BillingProvider::class.', '.SubscriptionLifecycleProvider::class);
@@ -189,6 +198,8 @@ it('refuses to resume a subscription that has fully ended', function () {
     };
 
     $billable = Mockery::mock(Model::class.', '.Billable::class);
+    $billable->shouldReceive('refresh')->andReturnSelf();
+    $billable->shouldReceive('unsetRelation')->andReturnSelf();
     $billable->shouldReceive('subscription')->with('default')->once()->andReturn($subscription);
 
     $provider = Mockery::mock(BillingProvider::class.', '.SubscriptionLifecycleProvider::class);
@@ -196,4 +207,43 @@ it('refuses to resume a subscription that has fully ended', function () {
 
     expect(fn () => (new CancelSubscriptionAction($provider))->resume($billable))
         ->toThrow(ValidationException::class, 'Subscription has ended and cannot be resumed.');
+});
+
+it('does not revoke the plan when immediately cancelling a non-default subscription', function () {
+    // Cancelling an add-on must not delete the entitlement the still-active
+    // default subscription controls.
+    $subscription = Mockery::mock(Subscription::class);
+    $subscription->shouldReceive('canceled')->once()->andReturn(false);
+
+    $billable = Mockery::mock(Model::class.', '.Billable::class);
+    $billable->shouldReceive('refresh')->andReturnSelf();
+    $billable->shouldReceive('unsetRelation')->andReturnSelf();
+    $billable->shouldReceive('subscription')->with('addon')->once()->andReturn($subscription);
+
+    $provider = Mockery::mock(BillingProvider::class.', '.SubscriptionLifecycleProvider::class);
+    $provider->shouldReceive('cancelSubscription')
+        ->once()
+        ->with($billable, true, 'addon');
+
+    $deleteSubscription = Mockery::mock(DeleteSubscriptionAction::class);
+    $deleteSubscription->shouldNotReceive('execute');
+
+    (new CancelSubscriptionAction($provider, $deleteSubscription))
+        ->execute($billable, immediately: true, subscriptionName: 'addon');
+});
+
+it('rejects a managed plan change for a non-default subscription name', function () {
+    $provider = Mockery::mock(BillingProvider::class.', '.SubscriptionLifecycleProvider::class);
+    $provider->shouldReceive('name')->andReturn('polar');
+    $billable = Mockery::mock(Model::class.', '.Billable::class);
+    $price = PlanPrice::factory()->create();
+
+    $action = new ChangeSubscriptionPlanAction(
+        $provider,
+        Mockery::mock(ApplyPlanChangeAction::class),
+        new SubscriptionStateLock,
+    );
+
+    expect(fn () => $action->execute($billable, $price, SubscriptionChangeTiming::Immediate, 'addon'))
+        ->toThrow(ValidationException::class, "Managed plan changes only apply to the 'default' subscription");
 });

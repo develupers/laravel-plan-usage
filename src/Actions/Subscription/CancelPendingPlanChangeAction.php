@@ -24,8 +24,10 @@ class CancelPendingPlanChangeAction
     /**
      * @param  Model&Billable  $billable
      */
-    public function execute(Model $billable, string $subscriptionName = 'default'): SubscriptionPlanChange
+    public function execute(Model $billable, ?string $subscriptionName = null): SubscriptionPlanChange
     {
+        $subscriptionName ??= config('plan-usage.subscription.default_name', 'default');
+
         if (! $this->billingProvider instanceof SubscriptionPlanChangeProvider) {
             throw ValidationException::withMessages([
                 'subscription' => ["{$this->billingProvider->name()} does not support pending plan changes."],

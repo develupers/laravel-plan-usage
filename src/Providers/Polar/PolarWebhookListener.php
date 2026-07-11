@@ -130,6 +130,20 @@ class PolarWebhookListener
                     return;
                 }
 
+                // Lifetime entitlements are only revocable via order.refunded:
+                // a historical (cancelled) subscription row's delayed terminal
+                // event must not wipe a lifetime plan bought afterwards.
+                if ($billable->plan->is_lifetime ?? false) {
+                    Log::info('Ignoring Polar subscription webhook for a lifetime plan holder', [
+                        'billable_id' => $billable->getKey(),
+                        'subscription_id' => $data['id'],
+                        'event_type' => $eventType,
+                    ]);
+                    $billingEvent->update(['ignored_at' => now()]);
+
+                    return;
+                }
+
                 if ($eventType === 'subscription.revoked' || $eventType === 'subscription.paused') {
                     $this->deleteSubscription->execute($billable);
                     $this->cancelPendingChanges($data['id'], $billable);
@@ -139,11 +153,16 @@ class PolarWebhookListener
                 }
 
                 // Shared policy on the subscription's status. Polar's
-                // 'canceled' is a grace period (KEEP) — terminal revocation
-                // arrives as subscription.revoked. Non-holding statuses
-                // (incomplete, unpaid, past_due under the revoke policy)
+                // 'canceled' is a grace period (KEEP) until the payload's
+                // effective end passes — terminal revocation also arrives as
+                // subscription.revoked. Non-holding statuses (incomplete,
+                // unpaid, past_due under the revoke policy, expired grace)
                 // REVOKE any stale plan instead of being silently ignored.
-                $decision = EntitlementStatusPolicy::decide('polar', (string) ($data['status'] ?? ''));
+                $decision = EntitlementStatusPolicy::decide(
+                    'polar',
+                    (string) ($data['status'] ?? ''),
+                    $data['ends_at'] ?? null,
+                );
 
                 if ($decision === EntitlementStatusPolicy::REVOKE) {
                     $this->deleteSubscription->execute($billable);
@@ -153,12 +172,17 @@ class PolarWebhookListener
                     return;
                 }
 
-                $this->syncPendingChange($billable, $data);
+                // KEEP must not apply anything: syncPendingChange() can APPLY
+                // a matured pending change (e.g. an upgrade whose renewal
+                // payment failed into past_due) — granting an unpaid plan.
+                if ($decision === EntitlementStatusPolicy::KEEP) {
+                    $billingEvent->update(['processed_at' => now(), 'last_error' => null]);
 
-                if ($decision === EntitlementStatusPolicy::GRANT) {
-                    $this->syncCurrentPlan($billable, $data, $eventType);
+                    return;
                 }
 
+                $this->syncPendingChange($billable, $data);
+                $this->syncCurrentPlan($billable, $data, $eventType);
                 $billingEvent->update(['processed_at' => now(), 'last_error' => null]);
             });
         } catch (LockTimeoutException $exception) {

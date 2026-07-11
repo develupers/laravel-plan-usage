@@ -12,8 +12,8 @@ use Illuminate\Support\Facades\Facade;
  * @method static \Develupers\PlanUsage\Services\QuotaEnforcer quotas()
  * @method static bool can($billable, string $featureSlug, float $amount = 1)
  * @method static void record($billable, string $featureSlug, float $amount = 1, ?array $metadata = null)
- * @method static \Develupers\PlanUsage\Models\SubscriptionPlanChange changePlan($billable, \Develupers\PlanUsage\Models\PlanPrice $targetPlanPrice, \Develupers\PlanUsage\Enums\SubscriptionChangeTiming|string $timing = \Develupers\PlanUsage\Enums\SubscriptionChangeTiming::Immediate, string $subscriptionName = 'default')
- * @method static \Develupers\PlanUsage\Models\SubscriptionPlanChange cancelPendingPlanChange($billable, string $subscriptionName = 'default')
+ * @method static \Develupers\PlanUsage\Models\SubscriptionPlanChange changePlan($billable, \Develupers\PlanUsage\Models\PlanPrice $targetPlanPrice, \Develupers\PlanUsage\Enums\SubscriptionChangeTiming|string $timing = \Develupers\PlanUsage\Enums\SubscriptionChangeTiming::Immediate, ?string $subscriptionName = null)
+ * @method static \Develupers\PlanUsage\Models\SubscriptionPlanChange cancelPendingPlanChange($billable, ?string $subscriptionName = null)
  * @method static \Illuminate\Support\Collection getAllPlans()
  * @method static ?\Develupers\PlanUsage\Models\Plan findPlan($identifier)
  *

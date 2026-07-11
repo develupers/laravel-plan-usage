@@ -93,7 +93,7 @@ class PlanUsage
         $billable,
         PlanPrice $targetPlanPrice,
         SubscriptionChangeTiming|string $timing = SubscriptionChangeTiming::Immediate,
-        string $subscriptionName = 'default'
+        ?string $subscriptionName = null
     ): SubscriptionPlanChange {
         if (is_string($timing)) {
             $timing = SubscriptionChangeTiming::from($timing);
@@ -106,7 +106,7 @@ class PlanUsage
     /**
      * Cancel a billable's pending (scheduled) plan change.
      */
-    public function cancelPendingPlanChange($billable, string $subscriptionName = 'default'): SubscriptionPlanChange
+    public function cancelPendingPlanChange($billable, ?string $subscriptionName = null): SubscriptionPlanChange
     {
         return app(CancelPendingPlanChangeAction::class)->execute($billable, $subscriptionName);
     }
