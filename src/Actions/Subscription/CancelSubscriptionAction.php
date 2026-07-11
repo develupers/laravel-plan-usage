@@ -49,7 +49,9 @@ class CancelSubscriptionAction
                 $this->billingProvider->cancelSubscription($billable, $immediately, $subscriptionName);
 
                 if ($immediately) {
-                    $this->deleteSubscription?->execute($billable);
+                    // Local revocation is not optional on immediate cancel —
+                    // resolve the action if it was not injected.
+                    ($this->deleteSubscription ?? app(DeleteSubscriptionAction::class))->execute($billable);
                 }
             };
 
@@ -125,7 +127,9 @@ class CancelSubscriptionAction
             }
 
             if ($immediately && $cancelledThroughLifecycleProvider) {
-                $this->deleteSubscription?->execute($billable);
+                // Local revocation is not optional on immediate cancel —
+                // resolve the action if it was not injected.
+                ($this->deleteSubscription ?? app(DeleteSubscriptionAction::class))->execute($billable);
             }
         };
 

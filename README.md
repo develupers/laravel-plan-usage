@@ -962,7 +962,7 @@ The `PlanRevoked` event contains:
 
 ### Reconciling Subscriptions
 
-If webhooks are missed, you can reconcile local subscription status with the billing provider:
+If webhooks are missed, you can reconcile local subscription status with the billing provider. Every billable with subscription rows is checked against the provider's current state: expired subscriptions are revoked, active subscriptions have plan/price drift corrected, and a billable whose initial checkout webhook was lost gets its plan recovered. Billables with a plan but no subscription rows (lifetime purchases, manually granted plans) are never touched. Only the configured default-type subscription controls the plan — custom-typed subscriptions are deliberately ignored.
 
 ```bash
 # Reconcile with configured provider

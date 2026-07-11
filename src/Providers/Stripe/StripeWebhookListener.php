@@ -6,24 +6,35 @@ namespace Develupers\PlanUsage\Providers\Stripe;
 
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
+use Develupers\PlanUsage\Support\SubscriptionStateLock;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Events\WebhookHandled;
 
 /**
  * Handles Stripe webhook events for plan synchronization.
  *
- * This listener processes subscription-related webhook events from Stripe
- * and syncs the local plan/price associations.
+ * Stripe does not guarantee delivery order, so the payload is treated only as
+ * a trigger: the subscription's CURRENT state is re-fetched from the Stripe
+ * API inside the shared per-billable lock, and status + price are derived
+ * from that authoritative response. Any event therefore converges the local
+ * plan to remote truth, regardless of delivery order.
+ *
+ * Only the configured default-type subscription controls entitlements —
+ * events for other named subscriptions are deliberately ignored.
  */
 class StripeWebhookListener
 {
     /**
-     * Create the event listener.
+     * How long to wait for the shared subscription-state lock.
      */
+    protected int $lockWaitSeconds = 10;
+
     public function __construct(
         private SyncPlanWithBillableAction $syncPlanWithBillable,
-        private DeleteSubscriptionAction $deleteSubscription
+        private DeleteSubscriptionAction $deleteSubscription,
+        private SubscriptionStateLock $stateLock,
     ) {}
 
     /**
@@ -33,7 +44,6 @@ class StripeWebhookListener
     {
         $payload = $event->payload;
 
-        // Only handle subscription-related events
         if (! $this->shouldHandle($payload['type'] ?? '')) {
             return;
         }
@@ -48,13 +58,8 @@ class StripeWebhookListener
         }
 
         try {
-            match ($payload['type']) {
-                'customer.subscription.created',
-                'customer.subscription.updated' => $this->handleSubscriptionChange($payload),
-                'customer.subscription.deleted' => $this->handleSubscriptionDeleted($payload),
-                default => null,
-            };
-        } catch (\Exception $e) {
+            $this->handleSubscriptionEvent($payload);
+        } catch (\Throwable $e) {
             Log::error('Failed to sync plan from Stripe webhook', [
                 'error' => $e->getMessage(),
                 'event_type' => $payload['type'],
@@ -85,9 +90,9 @@ class StripeWebhookListener
     }
 
     /**
-     * Handle subscription created or updated events.
+     * Converge the billable's plan to the subscription's current remote state.
      */
-    private function handleSubscriptionChange(array $payload): void
+    private function handleSubscriptionEvent(array $payload): void
     {
         $subscription = $payload['data']['object'] ?? [];
 
@@ -97,21 +102,18 @@ class StripeWebhookListener
             return;
         }
 
-        // Extract and validate customer ID and price ID
         $customerId = $subscription['customer'] ?? null;
-        $priceId = $this->extractPriceId($subscription);
+        $subscriptionId = $subscription['id'] ?? null;
 
-        if (! is_string($customerId) || $customerId === '' || ! is_string($priceId) || $priceId === '') {
-            Log::warning('Invalid customer ID or price ID in subscription webhook', [
+        if (! is_string($customerId) || $customerId === '' || ! is_string($subscriptionId) || $subscriptionId === '') {
+            Log::warning('Invalid customer ID or subscription ID in Stripe webhook', [
                 'customer_id' => $customerId,
-                'price_id' => $priceId,
-                'subscription_id' => $subscription['id'] ?? 'unknown',
+                'subscription_id' => $subscriptionId,
             ]);
 
             return;
         }
 
-        // Find the billable by Stripe customer ID
         $billable = $this->findBillableByStripeId($customerId);
 
         if (! $billable) {
@@ -122,76 +124,70 @@ class StripeWebhookListener
             return;
         }
 
-        // Sync the plan with the billable
-        $synced = $this->syncPlanWithBillable->execute($billable, $priceId);
+        // Only the default-type subscription controls the plan. Without this,
+        // an event for any other named subscription (e.g. an add-on) would
+        // overwrite the billable's plan from that subscription's price.
+        $subscriptionName = config('plan-usage.subscription.default_name', 'default');
+        $localSubscription = $billable->subscription($subscriptionName);
 
-        if ($synced) {
-            Log::info('Successfully synced plan from Stripe webhook', [
-                'billable_type' => get_class($billable),
+        if ($localSubscription === null || $localSubscription->stripe_id !== $subscriptionId) {
+            Log::info('Ignoring Stripe webhook for a non-default subscription', [
                 'billable_id' => $billable->getKey(),
-                'price_id' => $priceId,
-                'event_type' => $payload['type'],
-            ]);
-        } else {
-            Log::warning('Failed to sync plan from Stripe webhook - plan not found', [
-                'billable_type' => get_class($billable),
-                'billable_id' => $billable->getKey(),
-                'price_id' => $priceId,
-                'event_type' => $payload['type'],
-            ]);
-        }
-    }
-
-    /**
-     * Handle subscription deleted events.
-     */
-    private function handleSubscriptionDeleted(array $payload): void
-    {
-        $subscription = $payload['data']['object'] ?? [];
-        $customerId = $subscription['customer'] ?? null;
-
-        if (! is_string($customerId) || $customerId === '') {
-            Log::warning('Invalid or missing customer ID in subscription deleted webhook');
-
-            return;
-        }
-
-        // Find the billable by Stripe customer ID
-        $billable = $this->findBillableByStripeId($customerId);
-
-        if (! $billable) {
-            Log::warning('No billable found for Stripe customer on deletion', [
-                'customer_id' => $customerId,
+                'subscription_id' => $subscriptionId,
+                'expected_subscription_id' => $localSubscription->stripe_id ?? null,
             ]);
 
             return;
         }
 
-        // Use dedicated action for subscription deletion
-        $this->deleteSubscription->execute($billable);
+        // Serialize with plan changes, cancellation, and other webhook
+        // deliveries for this billable: without the lock, a fast webhook can
+        // interleave with ChangeSubscriptionPlanAction and replace a prorated
+        // allowance with the full target-plan allowance.
+        $this->stateLock->block($billable, function () use ($billable, $subscriptionId): void {
+            $remote = $this->fetchStripeSubscription($subscriptionId);
+            $status = (string) ($remote['status'] ?? '');
+            $priceId = $remote['price_id'] ?? null;
 
-        Log::info('Processed subscription deletion webhook', [
-            'billable_type' => get_class($billable),
-            'billable_id' => $billable->getKey(),
-            'event_type' => $payload['type'],
-        ]);
+            // Entitlement policy by CURRENT remote status:
+            // - active/trialing        → grant (sync plan from remote price)
+            // - past_due               → configurable; kept by default
+            // - incomplete             → never granted; wait for payment outcome
+            // - anything else          → revoke (canceled, unpaid,
+            //                            incomplete_expired, paused)
+            if (in_array($status, ['active', 'trialing'], true)) {
+                if (is_string($priceId) && $priceId !== '') {
+                    $this->syncPlanWithBillable->execute($billable, $priceId);
+                }
+
+                return;
+            }
+
+            if ($status === 'past_due' && config('plan-usage.stripe.past_due_keeps_entitlements', true)) {
+                return;
+            }
+
+            if ($status === 'incomplete') {
+                return;
+            }
+
+            $this->deleteSubscription->execute($billable);
+        }, $this->lockWaitSeconds);
     }
 
     /**
-     * Extract the price ID from the subscription object.
+     * Fetch the subscription's current state from the Stripe API.
+     *
+     * @return array{status: string, price_id: string|null}
      */
-    private function extractPriceId(array $subscription): ?string
+    protected function fetchStripeSubscription(string $subscriptionId): array
     {
-        // Stripe subscriptions have items->data array with price information
-        $items = $subscription['items']['data'] ?? [];
+        $subscription = Cashier::stripe()->subscriptions->retrieve($subscriptionId);
 
-        if (empty($items)) {
-            return null;
-        }
-
-        // Get the first item's price ID (assuming single product subscription)
-        // If you support multiple products, you'd need to handle this differently
-        return $items[0]['price']['id'] ?? null;
+        return [
+            'status' => (string) $subscription->status,
+            'price_id' => $subscription->items->data[0]->price->id ?? null,
+        ];
     }
 
     /**

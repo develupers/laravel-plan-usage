@@ -152,16 +152,21 @@ class QuotaEnforcer
             return null;
         }
 
-        // Check if billable has a plan with this feature
-        $featureValue = null;
-
-        if (! empty($billable->plan_id)) {
-            $plan = $this->planManager->findPlan($billable->plan_id);
-            if (! $plan || ! $plan->hasFeature($featureSlug)) {
-                return null;
-            }
-            $featureValue = $this->planManager->getFeatureValue($billable->plan_id, $featureSlug);
+        // No plan means no entitlement: an existing quota row must never
+        // authorize a billable whose plan was revoked — stale rows can
+        // survive a failed cleanup, and returning them here would let a
+        // cancelled customer keep consuming (fail-open).
+        if (empty($billable->plan_id)) {
+            return null;
         }
+
+        $plan = $this->planManager->findPlan($billable->plan_id);
+
+        if (! $plan || ! $plan->hasFeature($featureSlug)) {
+            return null;
+        }
+
+        $featureValue = $this->planManager->getFeatureValue($billable->plan_id, $featureSlug);
 
         // Check for an existing quota first
         $existingQuota = $this->quotaModel::query()
@@ -172,11 +177,6 @@ class QuotaEnforcer
 
         if ($existingQuota) {
             return $existingQuota;
-        }
-
-        // Don't create new quotas without a plan
-        if (empty($billable->plan_id)) {
-            return null;
         }
 
         return $this->quotaModel::firstOrCreate(

@@ -33,6 +33,18 @@ class QuotaProjectionTestBillable extends Model implements Billable
     protected $guarded = [];
 }
 
+/**
+ * The enforcer's authorization invariant requires a current plan granting the
+ * feature — a stale quota row alone must never authorize usage. Tests that
+ * exercise quota math therefore attach a plan carrying the feature.
+ */
+function attachPlanGranting($billable, Feature $feature, string $value = '999999'): void
+{
+    $plan = Plan::factory()->create();
+    $plan->features()->attach($feature->id, ['value' => $value]);
+    $billable->plan_id = $plan->id;
+}
+
 beforeEach(function () {
     $this->quotaEnforcer = new QuotaEnforcer;
     $this->billable = createBillable();
@@ -40,11 +52,49 @@ beforeEach(function () {
 
 describe('QuotaEnforcer', function () {
 
-    it('can check if billable can use feature', function () {
-        // Arrange
+    it('denies usage for a planless billable even when a stale quota row survives', function () {
+        // A failed quota cleanup after cancellation must not leave the row
+        // authorizing usage: no current plan means no entitlement.
+        $feature = Feature::factory()->create(['slug' => 'api-calls']);
         $billable = createBillable();
         $billable->plan_id = null;
+
+        Quota::create([
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
+            'feature_id' => $feature->id,
+            'limit' => null, // stale unlimited quota — worst case
+            'used' => 0,
+        ]);
+
+        expect($this->quotaEnforcer->canUse($billable, 'api-calls'))->toBeFalse()
+            ->and($this->quotaEnforcer->enforce($billable, 'api-calls'))->toBeFalse();
+    });
+
+    it('denies usage when the current plan does not grant the feature of a stale quota', function () {
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $otherFeature = Feature::factory()->create(['slug' => 'other-feature']);
+        $plan = Plan::factory()->create();
+        $plan->features()->attach($otherFeature->id, ['value' => '10']);
+        $billable = createBillable(['plan_id' => $plan->id]);
+
+        Quota::create([
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
+            'feature_id' => $feature->id,
+            'limit' => 10000, // grandfathered from a previous, richer plan
+            'used' => 0,
+        ]);
+
+        expect($this->quotaEnforcer->canUse($billable, 'api-calls'))->toBeFalse()
+            ->and($this->quotaEnforcer->enforce($billable, 'api-calls'))->toBeFalse();
+    });
+
+    it('can check if billable can use feature', function () {
+        // Arrange
+        $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -117,9 +167,9 @@ describe('QuotaEnforcer', function () {
 
     it('allows unlimited usage when limit is null', function () {
         // Arrange
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -137,6 +187,7 @@ describe('QuotaEnforcer', function () {
         // Arrange
         Event::fake();
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        attachPlanGranting($this->billable, $feature);
 
         Quota::create([
             'billable_type' => $this->billable->getMorphClass(),
@@ -177,9 +228,9 @@ describe('QuotaEnforcer', function () {
 
     it('increments quota usage', function () {
         // Arrange
-        $billable = createBillable();
-        $billable->plan_id = null; // Explicitly set to null
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -199,9 +250,9 @@ describe('QuotaEnforcer', function () {
 
     it('decrements quota usage', function () {
         // Arrange
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -221,9 +272,9 @@ describe('QuotaEnforcer', function () {
 
     it('prevents negative usage when decrementing', function () {
         // Arrange
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -243,12 +294,12 @@ describe('QuotaEnforcer', function () {
 
     it('resets quota', function () {
         // Arrange
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create([
             'slug' => 'api-calls',
             'reset_period' => Period::MONTH->value,
         ]);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         $quota = Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -268,9 +319,9 @@ describe('QuotaEnforcer', function () {
 
     it('calculates remaining quota correctly', function () {
         // Arrange
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -289,9 +340,9 @@ describe('QuotaEnforcer', function () {
 
     it('calculates usage percentage', function () {
         // Arrange
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -310,9 +361,9 @@ describe('QuotaEnforcer', function () {
 
     it('handles zero limit correctly for usage percentage and limit reached', function () {
         // Arrange
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'zero-limit-feature']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         // Zero limit with no usage — limit is already reached, percentage is 100%
         $quota = Quota::create([
@@ -337,9 +388,9 @@ describe('QuotaEnforcer', function () {
 
     it('returns null usage percentage for unlimited features', function () {
         // Arrange
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'unlimited-feature']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -384,9 +435,9 @@ describe('QuotaEnforcer', function () {
         Event::fake();
         config(['plan-usage.quotas.warning_threshold' => 80]);
 
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -407,12 +458,12 @@ describe('QuotaEnforcer', function () {
 
     it('auto resets expired quotas', function () {
         // Arrange
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create([
             'slug' => 'api-calls',
             'reset_period' => Period::MONTH->value,
         ]);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         $quota = Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -492,9 +543,9 @@ describe('QuotaEnforcer trigger_once', function () {
         config(['plan-usage.quota.trigger_once' => true]);
         config(['plan-usage.quota.warning_thresholds' => [80, 100]]);
 
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -524,9 +575,9 @@ describe('QuotaEnforcer trigger_once', function () {
         config(['plan-usage.quota.trigger_once' => false]);
         config(['plan-usage.quota.warning_thresholds' => [80]]);
 
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -550,9 +601,9 @@ describe('QuotaEnforcer trigger_once', function () {
         config(['plan-usage.quota.trigger_once' => true]);
         config(['plan-usage.quota.warning_thresholds' => [80, 100]]);
 
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -580,6 +631,7 @@ describe('QuotaEnforcer trigger_once', function () {
         config(['plan-usage.quota.trigger_once' => true]);
 
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        attachPlanGranting($this->billable, $feature);
 
         Quota::create([
             'billable_type' => $this->billable->getMorphClass(),
@@ -607,6 +659,7 @@ describe('QuotaEnforcer trigger_once', function () {
         config(['plan-usage.quota.trigger_once' => false]);
 
         $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        attachPlanGranting($this->billable, $feature);
 
         Quota::create([
             'billable_type' => $this->billable->getMorphClass(),
@@ -630,12 +683,12 @@ describe('QuotaEnforcer trigger_once', function () {
         config(['plan-usage.quota.trigger_once' => true]);
         config(['plan-usage.quota.warning_thresholds' => [80]]);
 
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create([
             'slug' => 'api-calls',
             'reset_period' => Period::MONTH->value,
         ]);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -665,9 +718,9 @@ describe('QuotaEnforcer with datasets', function () {
 
     it('handles different quota limits correctly', function (?float $limit) {
         // Arrange
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create(['slug' => 'test-feature']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         Quota::create([
             'billable_type' => $billable->getMorphClass(),
@@ -690,12 +743,12 @@ describe('QuotaEnforcer with datasets', function () {
 
     it('resets quotas based on period', function (string $period) {
         // Arrange
-        $billable = createBillable();
-        $billable->plan_id = null;
         $feature = Feature::factory()->create([
             'slug' => "test-{$period}",
             'reset_period' => $period,
         ]);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
 
         $quota = Quota::create([
             'billable_type' => $billable->getMorphClass(),

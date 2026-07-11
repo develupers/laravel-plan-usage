@@ -47,7 +47,7 @@ it('clears plan and deletes quotas on execute', function () {
     expect($billable->plan_price_id)->toBeNull();
 });
 
-it('handles quota deletion failure gracefully', function () {
+it('rethrows quota deletion failures and keeps the plan so cancellation fails closed', function () {
     $billable = Mockery::mock(Billable::class);
     $billable->shouldReceive('getKey')->andReturn(1);
     $billable->plan_id = 1;
@@ -56,17 +56,43 @@ it('handles quota deletion failure gracefully', function () {
     $quotaQuery = Mockery::mock();
     $quotaQuery->shouldReceive('delete')->once()->andThrow(new Exception('Database error'));
     $billable->shouldReceive('quotas')->once()->andReturn($quotaQuery);
-    $billable->shouldReceive('save')->once();
+    // Quotas are deleted BEFORE the plan is cleared: on failure the plan must
+    // survive — a planless billable with leftover quota rows could keep
+    // consuming them, and swallowing the error would hide it from retries.
+    $billable->shouldNotReceive('save');
 
-    Log::shouldReceive('error')->once()->withArgs(function ($message, $context) {
-        return $message === 'Failed to clear quotas during subscription deletion' &&
-               $context['error'] === 'Database error';
+    expect(fn () => $this->action->execute($billable))
+        ->toThrow(Exception::class, 'Database error');
+
+    expect($billable->plan_id)->toBe(1);
+    expect($billable->plan_price_id)->toBe(100);
+});
+
+it('moves the billable to the default plan on execute when configured', function () {
+    Config::set('plan-usage.subscription.default_plan_id', 998);
+
+    $defaultPlan = Plan::factory()->create(['id' => 998]);
+
+    $billable = Mockery::mock(Billable::class);
+    $billable->shouldReceive('getKey')->andReturn(1);
+    // Cancellation means "back to free", not "planless": quotas are re-synced
+    // to the default plan instead of deleted outright.
+    $billable->shouldNotReceive('quotas');
+
+    $syncAction = Mockery::mock(SyncPlanWithBillableAction::class);
+    $syncAction->shouldReceive('execute')
+        ->with($billable, Mockery::on(fn ($plan) => $plan->id === 998))
+        ->once()
+        ->andReturn(true);
+
+    $this->app->instance(SyncPlanWithBillableAction::class, $syncAction);
+
+    Log::shouldReceive('info')->once()->withArgs(function ($message, $context) {
+        return $message === 'Moved billable to default plan after subscription deletion' &&
+               $context['default_plan_id'] === 998;
     });
 
     $this->action->execute($billable);
-
-    expect($billable->plan_id)->toBeNull();
-    expect($billable->plan_price_id)->toBeNull();
 });
 
 it('sets default plan when configured', function () {

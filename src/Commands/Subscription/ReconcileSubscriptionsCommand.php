@@ -85,30 +85,22 @@ class ReconcileSubscriptionsCommand extends Command
             return Command::FAILURE;
         }
 
-        // Find billables with expired subscriptions that still have plans
-        $query = $billableClass::whereNotNull('plan_id');
-
-        if ($provider->name() === 'polar') {
-            // Polar reconciles active subscriptions too (pending plan changes),
-            // so only skip billables with no subscription rows at all — those are
-            // lifetime/one-time purchases whose plan must not be touched.
-            $query->whereHas('subscriptions');
-        } else {
-            $query->whereHas('subscriptions', function ($query) {
-                $query->whereNotNull('ends_at')
-                    ->where('ends_at', '<', now());
-            });
-        }
+        // Reconcile every billable with subscription rows: expired ones (to
+        // revoke), active ones (to correct price drift left by missed or
+        // out-of-order webhooks), and planless ones (to recover a missed
+        // initial checkout). Billables with a plan but NO subscription rows
+        // (lifetime purchases, manually granted plans) are never touched here.
+        $query = $billableClass::whereHas('subscriptions');
 
         $count = $query->count();
 
         if ($count === 0) {
-            $this->info('No expired subscriptions found that need reconciliation');
+            $this->info('No subscriptions found that need reconciliation');
 
             return Command::SUCCESS;
         }
 
-        $this->info("Found {$count} billable(s) with expired subscriptions to check");
+        $this->info("Found {$count} billable(s) with subscriptions to check");
 
         if (! $dryRun && ! $force) {
             if (! $this->confirm("Do you want to reconcile {$count} subscription(s)?")) {
@@ -154,32 +146,12 @@ class ReconcileSubscriptionsCommand extends Command
                 $subscription = $billable->subscription('default');
 
                 if (! $subscription) {
-                    // No subscription but has plan - clean up
-                    $this->warn('  No subscription record found but billable has plan');
-
-                    if ($provider->name() === 'polar') {
-                        // A Polar billable without a 'default' subscription may hold a
-                        // lifetime/one-time purchase or a custom-typed subscription;
-                        // never revoke entitlements without provider confirmation.
-                        $this->line('  Skipped: no default Polar subscription to reconcile against');
-                        $skipped++;
-
-                        return;
-                    }
-
-                    if (! $dryRun) {
-                        app(DeleteSubscriptionAction::class)->execute($billable);
-                        $this->info('  Removed plan from billable');
-                        Log::info('ReconcileSubscriptions: No subscription found, removed plan', [
-                            'billable_type' => get_class($billable),
-                            'billable_id' => $billable->getKey(),
-                            'provider' => $provider->name(),
-                        ]);
-                    } else {
-                        $this->line('  [DRY-RUN] Would remove plan from billable');
-                    }
-
-                    $removed++;
+                    // Only the default-type subscription controls the plan. A
+                    // billable whose rows are all custom-typed (or a lifetime
+                    // holder) must not lose its plan here — no-subscription
+                    // enforcement belongs to EnforcePlanSubscriptionsJob.
+                    $this->line('  Skipped: no default subscription to reconcile against');
+                    $skipped++;
 
                     return;
                 }
@@ -279,6 +251,46 @@ class ReconcileSubscriptionsCommand extends Command
      *
      * @return string Result status: 'removed', 'reactivated', 'updated', 'skipped', or 'error'
      */
+    /**
+     * Converge the billable's plan to the remote subscription's price. The
+     * same-plan guard in SyncPlanWithBillableAction makes this a no-op when
+     * already aligned, so it is safe to call for every live subscription.
+     */
+    protected function syncPlanPriceFromRemote($billable, ?string $priceId, bool $dryRun, string $column): bool
+    {
+        if (! is_string($priceId) || $priceId === '') {
+            return false;
+        }
+
+        /** @var class-string<PlanPrice> $planPriceModel */
+        $planPriceModel = config('plan-usage.models.plan_price', PlanPrice::class);
+        $targetPrice = $planPriceModel::query()->where($column, $priceId)->first();
+
+        if ($targetPrice === null) {
+            $this->warn("  Remote price {$priceId} has no matching plan price");
+
+            return false;
+        }
+
+        if ((int) $billable->getAttribute('plan_price_id') === $targetPrice->id) {
+            return false;
+        }
+
+        if ($dryRun) {
+            $this->line("  [DRY-RUN] Would sync plan to remote price {$priceId}");
+
+            return true;
+        }
+
+        $synced = app(SyncPlanWithBillableAction::class)->execute($billable, $targetPrice);
+
+        if ($synced) {
+            $this->info("  Synced plan to remote price {$priceId}");
+        }
+
+        return $synced;
+    }
+
     protected function reconcileWithProvider(
         BillingProvider $provider,
         $billable,
@@ -287,11 +299,19 @@ class ReconcileSubscriptionsCommand extends Command
         ?Collection $batchSubscriptions = null
     ): string {
         if ($provider->name() === 'stripe') {
-            return $this->reconcileStripeSubscription($billable, $subscription, $dryRun, $batchSubscriptions);
+            // Serialize with plan-change actions and webhook processing.
+            return app(SubscriptionStateLock::class)->block(
+                $billable,
+                fn (): string => $this->reconcileStripeSubscription($billable, $subscription, $dryRun, $batchSubscriptions)
+            );
         }
 
         if ($provider->name() === 'paddle') {
-            return $this->reconcilePaddleSubscription($billable, $subscription, $dryRun, $batchSubscriptions);
+            // Serialize with plan-change actions and webhook processing.
+            return app(SubscriptionStateLock::class)->block(
+                $billable,
+                fn (): string => $this->reconcilePaddleSubscription($billable, $subscription, $dryRun, $batchSubscriptions)
+            );
         }
 
         if ($provider instanceof PolarProvider) {
@@ -488,7 +508,7 @@ class ReconcileSubscriptionsCommand extends Command
             }
 
             $this->info("  Subscription ID: {$subscriptionId}");
-            $this->info("  Local ends_at: {$subscription->ends_at->toDateTimeString()}");
+            $this->info('  Local ends_at: '.($subscription->ends_at ? $subscription->ends_at->toDateTimeString() : 'null'));
 
             // Look up from pre-fetched batch first, fall back to individual API call
             $stripeSubscription = $batchSubscriptions?->get($subscriptionId)
@@ -498,7 +518,7 @@ class ReconcileSubscriptionsCommand extends Command
             $this->info('  Cancel at period end: '.($stripeSubscription->cancel_at_period_end ? 'Yes' : 'No'));
 
             // Handle based on Stripe status
-            if (in_array($stripeSubscription->status, ['canceled', 'incomplete_expired'])) {
+            if (in_array($stripeSubscription->status, ['canceled', 'incomplete_expired', 'unpaid', 'paused'])) {
                 $this->warn("  Stripe confirms subscription is {$stripeSubscription->status}");
 
                 if (! $dryRun) {
@@ -517,23 +537,72 @@ class ReconcileSubscriptionsCommand extends Command
                 return 'removed';
             }
 
-            if ($stripeSubscription->status === 'active' && ! $stripeSubscription->cancel_at_period_end) {
-                $this->warn('  Subscription was REACTIVATED in Stripe!');
+            if (in_array($stripeSubscription->status, ['active', 'trialing']) && ! $stripeSubscription->cancel_at_period_end) {
+                $reactivated = false;
 
-                if (! $dryRun) {
-                    $subscription->ends_at = null;
-                    $subscription->save();
-                    $this->info('  Cleared ends_at - subscription is active');
-                    Log::warning('ReconcileSubscriptions: Subscription was reactivated in Stripe', [
-                        'billable_type' => get_class($billable),
-                        'billable_id' => $billable->getKey(),
-                        'stripe_subscription_id' => $stripeSubscription->id,
-                    ]);
-                } else {
-                    $this->line('  [DRY-RUN] Would clear ends_at date');
+                if ($subscription->ends_at !== null) {
+                    $this->warn('  Subscription was REACTIVATED in Stripe!');
+
+                    if (! $dryRun) {
+                        $subscription->ends_at = null;
+                        $subscription->save();
+                        $this->info('  Cleared ends_at - subscription is active');
+                        Log::warning('ReconcileSubscriptions: Subscription was reactivated in Stripe', [
+                            'billable_type' => get_class($billable),
+                            'billable_id' => $billable->getKey(),
+                            'stripe_subscription_id' => $stripeSubscription->id,
+                        ]);
+                    } else {
+                        $this->line('  [DRY-RUN] Would clear ends_at date');
+                    }
+
+                    $reactivated = true;
                 }
 
-                return 'reactivated';
+                // Correct plan drift left by missed/out-of-order webhooks and
+                // recover missed initial checkouts (planless billable with a
+                // live remote subscription).
+                $synced = $this->syncPlanPriceFromRemote(
+                    $billable,
+                    $stripeSubscription->items->data[0]->price->id ?? null,
+                    $dryRun,
+                    'stripe_price_id',
+                );
+
+                if ($reactivated) {
+                    return 'reactivated';
+                }
+
+                if ($synced) {
+                    return 'updated';
+                }
+
+                $this->info('  Subscription status OK');
+
+                return 'skipped';
+            }
+
+            if ($stripeSubscription->status === 'past_due') {
+                if (config('plan-usage.stripe.past_due_keeps_entitlements', true)) {
+                    $this->info('  past_due keeps entitlements (configured)');
+
+                    return 'skipped';
+                }
+
+                if (! $dryRun) {
+                    app(DeleteSubscriptionAction::class)->execute($billable);
+                    $this->info('  Removed plan from billable (past_due policy)');
+                } else {
+                    $this->line('  [DRY-RUN] Would remove plan from billable (past_due policy)');
+                }
+
+                return 'removed';
+            }
+
+            if ($stripeSubscription->status === 'incomplete') {
+                $this->info('  incomplete — never granted; awaiting payment outcome');
+
+                return 'skipped';
             }
 
             if ($stripeSubscription->status === 'active' && $stripeSubscription->cancel_at_period_end) {
@@ -566,7 +635,7 @@ class ReconcileSubscriptionsCommand extends Command
                 return 'skipped';
             }
 
-            // Other statuses (trialing, past_due, unpaid, paused)
+            // Unknown/unexpected statuses
             $this->warn("  Subscription has special status: {$stripeSubscription->status}");
             $this->info('  Skipping - needs manual review');
 
@@ -646,8 +715,9 @@ class ReconcileSubscriptionsCommand extends Command
                 return 'removed';
             }
 
-            if ($paddleStatus === 'active' && ! $cancelAtPeriodEnd) {
-                // Paddle says active with no pending cancellation
+            if (in_array($paddleStatus, ['active', 'trialing']) && ! $cancelAtPeriodEnd) {
+                $reactivated = false;
+
                 if ($subscription->ends_at) {
                     $this->warn('  Subscription was REACTIVATED in Paddle!');
 
@@ -664,7 +734,25 @@ class ReconcileSubscriptionsCommand extends Command
                         $this->line('  [DRY-RUN] Would clear ends_at date');
                     }
 
+                    $reactivated = true;
+                }
+
+                // Correct plan drift left by missed/out-of-order webhooks and
+                // recover missed initial checkouts (planless billable with a
+                // live remote subscription).
+                $synced = $this->syncPlanPriceFromRemote(
+                    $billable,
+                    $paddleSubscription['items'][0]['price']['id'] ?? null,
+                    $dryRun,
+                    'paddle_price_id',
+                );
+
+                if ($reactivated) {
                     return 'reactivated';
+                }
+
+                if ($synced) {
+                    return 'updated';
                 }
 
                 $this->info('  Subscription status OK');
@@ -707,12 +795,35 @@ class ReconcileSubscriptionsCommand extends Command
 
             if ($paddleStatus === 'paused') {
                 $this->warn('  Subscription is paused');
-                $this->info('  Skipping - needs manual review');
 
-                return 'skipped';
+                if (! $dryRun) {
+                    app(DeleteSubscriptionAction::class)->execute($billable);
+                    $this->info('  Removed plan from billable (paused)');
+                } else {
+                    $this->line('  [DRY-RUN] Would remove plan from billable (paused)');
+                }
+
+                return 'removed';
             }
 
-            // Other statuses (trialing, past_due)
+            if ($paddleStatus === 'past_due') {
+                if (config('plan-usage.paddle.past_due_keeps_entitlements', true)) {
+                    $this->info('  past_due keeps entitlements (configured)');
+
+                    return 'skipped';
+                }
+
+                if (! $dryRun) {
+                    app(DeleteSubscriptionAction::class)->execute($billable);
+                    $this->info('  Removed plan from billable (past_due policy)');
+                } else {
+                    $this->line('  [DRY-RUN] Would remove plan from billable (past_due policy)');
+                }
+
+                return 'removed';
+            }
+
+            // Unknown/unexpected statuses
             $this->warn("  Subscription has special status: {$paddleStatus}");
             $this->info('  Skipping - needs manual review');
 

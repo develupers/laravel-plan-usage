@@ -57,7 +57,7 @@ it('skips instead of revoking when a Polar billable has no default subscription'
     ]);
 
     $this->artisan('subscriptions:reconcile', ['--force' => true])
-        ->expectsOutputToContain('Skipped: no default Polar subscription to reconcile against')
+        ->expectsOutputToContain('Skipped: no default subscription to reconcile against')
         ->assertSuccessful();
 
     expect($billable->fresh()->plan_id)->toBe($this->plan->id)

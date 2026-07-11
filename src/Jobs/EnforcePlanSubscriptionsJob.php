@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Jobs;
 
+use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Events\PlanRevoked;
 use Develupers\PlanUsage\Models\Plan;
 use Illuminate\Bus\Queueable;
@@ -34,7 +35,6 @@ class EnforcePlanSubscriptionsJob implements ShouldQueue
         }
 
         $subscriptionName = config('plan-usage.subscription.default_name', 'default');
-        $defaultPlanId = config('plan-usage.subscription.default_plan_id');
 
         // Get all non-lifetime plan IDs
         $lifetimePlanIds = Plan::where('is_lifetime', true)->pluck('id');
@@ -55,10 +55,22 @@ class EnforcePlanSubscriptionsJob implements ShouldQueue
 
             $previousPlan = $billable->plan;
 
-            $billable->update([
-                'plan_id' => $defaultPlanId,
-                'plan_price_id' => null,
-            ]);
+            // Route through the centralized revocation action: raw FK updates
+            // left quota rows untouched (stale paid limits, or usable rows on
+            // a planless billable). The action assigns the configured default
+            // plan (syncing quotas to it) or clears the plan and deletes the
+            // quotas atomically.
+            try {
+                app(DeleteSubscriptionAction::class)->execute($billable);
+            } catch (\Throwable $exception) {
+                Log::error('EnforcePlanSubscriptionsJob: failed to revoke plan, will retry next run.', [
+                    'billable_type' => get_class($billable),
+                    'billable_id' => $billable->getKey(),
+                    'error' => $exception->getMessage(),
+                ]);
+
+                continue;
+            }
 
             if ($previousPlan) {
                 PlanRevoked::dispatch($billable, $previousPlan, 'no_active_subscription');

@@ -6,32 +6,51 @@ namespace Develupers\PlanUsage\Providers\Paddle;
 
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
+use Develupers\PlanUsage\Support\SubscriptionStateLock;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Paddle\Cashier;
-use Laravel\Paddle\Events\WebhookReceived;
+use Laravel\Paddle\Events\WebhookHandled;
 
 /**
  * Handles Paddle webhook events for plan synchronization.
  *
- * This listener processes subscription-related webhook events from Paddle
- * and syncs the local plan/price associations.
+ * Subscribes to WebhookHandled — fired AFTER Cashier Paddle has processed the
+ * webhook — so the local subscription row exists for identity validation.
+ * Cashier fires it for subscription created/updated/paused/canceled;
+ * subscription.resumed has no Cashier handler, and a resume is covered by the
+ * subscription.updated events Paddle emits alongside it.
+ *
+ * Paddle does not guarantee delivery order, so the payload is treated only as
+ * a trigger: the subscription's CURRENT state is re-fetched from the Paddle
+ * API inside the shared per-billable lock, and status + price are derived
+ * from that authoritative response. Any event therefore converges the local
+ * plan to remote truth, regardless of delivery order.
+ *
+ * Only the configured default-type subscription controls entitlements —
+ * events for other named subscriptions are deliberately ignored.
  */
 class PaddleWebhookListener
 {
+    /**
+     * How long to wait for the shared subscription-state lock.
+     */
+    protected int $lockWaitSeconds = 10;
+
     /**
      * Create the event listener.
      */
     public function __construct(
         private SyncPlanWithBillableAction $syncPlanWithBillable,
-        private DeleteSubscriptionAction $deleteSubscription
+        private DeleteSubscriptionAction $deleteSubscription,
+        private SubscriptionStateLock $stateLock,
     ) {}
 
     /**
      * Handle the event.
      */
-    public function handle(WebhookReceived $event): void
+    public function handle(WebhookHandled $event): void
     {
         $payload = $event->payload;
         $eventType = $payload['event_type'] ?? '';
@@ -51,15 +70,8 @@ class PaddleWebhookListener
         }
 
         try {
-            match ($eventType) {
-                'subscription.created',
-                'subscription.updated',
-                'subscription.resumed' => $this->handleSubscriptionChange($payload),
-                'subscription.canceled',
-                'subscription.paused' => $this->handleSubscriptionEnded($payload),
-                default => null,
-            };
-        } catch (\Exception $e) {
+            $this->handleSubscriptionEvent($payload);
+        } catch (\Throwable $e) {
             Log::error('Failed to sync plan from Paddle webhook', [
                 'error' => $e->getMessage(),
                 'event_type' => $eventType,
@@ -79,6 +91,10 @@ class PaddleWebhookListener
 
     /**
      * Determine if this event should be handled.
+     *
+     * subscription.resumed is intentionally absent: Cashier Paddle has no
+     * handler for it, so WebhookHandled never fires — the resume is picked up
+     * by the accompanying subscription.updated events instead.
      */
     private function shouldHandle(string $eventType): bool
     {
@@ -87,14 +103,13 @@ class PaddleWebhookListener
             'subscription.updated',
             'subscription.canceled',
             'subscription.paused',
-            'subscription.resumed',
         ]);
     }
 
     /**
-     * Handle subscription created, updated, or resumed events.
+     * Converge the billable's plan to the subscription's current remote state.
      */
-    private function handleSubscriptionChange(array $payload): void
+    private function handleSubscriptionEvent(array $payload): void
     {
         $data = $payload['data'] ?? [];
 
@@ -104,21 +119,18 @@ class PaddleWebhookListener
             return;
         }
 
-        // Extract and validate customer ID and price ID
         $customerId = $data['customer_id'] ?? null;
-        $priceId = $this->extractPriceId($data);
+        $subscriptionId = $data['id'] ?? null;
 
-        if (! is_string($customerId) || $customerId === '' || ! is_string($priceId) || $priceId === '') {
-            Log::warning('Invalid customer ID or price ID in Paddle subscription webhook', [
+        if (! is_string($customerId) || $customerId === '' || ! is_string($subscriptionId) || $subscriptionId === '') {
+            Log::warning('Invalid customer ID or subscription ID in Paddle webhook', [
                 'customer_id' => $customerId,
-                'price_id' => $priceId,
-                'subscription_id' => $data['id'] ?? 'unknown',
+                'subscription_id' => $subscriptionId,
             ]);
 
             return;
         }
 
-        // Find the billable by Paddle customer ID
         $billable = $this->findBillableByPaddleId($customerId);
 
         if (! $billable) {
@@ -137,75 +149,78 @@ class PaddleWebhookListener
             $billable->save();
         }
 
-        // Sync the plan with the billable
-        $synced = $this->syncPlanWithBillable->execute($billable, $priceId);
+        $subscriptionName = config('plan-usage.subscription.default_name', 'default');
 
-        if ($synced) {
-            Log::info('Successfully synced plan from Paddle webhook', [
-                'billable_type' => get_class($billable),
+        // Checkout stamps the intended subscription type into custom_data —
+        // an event that declares a different type can be skipped outright.
+        $customType = $data['custom_data']['subscription_type'] ?? null;
+
+        if (is_string($customType) && $customType !== $subscriptionName) {
+            Log::info('Ignoring Paddle webhook for a non-default subscription type', [
                 'billable_id' => $billable->getKey(),
-                'price_id' => $priceId,
-                'event_type' => $payload['event_type'],
-            ]);
-        } else {
-            Log::warning('Failed to sync plan from Paddle webhook - plan not found', [
-                'billable_type' => get_class($billable),
-                'billable_id' => $billable->getKey(),
-                'price_id' => $priceId,
-                'event_type' => $payload['event_type'],
-            ]);
-        }
-    }
-
-    /**
-     * Handle subscription canceled or paused events.
-     */
-    private function handleSubscriptionEnded(array $payload): void
-    {
-        $data = $payload['data'] ?? [];
-        $customerId = $data['customer_id'] ?? null;
-
-        if (! is_string($customerId) || $customerId === '') {
-            Log::warning('Invalid or missing customer ID in Paddle subscription ended webhook');
-
-            return;
-        }
-
-        // Find the billable by Paddle customer ID
-        $billable = $this->findBillableByPaddleId($customerId);
-
-        if (! $billable) {
-            Log::warning('No billable found for Paddle customer on subscription end', [
-                'customer_id' => $customerId,
+                'subscription_type' => $customType,
             ]);
 
             return;
         }
 
-        // Use dedicated action for subscription deletion
-        $this->deleteSubscription->execute($billable);
+        // Only the default-type subscription controls the plan. Without this,
+        // an event for any other named subscription (e.g. an add-on) would
+        // overwrite the billable's plan from that subscription's price.
+        $localSubscription = $billable->subscription($subscriptionName);
 
-        Log::info('Processed Paddle subscription ended webhook', [
-            'billable_type' => get_class($billable),
-            'billable_id' => $billable->getKey(),
-            'event_type' => $payload['event_type'],
-        ]);
+        if ($localSubscription === null || $localSubscription->paddle_id !== $subscriptionId) {
+            Log::info('Ignoring Paddle webhook for a non-default subscription', [
+                'billable_id' => $billable->getKey(),
+                'subscription_id' => $subscriptionId,
+                'expected_subscription_id' => $localSubscription->paddle_id ?? null,
+            ]);
+
+            return;
+        }
+
+        // Serialize with plan changes, cancellation, and other webhook
+        // deliveries for this billable: without the lock, a fast webhook can
+        // interleave with ChangeSubscriptionPlanAction and replace a prorated
+        // allowance with the full target-plan allowance.
+        $this->stateLock->block($billable, function () use ($billable, $subscriptionId): void {
+            $remote = $this->fetchPaddleSubscription($subscriptionId);
+            $status = (string) ($remote['status'] ?? '');
+            $priceId = $remote['price_id'] ?? null;
+
+            // Entitlement policy by CURRENT remote status:
+            // - active/trialing → grant (sync plan from remote price)
+            // - past_due        → configurable; kept by default
+            // - anything else   → revoke (canceled, paused)
+            if (in_array($status, ['active', 'trialing'], true)) {
+                if (is_string($priceId) && $priceId !== '') {
+                    $this->syncPlanWithBillable->execute($billable, $priceId);
+                }
+
+                return;
+            }
+
+            if ($status === 'past_due' && config('plan-usage.paddle.past_due_keeps_entitlements', true)) {
+                return;
+            }
+
+            $this->deleteSubscription->execute($billable);
+        }, $this->lockWaitSeconds);
     }
 
     /**
-     * Extract the price ID from the subscription data.
+     * Fetch the subscription's current state from the Paddle API.
+     *
+     * @return array{status: string, price_id: string|null}
      */
-    private function extractPriceId(array $data): ?string
+    protected function fetchPaddleSubscription(string $subscriptionId): array
     {
-        // Paddle subscriptions have items array with price information
-        $items = $data['items'] ?? [];
+        $data = Cashier::api('GET', "subscriptions/{$subscriptionId}")->json('data') ?? [];
 
-        if (empty($items)) {
-            return null;
-        }
-
-        // Get the first item's price ID
-        return $items[0]['price']['id'] ?? null;
+        return [
+            'status' => (string) ($data['status'] ?? ''),
+            'price_id' => $data['items'][0]['price']['id'] ?? null,
+        ];
     }
 
     /**

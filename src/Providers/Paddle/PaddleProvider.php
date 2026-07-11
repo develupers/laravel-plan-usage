@@ -14,7 +14,7 @@ use Develupers\PlanUsage\Support\ProviderSubscriptionChange;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\ValidationException;
 use Laravel\Paddle\Cashier;
-use Laravel\Paddle\Events\WebhookReceived;
+use Laravel\Paddle\Events\WebhookHandled;
 use Laravel\Paddle\Exceptions\PaddleException;
 use Laravel\Paddle\Subscription as PaddleSubscription;
 
@@ -63,7 +63,10 @@ class PaddleProvider implements BillingProvider, SubscriptionLifecycleProvider
      */
     public function getWebhookEventClass(): string
     {
-        return WebhookReceived::class;
+        // WebhookHandled fires after Cashier Paddle has processed the webhook
+        // and created/updated the local subscription row — required for the
+        // listener's identity validation.
+        return WebhookHandled::class;
     }
 
     /**

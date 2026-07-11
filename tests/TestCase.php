@@ -112,17 +112,22 @@ class TestCase extends Orchestra
             $table->timestamp('plan_changed_at')->nullable();
         });
 
-        // Create subscriptions table for Cashier compatibility
+        // Create subscriptions table for Cashier compatibility. Both Cashier
+        // Stripe and Cashier Paddle use a 'subscriptions' table; the union of
+        // their columns lets either provider's tests create local rows.
         Schema::create('subscriptions', function (Blueprint $table) {
             $table->id();
             $table->string('billable_type');
             $table->unsignedBigInteger('billable_id');
             $table->string('type');
-            $table->string('stripe_id')->unique();
-            $table->string('stripe_status');
+            $table->string('stripe_id')->nullable()->unique();
+            $table->string('stripe_status')->nullable();
             $table->string('stripe_price')->nullable();
+            $table->string('paddle_id')->nullable()->unique();
+            $table->string('status')->nullable();
             $table->integer('quantity')->nullable();
             $table->timestamp('trial_ends_at')->nullable();
+            $table->timestamp('paused_at')->nullable();
             $table->timestamp('ends_at')->nullable();
             $table->timestamps();
             $table->index(['billable_type', 'billable_id']);

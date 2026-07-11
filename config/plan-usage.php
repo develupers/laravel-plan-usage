@@ -290,6 +290,10 @@ return [
         // Enable Stripe metered billing integration
         'enabled' => true,
 
+        // Whether a past_due subscription keeps its entitlements while Stripe
+        // retries payment. Set false to revoke the plan on past_due webhooks.
+        'past_due_keeps_entitlements' => true,
+
         // Report usage to Stripe for metered billing
         'report_usage' => true,
 
@@ -333,6 +337,10 @@ return [
 
         // Retain pricing from Paddle (vs using local prices)
         'retain_paddle_pricing' => true,
+
+        // Whether a past_due subscription keeps its entitlements while Paddle
+        // retries payment. Set false to revoke the plan on past_due webhooks.
+        'past_due_keeps_entitlements' => true,
     ],
 
     /*

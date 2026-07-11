@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Laravel\Paddle\Cashier;
 use Laravel\Paddle\Checkout;
 use Laravel\Paddle\Customer;
-use Laravel\Paddle\Events\WebhookReceived;
+use Laravel\Paddle\Events\WebhookHandled;
 
 /**
  * Test suite for PaddleProvider implementation.
@@ -41,7 +41,7 @@ describe('PaddleProvider', function () {
 
     it('returns correct webhook event class', function () {
         expect($this->provider->getWebhookEventClass())
-            ->toBe(WebhookReceived::class);
+            ->toBe(WebhookHandled::class);
     });
 
     it('isInstalled returns true when cashier paddle available', function () {

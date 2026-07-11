@@ -6,6 +6,8 @@ namespace Develupers\PlanUsage\Actions\Subscription;
 
 use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Models\Plan;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class DeleteSubscriptionAction
@@ -13,89 +15,116 @@ class DeleteSubscriptionAction
     /**
      * Handle subscription deletion (after grace period has ended).
      *
-     * This is called when a subscription is fully cancelled (not just pending cancellation).
-     * At this point, the user has lost access to the paid features.
+     * This is called when a subscription is fully cancelled (not just pending
+     * cancellation). At this point, the user has lost access to the paid
+     * features. When `subscription.default_plan_id` is configured the billable
+     * is moved to that (free) plan — matching EnforcePlanSubscriptionsJob —
+     * otherwise the plan is cleared and all quotas are deleted.
+     *
+     * Fail-closed: failures rethrow so the caller (webhook listener,
+     * reconciliation) retries. Swallowing them would leave a planless billable
+     * whose surviving quota rows remain consumable.
      *
      * @param  Billable  $billable  The billable entity
      */
     public function execute(Billable $billable): void
     {
+        if ($this->assignDefaultPlan($billable)) {
+            return;
+        }
+
         // Get the old plan information before clearing
         $oldPlanId = $this->getBillablePlanId($billable);
         $oldPlanPriceId = $this->getBillablePlanPriceId($billable);
 
-        // Clear the plan identifiers since subscription is fully cancelled
-        $this->clearBillablePlan($billable);
+        // Quotas are deleted BEFORE the plan ids are cleared, and both run in
+        // one transaction: a failure must never persist a planless billable
+        // with usable quota rows (the enforcer returns existing rows before
+        // its no-plan guard).
+        $deletedCount = 0;
 
-        // Clear all plan-usage quotas since the billable no longer has access
-        // This prevents stale quota rows from persisting
-        try {
+        DB::transaction(function () use ($billable, &$deletedCount): void {
             $deletedCount = $billable->quotas()->delete();
 
-            Log::info('Deleted subscription and cleared quotas for billable', [
-                'billable_type' => get_class($billable),
-                'billable_id' => $billable->getKey(),
-                'old_plan_id' => $oldPlanId,
-                'old_plan_price_id' => $oldPlanPriceId,
-                'quotas_deleted' => $deletedCount,
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Failed to clear quotas during subscription deletion', [
-                'billable_type' => get_class($billable),
-                'billable_id' => $billable->getKey(),
-                'error' => $e->getMessage(),
-            ]);
+            $this->clearBillablePlan($billable);
+        });
+
+        if ($billable instanceof Model) {
+            app('plan-usage.quota')->clearQuotaCache($billable);
         }
+
+        Log::info('Deleted subscription and cleared quotas for billable', [
+            'billable_type' => get_class($billable),
+            'billable_id' => $billable->getKey(),
+            'old_plan_id' => $oldPlanId,
+            'old_plan_price_id' => $oldPlanPriceId,
+            'quotas_deleted' => $deletedCount,
+        ]);
     }
 
     /**
-     * Alternative: Set billable to a free/default plan instead of null.
-     * Uses the default plan ID from config if available.
+     * Move the billable to the configured default plan, when one is set.
+     *
+     * Returns true when the default plan was assigned (quotas synced to it),
+     * false when unconfigured or assignment was not possible — callers then
+     * fall back to clearing the plan entirely.
+     */
+    protected function assignDefaultPlan(Billable $billable): bool
+    {
+        $defaultPlanId = config('plan-usage.subscription.default_plan_id');
+
+        if (! $defaultPlanId) {
+            return false;
+        }
+
+        $defaultPlan = Plan::find($defaultPlanId);
+
+        if (! $defaultPlan) {
+            Log::warning('Default plan ID from config not found, clearing subscription', [
+                'billable_type' => get_class($billable),
+                'billable_id' => $billable->getKey(),
+                'default_plan_id' => $defaultPlanId,
+            ]);
+
+            return false;
+        }
+
+        $synced = app(SyncPlanWithBillableAction::class)->execute($billable, $defaultPlan);
+
+        if ($synced) {
+            if ($billable instanceof Model) {
+                app('plan-usage.quota')->clearQuotaCache($billable);
+            }
+
+            Log::info('Moved billable to default plan after subscription deletion', [
+                'billable_type' => get_class($billable),
+                'billable_id' => $billable->getKey(),
+                'default_plan_id' => $defaultPlanId,
+            ]);
+
+            return true;
+        }
+
+        Log::warning('Failed to set default plan - plan not found, clearing subscription', [
+            'billable_type' => get_class($billable),
+            'billable_id' => $billable->getKey(),
+            'default_plan_id' => $defaultPlanId,
+        ]);
+
+        return false;
+    }
+
+    /**
+     * Set billable to a free/default plan instead of null.
+     *
+     * @deprecated execute() now applies the configured default plan itself;
+     *             this remains for backwards compatibility.
      *
      * @param  Billable  $billable  The billable entity
      */
     public function executeWithDefaultPlan(Billable $billable): void
     {
-        // Get default plan ID from config
-        $defaultPlanId = config('plan-usage.subscription.default_plan_id');
-
-        if ($defaultPlanId) {
-            // Load the Plan model by ID
-            $defaultPlan = Plan::find($defaultPlanId);
-
-            if (! $defaultPlan) {
-                Log::warning('Default plan ID from config not found, clearing subscription', [
-                    'billable_type' => get_class($billable),
-                    'billable_id' => $billable->getKey(),
-                    'default_plan_id' => $defaultPlanId,
-                ]);
-                $this->execute($billable);
-
-                return;
-            }
-
-            // If a default plan is configured, sync to that instead
-            $synced = app(SyncPlanWithBillableAction::class)->execute($billable, $defaultPlan);
-
-            if ($synced) {
-                Log::info('Moved billable to default plan after subscription deletion', [
-                    'billable_type' => get_class($billable),
-                    'billable_id' => $billable->getKey(),
-                    'default_plan_id' => $defaultPlanId,
-                ]);
-            } else {
-                Log::warning('Failed to set default plan - plan not found, clearing subscription', [
-                    'billable_type' => get_class($billable),
-                    'billable_id' => $billable->getKey(),
-                    'default_plan_id' => $defaultPlanId,
-                ]);
-                // Fall back to just clearing the subscription
-                $this->execute($billable);
-            }
-        } else {
-            // No default plan configured, just clear everything
-            $this->execute($billable);
-        }
+        $this->execute($billable);
     }
 
     /**
@@ -103,15 +132,7 @@ class DeleteSubscriptionAction
      */
     protected function getBillablePlanId(Billable $billable): ?int
     {
-        if (property_exists($billable, 'plan_id')) {
-            return $billable->plan_id;
-        }
-
-        if (method_exists($billable, 'getPlanId')) {
-            return $billable->getPlanId();
-        }
-
-        return null;
+        return $this->billableAttribute($billable, 'plan_id', 'getPlanId');
     }
 
     /**
@@ -119,15 +140,24 @@ class DeleteSubscriptionAction
      */
     protected function getBillablePlanPriceId(Billable $billable): ?int
     {
-        if (property_exists($billable, 'plan_price_id')) {
-            return $billable->plan_price_id;
-        }
+        return $this->billableAttribute($billable, 'plan_price_id', 'getPlanPriceId');
+    }
 
-        if (method_exists($billable, 'getPlanPriceId')) {
-            return $billable->getPlanPriceId();
-        }
+    /**
+     * Read a plan attribute from any billable shape: custom accessor,
+     * declared property, or a real Eloquent attribute. property_exists()
+     * alone misses Eloquent columns (they live in the attributes array).
+     */
+    protected function billableAttribute(Billable $billable, string $attribute, string $accessor): ?int
+    {
+        $value = match (true) {
+            method_exists($billable, $accessor) => $billable->{$accessor}(),
+            property_exists($billable, $attribute) => $billable->{$attribute},
+            $billable instanceof Model => $billable->getAttribute($attribute),
+            default => null,
+        };
 
-        return null;
+        return is_numeric($value) ? (int) $value : null;
     }
 
     /**
@@ -149,6 +179,12 @@ class DeleteSubscriptionAction
         }
 
         $billable->save();
+
+        // A previously loaded plan relation would otherwise keep serving the
+        // revoked plan to hasFeature()/getFeatureValue() on this instance.
+        if ($billable instanceof Model) {
+            $billable->unsetRelation('plan');
+        }
     }
 
     /**

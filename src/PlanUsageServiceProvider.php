@@ -33,7 +33,6 @@ use Develupers\PlanUsage\Services\UsageTracker;
 use Develupers\PlanUsage\Traits\DetectsBillingProvider;
 use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Events\WebhookHandled;
-use Laravel\Paddle\Events\WebhookReceived;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -44,14 +43,24 @@ class PlanUsageServiceProvider extends PackageServiceProvider
     /**
      * Register any application services.
      */
+    /**
+     * Runs before configurePackage(): getMigrations() selects provider-specific
+     * migrations from billing.provider, and package-tools only merges package
+     * config afterwards — without this early merge, a fresh install (config
+     * not yet published) would ignore BILLING_PROVIDER and publish the wrong
+     * provider's migrations.
+     */
+    public function registeringPackage(): void
+    {
+        $this->mergeConfigFrom(__DIR__.'/../config/plan-usage.php', 'plan-usage');
+    }
+
+    /**
+     * Register any application services.
+     */
     public function register(): void
     {
         parent::register();
-
-        // Merge default configuration
-        $this->mergeConfigFrom(
-            __DIR__.'/../config/plan-usage.php', 'plan-usage'
-        );
 
         // Register the billing provider
         $this->registerBillingProvider();
@@ -278,10 +287,15 @@ class PlanUsageServiceProvider extends PackageServiceProvider
             );
         }
 
-        // Register Paddle webhook listener
-        if ($this->isPaddleProvider() && class_exists(WebhookReceived::class)) {
+        // Register Paddle webhook listener. WebhookHandled fires AFTER Cashier
+        // Paddle has processed the webhook, so the local subscription row
+        // exists for identity validation. Cashier fires it for created/
+        // updated/paused/canceled; subscription.resumed has no Cashier handler
+        // and is covered by the subscription.updated events Paddle sends
+        // alongside a resume.
+        if ($this->isPaddleProvider() && class_exists(\Laravel\Paddle\Events\WebhookHandled::class)) {
             \Event::listen(
-                WebhookReceived::class,
+                \Laravel\Paddle\Events\WebhookHandled::class,
                 PaddleWebhookListener::class
             );
         }

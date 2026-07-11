@@ -22,22 +22,20 @@ it('reports no expired subscriptions found', function () {
     $billableClass = Mockery::mock('alias:Test\\Billable\\Model');
     $query = Mockery::mock();
     $query->shouldReceive('count')->once()->andReturn(0);
-    $query->shouldReceive('whereHas')->andReturn($query);
-    $billableClass->shouldReceive('whereNotNull')->with('plan_id')->once()->andReturn($query);
+    $billableClass->shouldReceive('whereHas')->with('subscriptions')->once()->andReturn($query);
 
     $this->artisan('subscriptions:reconcile')
-        ->expectsOutput('No expired subscriptions found that need reconciliation')
+        ->expectsOutput('No subscriptions found that need reconciliation')
         ->assertSuccessful();
 });
 
 it('asks for confirmation without force flag', function () {
     $query = Mockery::mock();
     $query->shouldReceive('count')->once()->andReturn(2);
-    $query->shouldReceive('whereHas')->andReturn($query);
     $query->shouldReceive('each')->never(); // Should not process if cancelled
 
     $billableClass = Mockery::mock('alias:Test\\Billable\\Model');
-    $billableClass->shouldReceive('whereNotNull')->with('plan_id')->once()->andReturn($query);
+    $billableClass->shouldReceive('whereHas')->with('subscriptions')->once()->andReturn($query);
 
     $this->artisan('subscriptions:reconcile')
         ->expectsQuestion('Do you want to reconcile 2 subscription(s)?', false)
