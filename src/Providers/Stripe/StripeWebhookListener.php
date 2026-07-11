@@ -6,6 +6,7 @@ namespace Develupers\PlanUsage\Providers\Stripe;
 
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
+use Develupers\PlanUsage\Support\EntitlementStatusPolicy;
 use Develupers\PlanUsage\Support\SubscriptionStateLock;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -124,38 +125,38 @@ class StripeWebhookListener
             return;
         }
 
-        // Only the default-type subscription controls the plan. Without this,
-        // an event for any other named subscription (e.g. an add-on) would
-        // overwrite the billable's plan from that subscription's price.
-        $subscriptionName = config('plan-usage.subscription.default_name', 'default');
-        $localSubscription = $billable->subscription($subscriptionName);
-
-        if ($localSubscription === null || $localSubscription->stripe_id !== $subscriptionId) {
-            Log::info('Ignoring Stripe webhook for a non-default subscription', [
-                'billable_id' => $billable->getKey(),
-                'subscription_id' => $subscriptionId,
-                'expected_subscription_id' => $localSubscription->stripe_id ?? null,
-            ]);
-
-            return;
-        }
-
         // Serialize with plan changes, cancellation, and other webhook
         // deliveries for this billable: without the lock, a fast webhook can
         // interleave with ChangeSubscriptionPlanAction and replace a prorated
         // allowance with the full target-plan allowance.
         $this->stateLock->block($billable, function () use ($billable, $subscriptionId): void {
+            // Identity is validated INSIDE the lock, against a fresh read:
+            // only the default-type subscription controls the plan, and by
+            // the time the lock is held Cashier may have replaced it (an
+            // event for the old subscription must not pass a stale check).
+            $subscriptionName = config('plan-usage.subscription.default_name', 'default');
+            $billable->unsetRelation('subscriptions');
+            $localSubscription = $billable->subscription($subscriptionName);
+
+            if ($localSubscription === null || $localSubscription->stripe_id !== $subscriptionId) {
+                Log::info('Ignoring Stripe webhook for a non-default subscription', [
+                    'billable_id' => $billable->getKey(),
+                    'subscription_id' => $subscriptionId,
+                    'expected_subscription_id' => $localSubscription->stripe_id ?? null,
+                ]);
+
+                return;
+            }
+
             $remote = $this->fetchStripeSubscription($subscriptionId);
             $status = (string) ($remote['status'] ?? '');
             $priceId = $remote['price_id'] ?? null;
 
-            // Entitlement policy by CURRENT remote status:
-            // - active/trialing        → grant (sync plan from remote price)
-            // - past_due               → configurable; kept by default
-            // - incomplete             → never granted; wait for payment outcome
-            // - anything else          → revoke (canceled, unpaid,
-            //                            incomplete_expired, paused)
-            if (in_array($status, ['active', 'trialing'], true)) {
+            // Shared policy: grant on active/trialing, past_due configurable,
+            // everything else (incl. incomplete) revokes.
+            $decision = EntitlementStatusPolicy::decide('stripe', $status);
+
+            if ($decision === EntitlementStatusPolicy::GRANT) {
                 if (is_string($priceId) && $priceId !== '') {
                     $this->syncPlanWithBillable->execute($billable, $priceId);
                 }
@@ -163,11 +164,7 @@ class StripeWebhookListener
                 return;
             }
 
-            if ($status === 'past_due' && config('plan-usage.stripe.past_due_keeps_entitlements', true)) {
-                return;
-            }
-
-            if ($status === 'incomplete') {
+            if ($decision === EntitlementStatusPolicy::KEEP) {
                 return;
             }
 

@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Schema;
 use Laravel\Paddle\Billable;
 use Laravel\Paddle\Customer;
 use Laravel\Paddle\Events\WebhookHandled;
+use Laravel\Paddle\Events\WebhookReceived;
 
 /**
  * Concrete billable backed by the shared test_billables table. The listener
@@ -277,4 +278,36 @@ it('releases the dedupe key on failure so the provider retry is processed', func
     $this->listener->handle(new WebhookHandled($payload));
 
     expect($attempts)->toBe(2);
+});
+
+it('handles subscription.past_due via WebhookReceived since Cashier never fires WebhookHandled for it', function () {
+    $billable = paddleBillableWithSubscription('ctm_pd_received');
+    $this->listener->remoteState = ['status' => 'past_due', 'price_id' => 'pri_current'];
+
+    // Default policy keeps entitlements — no mutation either way.
+    $this->syncAction->shouldNotReceive('execute');
+    $this->deleteAction->shouldNotReceive('execute');
+    $this->listener->handleReceived(new WebhookReceived(
+        paddleSubscriptionPayload('subscription.past_due', 'ctm_pd_received', eventId: 'evt_pd_r1')
+    ));
+    expect($this->listener->fetches)->toBe(1);
+
+    // Revoke policy applies as soon as the past_due event arrives.
+    Config::set('plan-usage.paddle.past_due_keeps_entitlements', false);
+    $this->deleteAction->shouldReceive('execute')->once();
+    $this->listener->handleReceived(new WebhookReceived(
+        paddleSubscriptionPayload('subscription.past_due', 'ctm_pd_received', eventId: 'evt_pd_r2')
+    ));
+});
+
+it('ignores Cashier-handled event types on the WebhookReceived route to avoid double-processing', function () {
+    paddleBillableWithSubscription('ctm_recv_dup');
+
+    $this->syncAction->shouldNotReceive('execute');
+
+    $this->listener->handleReceived(new WebhookReceived(
+        paddleSubscriptionPayload('subscription.updated', 'ctm_recv_dup', eventId: 'evt_recv_dup')
+    ));
+
+    expect($this->listener->fetches)->toBe(0);
 });

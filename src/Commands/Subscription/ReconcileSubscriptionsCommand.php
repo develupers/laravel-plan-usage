@@ -17,13 +17,12 @@ use Develupers\PlanUsage\Models\SubscriptionPlanChange;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
 use Develupers\PlanUsage\Providers\Polar\PolarProvider;
 use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
+use Develupers\PlanUsage\Support\EntitlementStatusPolicy;
 use Develupers\PlanUsage\Support\ProviderSubscriptionChange;
 use Develupers\PlanUsage\Support\SubscriptionStateLock;
 use Illuminate\Console\Command;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
-use Laravel\Cashier\Cashier;
 use Stripe\Exception\ApiErrorException;
 
 class ReconcileSubscriptionsCommand extends Command
@@ -117,33 +116,19 @@ class ReconcileSubscriptionsCommand extends Command
         $errors = 0;
         $skipped = 0;
 
-        // Pre-fetch all subscriptions in batch to avoid per-billable API calls
-        $batchSubscriptions = null;
-        if ($provider->name() === 'paddle') {
-            $this->info('Pre-fetching subscriptions from Paddle API...');
-            $batchSubscriptions = $this->fetchAllPaddleSubscriptions();
-        } elseif ($provider->name() === 'stripe') {
-            $this->info('Pre-fetching subscriptions from Stripe API...');
-            $batchSubscriptions = $this->fetchAllStripeSubscriptions();
-        } elseif ($provider instanceof PolarProvider) {
-            $this->info('Pre-fetching subscriptions from Polar API...');
-            $batchSubscriptions = $this->fetchAllPolarSubscriptions($provider);
-        }
+        // Remote state is fetched individually INSIDE the per-billable lock:
+        // a batch snapshot taken before processing can be stale by the time
+        // the lock is held (e.g. regranting a plan a cancellation webhook
+        // just revoked).
 
-        if ($batchSubscriptions !== null) {
-            $this->info("Fetched {$batchSubscriptions->count()} subscription(s) from {$provider->name()}");
-        } else {
-            $this->warn("Could not pre-fetch from {$provider->name()} API, will fall back to per-subscription calls");
-        }
-
-        $query->each(function ($billable) use ($provider, $dryRun, $batchSubscriptions, &$processed, &$removed, &$reactivated, &$updated, &$errors, &$skipped) {
+        $query->each(function ($billable) use ($provider, $dryRun, &$processed, &$removed, &$reactivated, &$updated, &$errors, &$skipped) {
             $processed++;
             $billableIdentifier = $this->getBillableIdentifier($billable);
             $this->info("\nChecking {$billableIdentifier}");
 
             try {
                 // Get the local subscription
-                $subscription = $billable->subscription('default');
+                $subscription = $billable->subscription(config('plan-usage.subscription.default_name', 'default'));
 
                 if (! $subscription) {
                     // Only the default-type subscription controls the plan. A
@@ -161,8 +146,7 @@ class ReconcileSubscriptionsCommand extends Command
                     $provider,
                     $billable,
                     $subscription,
-                    $dryRun,
-                    $batchSubscriptions
+                    $dryRun
                 );
 
                 switch ($result) {
@@ -182,7 +166,7 @@ class ReconcileSubscriptionsCommand extends Command
                         $errors++;
                         break;
                 }
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 $this->error("  Unexpected Error: {$e->getMessage()}");
 
                 Log::error('ReconcileSubscriptions: Unexpected error checking subscription', [
@@ -295,14 +279,13 @@ class ReconcileSubscriptionsCommand extends Command
         BillingProvider $provider,
         $billable,
         $subscription,
-        bool $dryRun,
-        ?Collection $batchSubscriptions = null
+        bool $dryRun
     ): string {
         if ($provider->name() === 'stripe') {
             // Serialize with plan-change actions and webhook processing.
             return app(SubscriptionStateLock::class)->block(
                 $billable,
-                fn (): string => $this->reconcileStripeSubscription($billable, $subscription, $dryRun, $batchSubscriptions)
+                fn (): string => $this->reconcileStripeSubscription($billable, $subscription, $dryRun)
             );
         }
 
@@ -310,12 +293,12 @@ class ReconcileSubscriptionsCommand extends Command
             // Serialize with plan-change actions and webhook processing.
             return app(SubscriptionStateLock::class)->block(
                 $billable,
-                fn (): string => $this->reconcilePaddleSubscription($billable, $subscription, $dryRun, $batchSubscriptions)
+                fn (): string => $this->reconcilePaddleSubscription($billable, $subscription, $dryRun)
             );
         }
 
         if ($provider instanceof PolarProvider) {
-            return $this->reconcilePolarSubscription($provider, $billable, $subscription, $dryRun, $batchSubscriptions);
+            return $this->reconcilePolarSubscription($provider, $billable, $subscription, $dryRun);
         }
 
         $this->warn("  Provider {$provider->name()} reconciliation not implemented");
@@ -327,8 +310,7 @@ class ReconcileSubscriptionsCommand extends Command
         PolarProvider $provider,
         $billable,
         $subscription,
-        bool $dryRun,
-        ?Collection $batchSubscriptions = null
+        bool $dryRun
     ): string {
         try {
             $subscriptionId = $subscription->polar_id ?? null;
@@ -340,15 +322,11 @@ class ReconcileSubscriptionsCommand extends Command
             }
 
             // Serialize with plan-change actions and webhook processing.
-            return app(SubscriptionStateLock::class)->block($billable, function () use ($provider, $billable, $subscription, $dryRun, $batchSubscriptions, $subscriptionId): string {
-                $remoteSubscription = $batchSubscriptions?->get($subscriptionId);
-
-                // A batch-fetched copy may already be stale by the time the
-                // lock is held; re-fetch when a pending change is about to be
-                // evaluated so it is applied against current provider state.
-                if ($remoteSubscription === null || $this->hasPendingPolarChange($subscriptionId)) {
-                    $remoteSubscription = $provider->fetchSubscription($subscriptionId) ?? $remoteSubscription;
-                }
+            return app(SubscriptionStateLock::class)->block($billable, function () use ($provider, $billable, $subscription, $dryRun, $subscriptionId): string {
+                // Authoritative fetch inside the lock — never a pre-lock
+                // snapshot, which could regrant state a concurrent webhook
+                // just changed.
+                $remoteSubscription = $provider->fetchSubscription($subscriptionId);
 
                 if ($remoteSubscription === null) {
                     $this->warn('  Polar subscription could not be fetched');
@@ -404,28 +382,6 @@ class ReconcileSubscriptionsCommand extends Command
             ]);
 
             return 'error';
-        }
-    }
-
-    protected function hasPendingPolarChange(string $subscriptionId): bool
-    {
-        return $this->planChangeModel()::query()
-            ->pending()
-            ->where('provider', 'polar')
-            ->where('provider_subscription_id', $subscriptionId)
-            ->exists();
-    }
-
-    protected function fetchAllPolarSubscriptions(PolarProvider $provider): ?Collection
-    {
-        try {
-            return $provider->fetchSubscriptions();
-        } catch (\Throwable $exception) {
-            Log::warning('Failed to batch-fetch Polar subscriptions', [
-                'error' => $exception->getMessage(),
-            ]);
-
-            return null;
         }
     }
 
@@ -496,7 +452,7 @@ class ReconcileSubscriptionsCommand extends Command
     /**
      * Reconcile a Stripe subscription.
      */
-    protected function reconcileStripeSubscription($billable, $subscription, bool $dryRun, ?Collection $batchSubscriptions = null): string
+    protected function reconcileStripeSubscription($billable, $subscription, bool $dryRun): string
     {
         try {
             $subscriptionId = $subscription->stripe_id ?? null;
@@ -510,32 +466,12 @@ class ReconcileSubscriptionsCommand extends Command
             $this->info("  Subscription ID: {$subscriptionId}");
             $this->info('  Local ends_at: '.($subscription->ends_at ? $subscription->ends_at->toDateTimeString() : 'null'));
 
-            // Look up from pre-fetched batch first, fall back to individual API call
-            $stripeSubscription = $batchSubscriptions?->get($subscriptionId)
-                ?? $subscription->asStripeSubscription();
+            // Authoritative fetch inside the lock (the dispatch wraps this
+            // method in SubscriptionStateLock).
+            $stripeSubscription = $subscription->asStripeSubscription();
 
             $this->info("  Stripe status: {$stripeSubscription->status}");
             $this->info('  Cancel at period end: '.($stripeSubscription->cancel_at_period_end ? 'Yes' : 'No'));
-
-            // Handle based on Stripe status
-            if (in_array($stripeSubscription->status, ['canceled', 'incomplete_expired', 'unpaid', 'paused'])) {
-                $this->warn("  Stripe confirms subscription is {$stripeSubscription->status}");
-
-                if (! $dryRun) {
-                    app(DeleteSubscriptionAction::class)->execute($billable);
-                    $this->info('  Removed plan from billable');
-                    Log::info('ReconcileSubscriptions: Stripe confirmed cancellation, removed plan', [
-                        'billable_type' => get_class($billable),
-                        'billable_id' => $billable->getKey(),
-                        'stripe_status' => $stripeSubscription->status,
-                        'stripe_subscription_id' => $stripeSubscription->id,
-                    ]);
-                } else {
-                    $this->line('  [DRY-RUN] Would remove plan from billable');
-                }
-
-                return 'removed';
-            }
 
             if (in_array($stripeSubscription->status, ['active', 'trialing']) && ! $stripeSubscription->cancel_at_period_end) {
                 $reactivated = false;
@@ -582,35 +518,15 @@ class ReconcileSubscriptionsCommand extends Command
                 return 'skipped';
             }
 
-            if ($stripeSubscription->status === 'past_due') {
-                if (config('plan-usage.stripe.past_due_keeps_entitlements', true)) {
-                    $this->info('  past_due keeps entitlements (configured)');
-
-                    return 'skipped';
-                }
-
-                if (! $dryRun) {
-                    app(DeleteSubscriptionAction::class)->execute($billable);
-                    $this->info('  Removed plan from billable (past_due policy)');
-                } else {
-                    $this->line('  [DRY-RUN] Would remove plan from billable (past_due policy)');
-                }
-
-                return 'removed';
-            }
-
-            if ($stripeSubscription->status === 'incomplete') {
-                $this->info('  incomplete — never granted; awaiting payment outcome');
-
-                return 'skipped';
-            }
-
             if ($stripeSubscription->status === 'active' && $stripeSubscription->cancel_at_period_end) {
                 $periodEnd = Carbon::createFromTimestamp($stripeSubscription->current_period_end);
+                $oldEndsAt = $subscription->ends_at;
 
-                if (! $subscription->ends_at->equalTo($periodEnd)) {
+                // ends_at may be null when the scheduled-cancellation webhook
+                // was missed — exactly the state reconciliation exists to fix.
+                if ($oldEndsAt === null || ! $oldEndsAt->equalTo($periodEnd)) {
                     $this->warn('  Grace period end date mismatch');
-                    $this->info("     Local: {$subscription->ends_at->toDateTimeString()}");
+                    $this->info('     Local: '.($oldEndsAt ? $oldEndsAt->toDateTimeString() : 'null'));
                     $this->info("     Stripe: {$periodEnd->toDateTimeString()}");
 
                     if (! $dryRun) {
@@ -620,7 +536,7 @@ class ReconcileSubscriptionsCommand extends Command
                         Log::info('ReconcileSubscriptions: Updated grace period end date from Stripe', [
                             'billable_type' => get_class($billable),
                             'billable_id' => $billable->getKey(),
-                            'old_ends_at' => $subscription->ends_at,
+                            'old_ends_at' => $oldEndsAt,
                             'new_ends_at' => $periodEnd,
                         ]);
                     } else {
@@ -635,17 +551,32 @@ class ReconcileSubscriptionsCommand extends Command
                 return 'skipped';
             }
 
-            // Unknown/unexpected statuses
-            $this->warn("  Subscription has special status: {$stripeSubscription->status}");
-            $this->info('  Skipping - needs manual review');
+            // Every other status follows the shared entitlement policy —
+            // identical to the webhook listener, so reconciliation can never
+            // disagree with live event handling.
+            $decision = EntitlementStatusPolicy::decide('stripe', (string) $stripeSubscription->status);
 
-            Log::info('ReconcileSubscriptions: Subscription has special status, skipping', [
-                'billable_type' => get_class($billable),
-                'billable_id' => $billable->getKey(),
-                'stripe_status' => $stripeSubscription->status,
-            ]);
+            if ($decision !== EntitlementStatusPolicy::REVOKE) {
+                $this->info("  {$stripeSubscription->status} keeps entitlements (policy)");
 
-            return 'skipped';
+                return 'skipped';
+            }
+
+            $this->warn("  Stripe status {$stripeSubscription->status} does not hold entitlements");
+
+            if (! $dryRun) {
+                app(DeleteSubscriptionAction::class)->execute($billable);
+                $this->info('  Removed plan from billable');
+                Log::info('ReconcileSubscriptions: status does not hold entitlements, removed plan', [
+                    'billable_type' => get_class($billable),
+                    'billable_id' => $billable->getKey(),
+                    'stripe_status' => $stripeSubscription->status,
+                ]);
+            } else {
+                $this->line('  [DRY-RUN] Would remove plan from billable');
+            }
+
+            return 'removed';
         } catch (ApiErrorException $e) {
             $this->error("  Stripe API Error: {$e->getMessage()}");
             $this->warn('  Skipping - unable to verify with Stripe');
@@ -663,7 +594,7 @@ class ReconcileSubscriptionsCommand extends Command
     /**
      * Reconcile a Paddle subscription.
      */
-    protected function reconcilePaddleSubscription($billable, $subscription, bool $dryRun, ?Collection $batchSubscriptions = null): string
+    protected function reconcilePaddleSubscription($billable, $subscription, bool $dryRun): string
     {
         try {
             $subscriptionId = $subscription->paddle_id ?? $subscription->id ?? null;
@@ -677,9 +608,9 @@ class ReconcileSubscriptionsCommand extends Command
             $this->info("  Subscription ID: {$subscriptionId}");
             $this->info('  Local ends_at: '.($subscription->ends_at ? $subscription->ends_at->toDateTimeString() : 'null'));
 
-            // Look up from pre-fetched batch first, fall back to individual API call
-            $paddleSubscription = $batchSubscriptions?->get($subscriptionId)
-                ?? $this->fetchPaddleSubscription($subscriptionId);
+            // Authoritative fetch inside the lock (the dispatch wraps this
+            // method in SubscriptionStateLock).
+            $paddleSubscription = $this->fetchPaddleSubscription($subscriptionId);
 
             if (! $paddleSubscription) {
                 $this->warn('  Could not fetch subscription from Paddle API, falling back to local status');
@@ -693,27 +624,6 @@ class ReconcileSubscriptionsCommand extends Command
 
             $this->info("  Paddle status: {$paddleStatus}");
             $this->info('  Cancel at period end: '.($cancelAtPeriodEnd ? 'Yes' : 'No'));
-
-            // Handle based on Paddle status
-            // Paddle statuses: active, canceled, past_due, paused, trialing
-            if ($paddleStatus === 'canceled') {
-                $this->warn('  Paddle confirms subscription is canceled');
-
-                if (! $dryRun) {
-                    app(DeleteSubscriptionAction::class)->execute($billable);
-                    $this->info('  Removed plan from billable');
-                    Log::info('ReconcileSubscriptions: Paddle confirmed cancellation, removed plan', [
-                        'billable_type' => get_class($billable),
-                        'billable_id' => $billable->getKey(),
-                        'paddle_status' => $paddleStatus,
-                        'paddle_subscription_id' => $subscriptionId,
-                    ]);
-                } else {
-                    $this->line('  [DRY-RUN] Would remove plan from billable');
-                }
-
-                return 'removed';
-            }
 
             if (in_array($paddleStatus, ['active', 'trialing']) && ! $cancelAtPeriodEnd) {
                 $reactivated = false;
@@ -793,47 +703,32 @@ class ReconcileSubscriptionsCommand extends Command
                 return 'skipped';
             }
 
-            if ($paddleStatus === 'paused') {
-                $this->warn('  Subscription is paused');
+            // Every other status follows the shared entitlement policy —
+            // identical to the webhook listener, so reconciliation can never
+            // disagree with live event handling.
+            $decision = EntitlementStatusPolicy::decide('paddle', $paddleStatus);
 
-                if (! $dryRun) {
-                    app(DeleteSubscriptionAction::class)->execute($billable);
-                    $this->info('  Removed plan from billable (paused)');
-                } else {
-                    $this->line('  [DRY-RUN] Would remove plan from billable (paused)');
-                }
+            if ($decision !== EntitlementStatusPolicy::REVOKE) {
+                $this->info("  {$paddleStatus} keeps entitlements (policy)");
 
-                return 'removed';
+                return 'skipped';
             }
 
-            if ($paddleStatus === 'past_due') {
-                if (config('plan-usage.paddle.past_due_keeps_entitlements', true)) {
-                    $this->info('  past_due keeps entitlements (configured)');
+            $this->warn("  Paddle status {$paddleStatus} does not hold entitlements");
 
-                    return 'skipped';
-                }
-
-                if (! $dryRun) {
-                    app(DeleteSubscriptionAction::class)->execute($billable);
-                    $this->info('  Removed plan from billable (past_due policy)');
-                } else {
-                    $this->line('  [DRY-RUN] Would remove plan from billable (past_due policy)');
-                }
-
-                return 'removed';
+            if (! $dryRun) {
+                app(DeleteSubscriptionAction::class)->execute($billable);
+                $this->info('  Removed plan from billable');
+                Log::info('ReconcileSubscriptions: status does not hold entitlements, removed plan', [
+                    'billable_type' => get_class($billable),
+                    'billable_id' => $billable->getKey(),
+                    'paddle_status' => $paddleStatus,
+                ]);
+            } else {
+                $this->line('  [DRY-RUN] Would remove plan from billable');
             }
 
-            // Unknown/unexpected statuses
-            $this->warn("  Subscription has special status: {$paddleStatus}");
-            $this->info('  Skipping - needs manual review');
-
-            Log::info('ReconcileSubscriptions: Subscription has special status, skipping', [
-                'billable_type' => get_class($billable),
-                'billable_id' => $billable->getKey(),
-                'paddle_status' => $paddleStatus,
-            ]);
-
-            return 'skipped';
+            return 'removed';
         } catch (\Exception $e) {
             $this->error("  Paddle Error: {$e->getMessage()}");
             $this->warn('  Skipping - unable to verify with Paddle');
@@ -845,45 +740,6 @@ class ReconcileSubscriptionsCommand extends Command
             ]);
 
             return 'error';
-        }
-    }
-
-    /**
-     * Fetch all subscriptions from the Stripe API in batch using auto-pagination.
-     *
-     * Returns a collection keyed by subscription ID, or null if the API is unavailable.
-     */
-    protected function fetchAllStripeSubscriptions(): ?Collection
-    {
-        try {
-            $stripe = Cashier::stripe();
-            $subscriptions = collect();
-
-            // Fetch all non-draft subscriptions in a single paginated pass.
-            // Stripe's 'all' status excludes only 'incomplete' — this covers
-            // active, canceled, incomplete_expired, past_due, trialing, paused, unpaid.
-            $params = ['limit' => 100, 'status' => 'all'];
-
-            do {
-                $response = $stripe->subscriptions->all($params);
-
-                foreach ($response->data as $sub) {
-                    $subscriptions->put($sub->id, $sub);
-                }
-
-                // Cursor-based pagination: use the last ID as starting_after
-                if ($response->has_more && count($response->data) > 0) {
-                    $params['starting_after'] = end($response->data)->id;
-                }
-            } while ($response->has_more);
-
-            return $subscriptions;
-        } catch (\Exception $e) {
-            Log::warning('Failed to batch-fetch Stripe subscriptions', [
-                'error' => $e->getMessage(),
-            ]);
-
-            return null;
         }
     }
 
@@ -934,79 +790,6 @@ class ReconcileSubscriptionsCommand extends Command
 
             return null;
         }
-    }
-
-    /**
-     * Fetch all subscriptions from the Paddle API in batch using pagination.
-     *
-     * Returns a collection keyed by subscription ID, or null if the API is unavailable.
-     */
-    protected function fetchAllPaddleSubscriptions(): ?Collection
-    {
-        $apiKey = config('cashier.api_key') ?? config('plan-usage.paddle.api_key');
-
-        if (! $apiKey) {
-            return null;
-        }
-
-        $sandbox = config('cashier.sandbox', config('plan-usage.paddle.sandbox', true));
-        $baseUrl = $sandbox
-            ? 'https://sandbox-api.paddle.com'
-            : 'https://api.paddle.com';
-
-        $subscriptions = collect();
-
-        try {
-            // Fetch both active and canceled subscriptions
-            foreach (['active', 'canceled'] as $status) {
-                $url = "{$baseUrl}/subscriptions?status={$status}&per_page=200";
-
-                while ($url) {
-                    $ch = curl_init();
-
-                    curl_setopt_array($ch, [
-                        CURLOPT_URL => $url,
-                        CURLOPT_RETURNTRANSFER => true,
-                        CURLOPT_HTTPHEADER => [
-                            "Authorization: Bearer {$apiKey}",
-                            'Content-Type: application/json',
-                        ],
-                    ]);
-
-                    $response = curl_exec($ch);
-                    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                    curl_close($ch);
-
-                    if ($httpCode >= 400 || ! $response) {
-                        Log::warning('Failed to fetch Paddle subscriptions batch', [
-                            'status' => $status,
-                            'http_code' => $httpCode,
-                        ]);
-
-                        return null;
-                    }
-
-                    $data = json_decode($response, true);
-
-                    foreach ($data['data'] ?? [] as $sub) {
-                        if (isset($sub['id'])) {
-                            $subscriptions->put($sub['id'], $sub);
-                        }
-                    }
-
-                    // Follow pagination
-                    $url = $data['meta']['pagination']['next'] ?? null;
-                }
-            }
-        } catch (\Exception $e) {
-            Log::warning('Failed to batch-fetch Paddle subscriptions', [
-                'error' => $e->getMessage(),
-            ]);
-
-            return null;
-        }
-
-        return $subscriptions;
     }
 
     /**

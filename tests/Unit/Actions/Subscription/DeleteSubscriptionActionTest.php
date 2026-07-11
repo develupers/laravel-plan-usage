@@ -47,37 +47,43 @@ it('clears plan and deletes quotas on execute', function () {
     expect($billable->plan_price_id)->toBeNull();
 });
 
-it('rethrows quota deletion failures and keeps the plan so cancellation fails closed', function () {
+it('revokes the plan before quota cleanup so a cleanup failure still denies access', function () {
     $billable = Mockery::mock(Billable::class);
     $billable->shouldReceive('getKey')->andReturn(1);
     $billable->plan_id = 1;
     $billable->plan_price_id = 100;
 
+    // The plan-clear commits FIRST: even when quota deletion fails, the
+    // billable is planless (denied by the enforcer's plan guard) instead of
+    // keeping the paid plan. The failure still rethrows for retry.
+    $billable->shouldReceive('save')->once();
+
     $quotaQuery = Mockery::mock();
     $quotaQuery->shouldReceive('delete')->once()->andThrow(new Exception('Database error'));
     $billable->shouldReceive('quotas')->once()->andReturn($quotaQuery);
-    // Quotas are deleted BEFORE the plan is cleared: on failure the plan must
-    // survive — a planless billable with leftover quota rows could keep
-    // consuming them, and swallowing the error would hide it from retries.
-    $billable->shouldNotReceive('save');
 
     expect(fn () => $this->action->execute($billable))
         ->toThrow(Exception::class, 'Database error');
 
-    expect($billable->plan_id)->toBe(1);
-    expect($billable->plan_price_id)->toBe(100);
+    expect($billable->plan_id)->toBeNull();
+    expect($billable->plan_price_id)->toBeNull();
 });
 
-it('moves the billable to the default plan on execute when configured', function () {
+it('revokes the paid plan first, then moves the billable to the configured default plan', function () {
     Config::set('plan-usage.subscription.default_plan_id', 998);
 
     $defaultPlan = Plan::factory()->create(['id' => 998]);
 
     $billable = Mockery::mock(Billable::class);
     $billable->shouldReceive('getKey')->andReturn(1);
-    // Cancellation means "back to free", not "planless": quotas are re-synced
-    // to the default plan instead of deleted outright.
-    $billable->shouldNotReceive('quotas');
+    $billable->plan_id = 1;
+    $billable->plan_price_id = 100;
+    // Revocation commits before the default plan is assigned: a failed
+    // assignment leaves the billable planless (denied), never on the paid plan.
+    $billable->shouldReceive('save')->once();
+    $quotaQuery = Mockery::mock();
+    $quotaQuery->shouldReceive('delete')->once()->andReturn(2);
+    $billable->shouldReceive('quotas')->once()->andReturn($quotaQuery);
 
     $syncAction = Mockery::mock(SyncPlanWithBillableAction::class);
     $syncAction->shouldReceive('execute')
@@ -87,12 +93,11 @@ it('moves the billable to the default plan on execute when configured', function
 
     $this->app->instance(SyncPlanWithBillableAction::class, $syncAction);
 
-    Log::shouldReceive('info')->once()->withArgs(function ($message, $context) {
-        return $message === 'Moved billable to default plan after subscription deletion' &&
-               $context['default_plan_id'] === 998;
-    });
+    Log::shouldReceive('info')->twice();
 
     $this->action->execute($billable);
+
+    expect($billable->plan_id)->toBeNull();
 });
 
 it('sets default plan when configured', function () {
@@ -102,6 +107,12 @@ it('sets default plan when configured', function () {
 
     $billable = Mockery::mock(Billable::class);
     $billable->shouldReceive('getKey')->andReturn(1);
+    $billable->plan_id = 1;
+    $billable->plan_price_id = 100;
+    $billable->shouldReceive('save')->once();
+    $quotaQuery = Mockery::mock();
+    $quotaQuery->shouldReceive('delete')->once()->andReturn(0);
+    $billable->shouldReceive('quotas')->once()->andReturn($quotaQuery);
 
     $syncAction = Mockery::mock(SyncPlanWithBillableAction::class);
     $syncAction->shouldReceive('execute')
@@ -113,10 +124,7 @@ it('sets default plan when configured', function () {
 
     $this->app->instance(SyncPlanWithBillableAction::class, $syncAction);
 
-    Log::shouldReceive('info')->once()->withArgs(function ($message, $context) {
-        return $message === 'Moved billable to default plan after subscription deletion' &&
-               $context['default_plan_id'] === 999;
-    });
+    Log::shouldReceive('info')->twice();
 
     $this->action->executeWithDefaultPlan($billable);
 });

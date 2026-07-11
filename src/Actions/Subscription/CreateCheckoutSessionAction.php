@@ -38,8 +38,13 @@ class CreateCheckoutSessionAction
         Model $billable,
         string $priceId,
         array $sessionOptions = [],
-        string $subscriptionName = 'default'
+        ?string $subscriptionName = null
     ): CheckoutSession {
+        // Omitted names resolve to the configured default so checkout,
+        // listeners, enforcement, and reconciliation all agree on which
+        // subscription type controls the plan.
+        $subscriptionName ??= config('plan-usage.subscription.default_name', 'default');
+
         // Check if billable already has an active subscription
         if (method_exists($billable, 'subscribed') && $billable->subscribed($subscriptionName)) {
             throw ValidationException::withMessages([
@@ -95,8 +100,10 @@ class CreateCheckoutSessionAction
         Model $billable,
         PlanPrice $planPrice,
         array $sessionOptions = [],
-        string $subscriptionName = 'default'
+        ?string $subscriptionName = null
     ): CheckoutSession {
+        $subscriptionName ??= config('plan-usage.subscription.default_name', 'default');
+
         $priceId = $planPrice->getProviderPriceId();
 
         if (! $priceId) {

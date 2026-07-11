@@ -33,6 +33,7 @@ use Develupers\PlanUsage\Services\UsageTracker;
 use Develupers\PlanUsage\Traits\DetectsBillingProvider;
 use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Events\WebhookHandled;
+use Laravel\Paddle\Events\WebhookReceived;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -297,6 +298,13 @@ class PlanUsageServiceProvider extends PackageServiceProvider
             \Event::listen(
                 \Laravel\Paddle\Events\WebhookHandled::class,
                 PaddleWebhookListener::class
+            );
+
+            // Cashier never fires WebhookHandled for subscription.past_due
+            // (no handler exists) — a narrow WebhookReceived route covers it.
+            \Event::listen(
+                WebhookReceived::class,
+                [PaddleWebhookListener::class, 'handleReceived']
             );
         }
 

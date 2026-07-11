@@ -7,8 +7,12 @@ namespace Develupers\PlanUsage\Jobs;
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Events\PlanRevoked;
 use Develupers\PlanUsage\Models\Plan;
+use Develupers\PlanUsage\Support\EntitlementStatusPolicy;
+use Develupers\PlanUsage\Support\SubscriptionStateLock;
+use Develupers\PlanUsage\Traits\DetectsBillingProvider;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
@@ -16,6 +20,7 @@ use Illuminate\Support\Facades\Log;
 
 class EnforcePlanSubscriptionsJob implements ShouldQueue
 {
+    use DetectsBillingProvider;
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /**
@@ -35,6 +40,7 @@ class EnforcePlanSubscriptionsJob implements ShouldQueue
         }
 
         $subscriptionName = config('plan-usage.subscription.default_name', 'default');
+        $provider = $this->detectBillingProvider();
 
         // Get all non-lifetime plan IDs
         $lifetimePlanIds = Plan::where('is_lifetime', true)->pluck('id');
@@ -49,7 +55,9 @@ class EnforcePlanSubscriptionsJob implements ShouldQueue
         $revokedCount = 0;
 
         foreach ($billables as $billable) {
-            if ($this->hasActiveSubscription($billable, $subscriptionName)) {
+            // Cheap pre-check outside the lock; the authoritative decision is
+            // re-made under it.
+            if ($this->hasActiveSubscription($billable, $subscriptionName, $provider)) {
                 continue;
             }
 
@@ -59,9 +67,25 @@ class EnforcePlanSubscriptionsJob implements ShouldQueue
             // left quota rows untouched (stale paid limits, or usable rows on
             // a planless billable). The action assigns the configured default
             // plan (syncing quotas to it) or clears the plan and deletes the
-            // quotas atomically.
+            // quotas.
             try {
-                app(DeleteSubscriptionAction::class)->execute($billable);
+                $revoked = app(SubscriptionStateLock::class)->block($billable, function () use ($billable, $subscriptionName, $provider): bool {
+                    // Re-check under the lock against a fresh read: a
+                    // concurrent webhook (e.g. a resume) may have restored the
+                    // subscription since the pre-check, and revoking from that
+                    // stale decision would undo the grant.
+                    if ($billable instanceof Model) {
+                        $billable->unsetRelation('subscriptions');
+                    }
+
+                    if ($this->hasActiveSubscription($billable, $subscriptionName, $provider)) {
+                        return false;
+                    }
+
+                    app(DeleteSubscriptionAction::class)->execute($billable);
+
+                    return true;
+                });
             } catch (\Throwable $exception) {
                 Log::error('EnforcePlanSubscriptionsJob: failed to revoke plan, will retry next run.', [
                     'billable_type' => get_class($billable),
@@ -69,6 +93,10 @@ class EnforcePlanSubscriptionsJob implements ShouldQueue
                     'error' => $exception->getMessage(),
                 ]);
 
+                continue;
+            }
+
+            if (! $revoked) {
                 continue;
             }
 
@@ -85,9 +113,14 @@ class EnforcePlanSubscriptionsJob implements ShouldQueue
     }
 
     /**
-     * Check if the billable has an active subscription or is on a grace period.
+     * Check if the billable's subscription still holds entitlements.
+     *
+     * Uses the shared EntitlementStatusPolicy rather than Cashier's active():
+     * Cashier Paddle's active() excludes trialing, and both Cashiers treat
+     * past_due as inactive — the policy (and the webhook listeners using it)
+     * may intentionally keep both.
      */
-    private function hasActiveSubscription(mixed $billable, string $subscriptionName): bool
+    private function hasActiveSubscription(mixed $billable, string $subscriptionName, string $provider): bool
     {
         if (! method_exists($billable, 'subscription')) {
             return false;
@@ -99,11 +132,17 @@ class EnforcePlanSubscriptionsJob implements ShouldQueue
             return false;
         }
 
-        // Active or on grace period (cancelled but not yet expired)
+        // On grace period (cancelled but not yet expired) keeps the plan.
         if (method_exists($subscription, 'onGracePeriod') && $subscription->onGracePeriod()) {
             return true;
         }
 
-        return $subscription->active();
+        $status = $subscription->status ?? $subscription->stripe_status ?? null;
+
+        if ($status !== null) {
+            return EntitlementStatusPolicy::statusHoldsEntitlements($provider, $status);
+        }
+
+        return (bool) $subscription->active();
     }
 }

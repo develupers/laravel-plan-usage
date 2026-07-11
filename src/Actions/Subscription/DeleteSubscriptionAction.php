@@ -7,7 +7,6 @@ namespace Develupers\PlanUsage\Actions\Subscription;
 use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Models\Plan;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class DeleteSubscriptionAction
@@ -29,29 +28,26 @@ class DeleteSubscriptionAction
      */
     public function execute(Billable $billable): void
     {
-        if ($this->assignDefaultPlan($billable)) {
-            return;
-        }
-
         // Get the old plan information before clearing
         $oldPlanId = $this->getBillablePlanId($billable);
         $oldPlanPriceId = $this->getBillablePlanPriceId($billable);
 
-        // Quotas are deleted BEFORE the plan ids are cleared, and both run in
-        // one transaction: a failure must never persist a planless billable
-        // with usable quota rows (the enforcer returns existing rows before
-        // its no-plan guard).
-        $deletedCount = 0;
-
-        DB::transaction(function () use ($billable, &$deletedCount): void {
-            $deletedCount = $billable->quotas()->delete();
-
-            $this->clearBillablePlan($billable);
-        });
+        // Step 1 — revoke FIRST, as its own committed write. The paid plan
+        // must never survive a later cleanup failure: with plan_id cleared,
+        // QuotaEnforcer's plan guard already denies usage even while stale
+        // quota rows remain, so every later step can safely fail and retry.
+        // (Wrapping revocation and cleanup in one transaction would roll the
+        // revocation back on cleanup failure — fail-open on the paid plan.)
+        $this->clearBillablePlan($billable);
 
         if ($billable instanceof Model) {
             app('plan-usage.quota')->clearQuotaCache($billable);
         }
+
+        // Step 2 — cleanup. Failures rethrow so the caller (webhook listener,
+        // reconciliation) retries, while the billable stays planless (denied)
+        // rather than back on the paid plan.
+        $deletedCount = $billable->quotas()->delete();
 
         Log::info('Deleted subscription and cleared quotas for billable', [
             'billable_type' => get_class($billable),
@@ -60,14 +56,18 @@ class DeleteSubscriptionAction
             'old_plan_price_id' => $oldPlanPriceId,
             'quotas_deleted' => $deletedCount,
         ]);
+
+        // Step 3 — move to the configured default (free) plan when one is
+        // set. A failed sync leaves the billable planless; the retry assigns
+        // the default plan.
+        $this->assignDefaultPlan($billable);
     }
 
     /**
      * Move the billable to the configured default plan, when one is set.
      *
-     * Returns true when the default plan was assigned (quotas synced to it),
-     * false when unconfigured or assignment was not possible — callers then
-     * fall back to clearing the plan entirely.
+     * Runs AFTER the paid plan has been revoked: a failure here (rethrown by
+     * the sync) leaves the billable planless and denied, never entitled.
      */
     protected function assignDefaultPlan(Billable $billable): bool
     {

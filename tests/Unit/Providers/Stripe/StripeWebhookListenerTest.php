@@ -134,13 +134,16 @@ it('ignores events for a subscription that is not the default-type subscription'
     expect($this->listener->fetches)->toBe(0);
 });
 
-it('does not grant entitlements for an incomplete (unpaid) subscription', function () {
+it('revokes rather than grants when the default subscription is incomplete (unpaid)', function () {
     // Stripe creates subscriptions with status=incomplete before the first
-    // payment settles — granting here would give a never-paid customer a plan.
+    // payment settles. Granting would give a never-paid customer a plan —
+    // and merely skipping would let an OLD paid plan survive behind a
+    // replacement subscription that was never paid. Policy: revoke.
+    $this->billable->update(['plan_id' => 42, 'plan_price_id' => 7]);
     $this->listener->remoteState = ['status' => 'incomplete', 'price_id' => 'price_wh_current'];
 
     $this->syncAction->shouldNotReceive('execute');
-    $this->deleteAction->shouldNotReceive('execute');
+    $this->deleteAction->shouldReceive('execute')->once();
 
     $this->listener->handle(new WebhookHandled(stripeWebhookPayload('evt_incomplete')));
 });

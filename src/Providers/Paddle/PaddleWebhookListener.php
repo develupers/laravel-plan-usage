@@ -6,12 +6,14 @@ namespace Develupers\PlanUsage\Providers\Paddle;
 
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
+use Develupers\PlanUsage\Support\EntitlementStatusPolicy;
 use Develupers\PlanUsage\Support\SubscriptionStateLock;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Paddle\Cashier;
 use Laravel\Paddle\Events\WebhookHandled;
+use Laravel\Paddle\Events\WebhookReceived;
 
 /**
  * Handles Paddle webhook events for plan synchronization.
@@ -53,12 +55,38 @@ class PaddleWebhookListener
     public function handle(WebhookHandled $event): void
     {
         $payload = $event->payload;
-        $eventType = $payload['event_type'] ?? '';
 
         // Only handle subscription-related events
-        if (! $this->shouldHandle($eventType)) {
+        if (! $this->shouldHandle($payload['event_type'] ?? '')) {
             return;
         }
+
+        $this->process($payload);
+    }
+
+    /**
+     * Cashier Paddle only dispatches WebhookHandled for events it has a
+     * handler for — subscription.past_due has none, so it must be picked up
+     * from WebhookReceived. Only Cashier-UNHANDLED events are accepted here;
+     * everything else flows through handle() to avoid double-processing.
+     */
+    public function handleReceived(WebhookReceived $event): void
+    {
+        $payload = $event->payload;
+
+        if (($payload['event_type'] ?? '') !== 'subscription.past_due') {
+            return;
+        }
+
+        $this->process($payload);
+    }
+
+    /**
+     * Deduplicate, converge, and keep failures retryable.
+     */
+    private function process(array $payload): void
+    {
+        $eventType = $payload['event_type'] ?? '';
 
         // Deduplicate webhook events using Paddle event ID
         $eventId = $payload['event_id'] ?? null;
@@ -164,35 +192,37 @@ class PaddleWebhookListener
             return;
         }
 
-        // Only the default-type subscription controls the plan. Without this,
-        // an event for any other named subscription (e.g. an add-on) would
-        // overwrite the billable's plan from that subscription's price.
-        $localSubscription = $billable->subscription($subscriptionName);
-
-        if ($localSubscription === null || $localSubscription->paddle_id !== $subscriptionId) {
-            Log::info('Ignoring Paddle webhook for a non-default subscription', [
-                'billable_id' => $billable->getKey(),
-                'subscription_id' => $subscriptionId,
-                'expected_subscription_id' => $localSubscription->paddle_id ?? null,
-            ]);
-
-            return;
-        }
-
         // Serialize with plan changes, cancellation, and other webhook
         // deliveries for this billable: without the lock, a fast webhook can
         // interleave with ChangeSubscriptionPlanAction and replace a prorated
         // allowance with the full target-plan allowance.
-        $this->stateLock->block($billable, function () use ($billable, $subscriptionId): void {
+        $this->stateLock->block($billable, function () use ($billable, $subscriptionId, $subscriptionName): void {
+            // Identity is validated INSIDE the lock, against a fresh read:
+            // only the default-type subscription controls the plan, and by
+            // the time the lock is held Cashier may have replaced it (an
+            // event for the old subscription must not pass a stale check).
+            $billable->unsetRelation('subscriptions');
+            $localSubscription = $billable->subscription($subscriptionName);
+
+            if ($localSubscription === null || $localSubscription->paddle_id !== $subscriptionId) {
+                Log::info('Ignoring Paddle webhook for a non-default subscription', [
+                    'billable_id' => $billable->getKey(),
+                    'subscription_id' => $subscriptionId,
+                    'expected_subscription_id' => $localSubscription->paddle_id ?? null,
+                ]);
+
+                return;
+            }
+
             $remote = $this->fetchPaddleSubscription($subscriptionId);
             $status = (string) ($remote['status'] ?? '');
             $priceId = $remote['price_id'] ?? null;
 
-            // Entitlement policy by CURRENT remote status:
-            // - active/trialing → grant (sync plan from remote price)
-            // - past_due        → configurable; kept by default
-            // - anything else   → revoke (canceled, paused)
-            if (in_array($status, ['active', 'trialing'], true)) {
+            // Shared policy: grant on active/trialing, past_due configurable,
+            // everything else revokes.
+            $decision = EntitlementStatusPolicy::decide('paddle', $status);
+
+            if ($decision === EntitlementStatusPolicy::GRANT) {
                 if (is_string($priceId) && $priceId !== '') {
                     $this->syncPlanWithBillable->execute($billable, $priceId);
                 }
@@ -200,7 +230,7 @@ class PaddleWebhookListener
                 return;
             }
 
-            if ($status === 'past_due' && config('plan-usage.paddle.past_due_keeps_entitlements', true)) {
+            if ($decision === EntitlementStatusPolicy::KEEP) {
                 return;
             }
 
