@@ -5,9 +5,12 @@ declare(strict_types=1);
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Develupers\PlanUsage\Contracts\Billable;
+use Develupers\PlanUsage\Enums\Period;
+use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\Usage;
 use Develupers\PlanUsage\Traits\HasPlanFeatures;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 
@@ -331,4 +334,39 @@ it('returns null when billable has no plan ID', function () {
     $result = $method->invoke($this->action, $billable);
 
     expect($result)->toBeNull();
+});
+
+it('is idempotent once the billable is on the default plan and preserves quota usage', function () {
+    // Providers emit multiple lifecycle events, and reconciliation revisits
+    // cancelled rows on every run: repeated revocation must not delete and
+    // recreate the default plan's quotas — that resets free-tier usage.
+    $billableClass = new class extends Model implements Billable
+    {
+        use HasPlanFeatures;
+
+        public $timestamps = false;
+
+        protected $table = 'test_billables';
+
+        protected $guarded = [];
+    };
+
+    $feature = Feature::factory()->quota()->create([
+        'slug' => 'free-tier-credits',
+        'reset_period' => Period::MONTH,
+    ]);
+    $defaultPlan = Plan::factory()->create();
+    $defaultPlan->features()->attach($feature->id, ['value' => '100']);
+    Config::set('plan-usage.subscription.default_plan_id', $defaultPlan->id);
+
+    // Already revoked once: on the default plan with consumed usage.
+    $billable = $billableClass::query()->create(['plan_id' => $defaultPlan->id]);
+    $billable->syncQuotasWithPlan();
+    $quota = $billable->quotas()->firstOrFail();
+    $quota->update(['used' => 37]);
+
+    $this->action->execute($billable);
+
+    expect($billable->fresh()->plan_id)->toBe($defaultPlan->id)
+        ->and($billable->quotas()->firstOrFail()->used)->toBe(37.0);
 });

@@ -37,6 +37,13 @@ class EntitlementStatusPolicy
             return self::GRANT;
         }
 
+        // Polar reports a scheduled (grace-period) cancellation as status
+        // 'canceled' while entitlements remain until subscription.revoked /
+        // ended_at — unlike Stripe/Paddle, whose canceled status is terminal.
+        if ($provider === 'polar' && $status === 'canceled') {
+            return self::KEEP;
+        }
+
         if ($status === 'past_due') {
             return config("plan-usage.{$provider}.past_due_keeps_entitlements", true)
                 ? self::KEEP

@@ -44,11 +44,16 @@ class EnforcePlanSubscriptionsJob implements ShouldQueue
 
         // Get all non-lifetime plan IDs
         $lifetimePlanIds = Plan::where('is_lifetime', true)->pluck('id');
+        $defaultPlanId = config('plan-usage.subscription.default_plan_id');
 
-        // Find billables with a plan that is not lifetime
+        // Find billables with a plan that is not lifetime. Billables already
+        // on the configured default (free) plan are excluded — re-revoking
+        // them every run would delete and recreate their quotas, resetting
+        // free-tier usage daily.
         $billables = $modelClass::query()
             ->whereNotNull('plan_id')
             ->when($lifetimePlanIds->isNotEmpty(), fn ($q) => $q->whereNotIn('plan_id', $lifetimePlanIds))
+            ->when($defaultPlanId, fn ($q) => $q->where('plan_id', '!=', $defaultPlanId))
             ->with('plan')
             ->get();
 
@@ -75,6 +80,7 @@ class EnforcePlanSubscriptionsJob implements ShouldQueue
                     // subscription since the pre-check, and revoking from that
                     // stale decision would undo the grant.
                     if ($billable instanceof Model) {
+                        $billable->refresh();
                         $billable->unsetRelation('subscriptions');
                     }
 

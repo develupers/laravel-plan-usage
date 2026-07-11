@@ -32,6 +32,16 @@ class DeleteSubscriptionAction
         $oldPlanId = $this->getBillablePlanId($billable);
         $oldPlanPriceId = $this->getBillablePlanPriceId($billable);
 
+        // Idempotent for repeated lifecycle events: once the billable is on
+        // the configured default (free) plan, a second cancellation event or
+        // reconciliation run must not delete and recreate its quotas — that
+        // would reset free-tier usage to zero on every event.
+        $defaultPlanId = (int) (config('plan-usage.subscription.default_plan_id') ?? 0);
+
+        if ($defaultPlanId > 0 && $oldPlanId === $defaultPlanId) {
+            return;
+        }
+
         // Step 1 — revoke FIRST, as its own committed write. The paid plan
         // must never survive a later cleanup failure: with plan_id cleared,
         // QuotaEnforcer's plan guard already denies usage even while stale

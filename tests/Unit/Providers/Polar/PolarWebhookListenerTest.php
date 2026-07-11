@@ -391,3 +391,30 @@ it('rethrows processing failures and leaves the durable event retryable', functi
         ->and($billingEvent->ignored_at)->toBeNull()
         ->and($billingEvent->last_error)->toBe('Quota sync failed');
 });
+
+it('ignores subscription events for a non-default (add-on) polar subscription', function () {
+    // An add-on subscription's lifecycle must not revoke or replace the main
+    // plan: its revoked event previously deleted the billable's entitlements.
+    $payload = polarPlanUsagePayload($this->billable, 'subscription.revoked', 'prod_webhook_growth');
+    $payload['data']['id'] = 'sub_addon_999';
+
+    $this->listener->handle(new WebhookHandled($payload));
+
+    expect($this->billable->fresh()->plan_id)->toBe($this->growth->id)
+        ->and(BillingWebhookEvent::query()->whereNotNull('ignored_at')->count())->toBe(1);
+});
+
+it('revokes a stale plan when the default subscription reports a non-holding status', function () {
+    // incomplete/unpaid previously fell into "ignored", leaving a stale paid
+    // plan in place; the shared policy revokes it.
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.updated',
+        'prod_webhook_growth',
+        status: 'incomplete',
+    )));
+
+    expect($this->billable->fresh()->plan_id)->toBeNull()
+        ->and($this->billable->fresh()->quotas()->count())->toBe(0)
+        ->and(BillingWebhookEvent::query()->whereNotNull('processed_at')->count())->toBe(1);
+});

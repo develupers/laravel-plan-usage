@@ -197,6 +197,12 @@ class PaddleWebhookListener
         // interleave with ChangeSubscriptionPlanAction and replace a prorated
         // allowance with the full target-plan allowance.
         $this->stateLock->block($billable, function () use ($billable, $subscriptionId, $subscriptionName): void {
+            // Pre-lock Eloquent state may predate a concurrent plan change
+            // that held this lock first — without a refresh, the same-plan
+            // guard reads stale ids and quota sync can replace a prorated
+            // allowance with the full target allowance.
+            $billable->refresh();
+
             // Identity is validated INSIDE the lock, against a fresh read:
             // only the default-type subscription controls the plan, and by
             // the time the lock is held Cashier may have replaced it (an

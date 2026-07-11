@@ -15,11 +15,11 @@ use Develupers\PlanUsage\Events\SubscriptionPlanChangeCancelled;
 use Develupers\PlanUsage\Models\BillingWebhookEvent;
 use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Models\SubscriptionPlanChange;
+use Develupers\PlanUsage\Support\EntitlementStatusPolicy;
 use Develupers\PlanUsage\Support\ProviderSubscriptionChange;
 use Develupers\PlanUsage\Support\SubscriptionStateLock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 
@@ -80,56 +80,86 @@ class PolarWebhookListener
         // action that created it is mid-flight.
         try {
             $this->stateLock->block($billable, function () use ($billingEvent, $billable, $eventType, $data, $occurredAt): void {
-                DB::transaction(function () use ($billingEvent, $billable, $eventType, $data, $occurredAt): void {
-                    // Re-read the row under the lock so concurrent deliveries of the same
-                    // event observe each other's committed state instead of the stale copy
-                    // loaded by firstOrCreate() before the transaction opened.
-                    $billingEvent = $billingEvent->newQuery()->whereKey($billingEvent->getKey())->lockForUpdate()->first();
+                // The state lock serializes every delivery for this billable
+                // (a subscription/order lineage always resolves to a single
+                // billable), so a fresh re-read replaces the previous
+                // row-lock transaction. Nothing here may run inside an
+                // ambient DB transaction: DeleteSubscriptionAction's
+                // fail-closed ordering (the plan-clear commits before
+                // cleanup) would otherwise be rolled back by an outer
+                // rollback when cleanup fails — restoring the paid plan.
+                $billingEvent = $billingEvent->fresh();
 
-                    if ($billingEvent === null
-                        || $billingEvent->processed_at !== null
-                        || $billingEvent->ignored_at !== null) {
-                        return;
-                    }
+                if ($billingEvent === null
+                    || $billingEvent->processed_at !== null
+                    || $billingEvent->ignored_at !== null) {
+                    return;
+                }
 
-                    if ($this->isOutOfOrder($data['id'], $occurredAt, $billingEvent->id, $eventType)) {
-                        $billingEvent->update(['ignored_at' => now()]);
+                // Pre-lock Eloquent state may predate a concurrent plan
+                // change or cancellation that held this lock first.
+                $billable->refresh();
 
-                        return;
-                    }
+                if ($this->isOutOfOrder($data['id'], $occurredAt, $billingEvent->id, $eventType)) {
+                    $billingEvent->update(['ignored_at' => now()]);
 
-                    if (str_starts_with($eventType, 'order.')) {
-                        $this->processOrderEvent($billable, $data, $eventType, $billingEvent);
+                    return;
+                }
 
-                        return;
-                    }
+                if (str_starts_with($eventType, 'order.')) {
+                    $this->processOrderEvent($billable, $data, $eventType, $billingEvent);
 
-                    if ($eventType === 'subscription.revoked' || $eventType === 'subscription.paused') {
-                        $this->deleteSubscription->execute($billable);
-                        $this->cancelPendingChanges($data['id'], $billable);
-                        $billingEvent->update(['processed_at' => now()]);
+                    return;
+                }
 
-                        return;
-                    }
+                // Only the configured default-type subscription controls the
+                // plan: an add-on subscription's lifecycle must not revoke or
+                // replace the main entitlement.
+                $subscriptionName = config('plan-usage.subscription.default_name', 'default');
+                $billable->unsetRelation('subscriptions');
+                $localSubscription = $billable->subscription($subscriptionName);
 
-                    if ($eventType === 'subscription.past_due'
-                        && ! config('plan-usage.polar.past_due_keeps_entitlements', true)) {
-                        $this->deleteSubscription->execute($billable);
-                        $billingEvent->update(['processed_at' => now()]);
+                if ($localSubscription === null || $localSubscription->polar_id !== $data['id']) {
+                    Log::info('Ignoring Polar webhook for a non-default subscription', [
+                        'billable_id' => $billable->getKey(),
+                        'subscription_id' => $data['id'],
+                        'expected_subscription_id' => $localSubscription->polar_id ?? null,
+                    ]);
+                    $billingEvent->update(['ignored_at' => now()]);
 
-                        return;
-                    }
+                    return;
+                }
 
-                    if (! $this->statusCanHoldEntitlements((string) ($data['status'] ?? ''))) {
-                        $billingEvent->update(['ignored_at' => now()]);
+                if ($eventType === 'subscription.revoked' || $eventType === 'subscription.paused') {
+                    $this->deleteSubscription->execute($billable);
+                    $this->cancelPendingChanges($data['id'], $billable);
+                    $billingEvent->update(['processed_at' => now()]);
 
-                        return;
-                    }
+                    return;
+                }
 
-                    $this->syncPendingChange($billable, $data);
+                // Shared policy on the subscription's status. Polar's
+                // 'canceled' is a grace period (KEEP) — terminal revocation
+                // arrives as subscription.revoked. Non-holding statuses
+                // (incomplete, unpaid, past_due under the revoke policy)
+                // REVOKE any stale plan instead of being silently ignored.
+                $decision = EntitlementStatusPolicy::decide('polar', (string) ($data['status'] ?? ''));
+
+                if ($decision === EntitlementStatusPolicy::REVOKE) {
+                    $this->deleteSubscription->execute($billable);
+                    $this->cancelPendingChanges($data['id'], $billable);
+                    $billingEvent->update(['processed_at' => now()]);
+
+                    return;
+                }
+
+                $this->syncPendingChange($billable, $data);
+
+                if ($decision === EntitlementStatusPolicy::GRANT) {
                     $this->syncCurrentPlan($billable, $data, $eventType);
-                    $billingEvent->update(['processed_at' => now(), 'last_error' => null]);
-                });
+                }
+
+                $billingEvent->update(['processed_at' => now(), 'last_error' => null]);
             });
         } catch (LockTimeoutException $exception) {
             $billingEvent->update(['last_error' => 'Timed out waiting for the subscription state lock.']);
@@ -228,11 +258,6 @@ class PolarWebhookListener
 
         $this->syncPlanWithBillable->execute($billable, $planPrice);
         $billingEvent->update(['processed_at' => now(), 'last_error' => null]);
-    }
-
-    private function statusCanHoldEntitlements(string $status): bool
-    {
-        return in_array($status, ['active', 'trialing', 'past_due', 'canceled'], true);
     }
 
     /**

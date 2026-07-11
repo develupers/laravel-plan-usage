@@ -281,19 +281,28 @@ class ReconcileSubscriptionsCommand extends Command
         $subscription,
         bool $dryRun
     ): string {
-        if ($provider->name() === 'stripe') {
-            // Serialize with plan-change actions and webhook processing.
+        if ($provider->name() === 'stripe' || $provider->name() === 'paddle') {
+            // Serialize with plan-change actions and webhook processing. The
+            // pre-lock subscription object is discarded: state is re-resolved
+            // under the lock so a concurrent replacement or plan change is
+            // never acted on from a stale snapshot.
             return app(SubscriptionStateLock::class)->block(
                 $billable,
-                fn (): string => $this->reconcileStripeSubscription($billable, $subscription, $dryRun)
-            );
-        }
+                function () use ($provider, $billable, $dryRun): string {
+                    $billable->refresh();
+                    $billable->unsetRelation('subscriptions');
+                    $subscription = $billable->subscription(config('plan-usage.subscription.default_name', 'default'));
 
-        if ($provider->name() === 'paddle') {
-            // Serialize with plan-change actions and webhook processing.
-            return app(SubscriptionStateLock::class)->block(
-                $billable,
-                fn (): string => $this->reconcilePaddleSubscription($billable, $subscription, $dryRun)
+                    if ($subscription === null) {
+                        $this->line('  Skipped: default subscription disappeared under lock');
+
+                        return 'skipped';
+                    }
+
+                    return $provider->name() === 'stripe'
+                        ? $this->reconcileStripeSubscription($billable, $subscription, $dryRun)
+                        : $this->reconcilePaddleSubscription($billable, $subscription, $dryRun);
+                }
             );
         }
 
@@ -322,7 +331,20 @@ class ReconcileSubscriptionsCommand extends Command
             }
 
             // Serialize with plan-change actions and webhook processing.
-            return app(SubscriptionStateLock::class)->block($billable, function () use ($provider, $billable, $subscription, $dryRun, $subscriptionId): string {
+            return app(SubscriptionStateLock::class)->block($billable, function () use ($provider, $billable, $dryRun, $subscriptionId): string {
+                // Fresh state under the lock: pre-lock reads may predate a
+                // concurrent webhook or plan change, and the default
+                // subscription itself may have been replaced.
+                $billable->refresh();
+                $billable->unsetRelation('subscriptions');
+                $subscription = $billable->subscription(config('plan-usage.subscription.default_name', 'default'));
+
+                if ($subscription === null || $subscription->polar_id !== $subscriptionId) {
+                    $this->line('  Skipped: default subscription changed under lock');
+
+                    return 'skipped';
+                }
+
                 // Authoritative fetch inside the lock — never a pre-lock
                 // snapshot, which could regrant state a concurrent webhook
                 // just changed.
@@ -337,9 +359,14 @@ class ReconcileSubscriptionsCommand extends Command
                 $status = $remoteSubscription->status->value;
                 $this->info("  Polar status: {$status}");
 
-                if (in_array($status, ['canceled', 'unpaid'], true)
-                    && $remoteSubscription->endedAt !== null
-                    && CarbonImmutable::instance($remoteSubscription->endedAt)->isPast()) {
+                // Shared policy, with Polar's grace semantics: 'canceled'
+                // KEEPs entitlements until ended_at passes (revocation
+                // arrives as subscription.revoked).
+                $decision = EntitlementStatusPolicy::decide('polar', $status);
+                $graceEnded = $remoteSubscription->endedAt !== null
+                    && CarbonImmutable::instance($remoteSubscription->endedAt)->isPast();
+
+                if ($decision === EntitlementStatusPolicy::REVOKE || ($status === 'canceled' && $graceEnded)) {
                     if (! $dryRun) {
                         app(DeleteSubscriptionAction::class)->execute($billable);
                         $this->cancelPolarPendingChanges($billable, $subscriptionId);
@@ -350,6 +377,14 @@ class ReconcileSubscriptionsCommand extends Command
                         : '  Removed plan from billable');
 
                     return 'removed';
+                }
+
+                if ($decision === EntitlementStatusPolicy::KEEP) {
+                    // Grace period / past_due-keep: entitlements stay as they
+                    // are — no grant, no revocation.
+                    $this->info('  Status keeps current entitlements (policy)');
+
+                    return 'skipped';
                 }
 
                 $changed = false;
@@ -518,7 +553,17 @@ class ReconcileSubscriptionsCommand extends Command
                 return 'skipped';
             }
 
-            if ($stripeSubscription->status === 'active' && $stripeSubscription->cancel_at_period_end) {
+            if (in_array($stripeSubscription->status, ['active', 'trialing']) && $stripeSubscription->cancel_at_period_end) {
+                // The subscription remains paid (GRANT) through the grace
+                // period — a planless billable here (missed webhooks) must
+                // still be recovered, not just have its end date repaired.
+                $graceSynced = $this->syncPlanPriceFromRemote(
+                    $billable,
+                    $stripeSubscription->items->data[0]->price->id ?? null,
+                    $dryRun,
+                    'stripe_price_id',
+                );
+
                 $periodEnd = Carbon::createFromTimestamp($stripeSubscription->current_period_end);
                 $oldEndsAt = $subscription->ends_at;
 
@@ -548,7 +593,7 @@ class ReconcileSubscriptionsCommand extends Command
 
                 $this->info('  Grace period end date is correct');
 
-                return 'skipped';
+                return $graceSynced ? 'updated' : 'skipped';
             }
 
             // Every other status follows the shared entitlement policy —
@@ -556,7 +601,18 @@ class ReconcileSubscriptionsCommand extends Command
             // disagree with live event handling.
             $decision = EntitlementStatusPolicy::decide('stripe', (string) $stripeSubscription->status);
 
-            if ($decision !== EntitlementStatusPolicy::REVOKE) {
+            if ($decision === EntitlementStatusPolicy::GRANT) {
+                // Defensive: grant-statuses are handled above, but a GRANT
+                // decision must never degrade to a silent skip.
+                return $this->syncPlanPriceFromRemote(
+                    $billable,
+                    $stripeSubscription->items->data[0]->price->id ?? null,
+                    $dryRun,
+                    'stripe_price_id',
+                ) ? 'updated' : 'skipped';
+            }
+
+            if ($decision === EntitlementStatusPolicy::KEEP) {
                 $this->info("  {$stripeSubscription->status} keeps entitlements (policy)");
 
                 return 'skipped';
@@ -670,7 +726,17 @@ class ReconcileSubscriptionsCommand extends Command
                 return 'skipped';
             }
 
-            if ($paddleStatus === 'active' && $cancelAtPeriodEnd) {
+            if (in_array($paddleStatus, ['active', 'trialing']) && $cancelAtPeriodEnd) {
+                // The subscription remains paid (GRANT) through the grace
+                // period — a planless billable here (missed webhooks) must
+                // still be recovered, not just have its end date repaired.
+                $graceSynced = $this->syncPlanPriceFromRemote(
+                    $billable,
+                    $paddleSubscription['items'][0]['price']['id'] ?? null,
+                    $dryRun,
+                    'paddle_price_id',
+                );
+
                 // Grace period — sync the end date from Paddle
                 $periodEnd = isset($paddleSubscription['current_billing_period']['ends_at'])
                     ? Carbon::parse($paddleSubscription['current_billing_period']['ends_at'])
@@ -700,7 +766,7 @@ class ReconcileSubscriptionsCommand extends Command
 
                 $this->info('  Grace period end date is correct');
 
-                return 'skipped';
+                return $graceSynced ? 'updated' : 'skipped';
             }
 
             // Every other status follows the shared entitlement policy —
@@ -708,7 +774,18 @@ class ReconcileSubscriptionsCommand extends Command
             // disagree with live event handling.
             $decision = EntitlementStatusPolicy::decide('paddle', $paddleStatus);
 
-            if ($decision !== EntitlementStatusPolicy::REVOKE) {
+            if ($decision === EntitlementStatusPolicy::GRANT) {
+                // Defensive: grant-statuses are handled above, but a GRANT
+                // decision must never degrade to a silent skip.
+                return $this->syncPlanPriceFromRemote(
+                    $billable,
+                    $paddleSubscription['items'][0]['price']['id'] ?? null,
+                    $dryRun,
+                    'paddle_price_id',
+                ) ? 'updated' : 'skipped';
+            }
+
+            if ($decision === EntitlementStatusPolicy::KEEP) {
                 $this->info("  {$paddleStatus} keeps entitlements (policy)");
 
                 return 'skipped';
@@ -826,6 +903,22 @@ class ReconcileSubscriptionsCommand extends Command
                     'billable_id' => $billable->getKey(),
                     'paddle_subscription_id' => $subscriptionId,
                 ]);
+            } else {
+                $this->line('  [DRY-RUN] Would remove plan from billable');
+            }
+
+            return 'removed';
+        }
+
+        // The shared entitlement policy applies to the local status too:
+        // paused, past_due under the revoke policy, and unknown statuses must
+        // not be reported as OK just because the API was unreachable.
+        if (EntitlementStatusPolicy::decide('paddle', (string) $status) === EntitlementStatusPolicy::REVOKE) {
+            $this->warn("  Local Paddle status {$status} does not hold entitlements");
+
+            if (! $dryRun) {
+                app(DeleteSubscriptionAction::class)->execute($billable);
+                $this->info('  Removed plan from billable');
             } else {
                 $this->line('  [DRY-RUN] Would remove plan from billable');
             }
