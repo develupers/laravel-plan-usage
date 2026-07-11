@@ -768,6 +768,8 @@ This is handled at the package level, so your listeners don't need any deduplica
 
 The package integrates with Cashier Stripe, Cashier Paddle, and Laravel Polar through one billing provider contract.
 
+**Design boundary**: the provider libraries own the money — payments, invoices, taxes, payment methods, and the billing clock. This package owns the entitlements — what a customer may use inside your application, and how much of it is left. It only reaches into a provider where entitlement correctness requires owning the call path (plan changes, cancellation), and it never replicates provider machinery it can consume instead.
+
 ### Provider-Agnostic Methods
 
 ```php
@@ -801,6 +803,21 @@ Provider support:
 |---|---|---|---|
 | `Immediate` (swap + prorate now) | ✅ | ✅ | ✅ |
 | `NextPeriod` (scheduled change at renewal) | ❌ | ❌ | ✅ |
+
+A timing is exposed only where the provider supports it **natively** — the package never emulates provider-side scheduling with local timers, because the provider owns the billing clock and only it can bill the new price correctly at renewal. (Stripe could gain `NextPeriod` later via its native Subscription Schedules; Paddle has no native equivalent.) Feature-detect instead of catching exceptions:
+
+```php
+use Develupers\PlanUsage\Contracts\BillingProvider;
+use Develupers\PlanUsage\Contracts\SubscriptionPlanChangeProvider;
+use Develupers\PlanUsage\Enums\SubscriptionChangeTiming;
+
+$provider = app(BillingProvider::class);
+
+if ($provider instanceof SubscriptionPlanChangeProvider
+    && $provider->supportsTiming(SubscriptionChangeTiming::NextPeriod)) {
+    // Offer "downgrade at renewal" in the UI
+}
+```
 
 ```php
 use Develupers\PlanUsage\Actions\Subscription\CancelSubscriptionAction;
