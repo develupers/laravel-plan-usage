@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Enums\Period;
 use Develupers\PlanUsage\Events\QuotaExceeded;
 use Develupers\PlanUsage\Events\QuotaWarning;
@@ -10,9 +11,27 @@ use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanFeature;
 use Develupers\PlanUsage\Models\Quota;
 use Develupers\PlanUsage\Services\QuotaEnforcer;
+use Develupers\PlanUsage\Traits\HasPlanFeatures;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
+
+/**
+ * Real attributes-backed billable: the read-path projection resolves the plan
+ * through the plan_id column, which createBillable()'s declared public
+ * properties shadow.
+ */
+class QuotaProjectionTestBillable extends Model implements Billable
+{
+    use HasPlanFeatures;
+
+    public $timestamps = false;
+
+    protected $table = 'test_billables';
+
+    protected $guarded = [];
+}
 
 beforeEach(function () {
     $this->quotaEnforcer = new QuotaEnforcer;
@@ -38,6 +57,62 @@ describe('QuotaEnforcer', function () {
         // Act & Assert
         expect($this->quotaEnforcer->canUse($billable, 'api-calls', 30))->toBeTrue()
             ->and($this->quotaEnforcer->canUse($billable, 'api-calls', 60))->toBeFalse();
+    });
+
+    it('evaluates expired quotas against the post-reset projection without saving', function () {
+        // Arrange: the quota expired at the last renewal but nothing has
+        // consumed since, so the lazy write-path reset has not run yet.
+        $feature = Feature::factory()->create([
+            'slug' => 'api-calls',
+            'type' => 'quota',
+            'reset_period' => Period::MONTH->value,
+        ]);
+        $plan = Plan::factory()->create();
+        $plan->features()->attach($feature->id, ['value' => '100']);
+        $billable = QuotaProjectionTestBillable::query()->create(['plan_id' => $plan->id]);
+
+        $quota = Quota::create([
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
+            'feature_id' => $feature->id,
+            'limit' => 100,
+            'used' => 100,
+            'reset_at' => now()->subDay(),
+        ]);
+
+        // Act & Assert: a read-only check must not reject a renewed billable.
+        expect($this->quotaEnforcer->canUse($billable, 'api-calls', 30))->toBeTrue();
+
+        // Read-only contract: the stored row is untouched.
+        $quota->refresh();
+        expect($quota->used)->toBe(100.0)
+            ->and($quota->reset_at->isPast())->toBeTrue();
+    });
+
+    it('projects the expired quota limit from the current plan allowance', function () {
+        // Arrange: a grandfathered limit (5000) that renewal trues down to the
+        // plan's real allowance (100) — the projection must use the plan value.
+        $feature = Feature::factory()->create([
+            'slug' => 'api-calls',
+            'type' => 'quota',
+            'reset_period' => Period::MONTH->value,
+        ]);
+        $plan = Plan::factory()->create();
+        $plan->features()->attach($feature->id, ['value' => '100']);
+        $billable = QuotaProjectionTestBillable::query()->create(['plan_id' => $plan->id]);
+
+        Quota::create([
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
+            'feature_id' => $feature->id,
+            'limit' => 5000,
+            'used' => 0,
+            'reset_at' => now()->subDay(),
+        ]);
+
+        // Act & Assert
+        expect($this->quotaEnforcer->canUse($billable, 'api-calls', 100))->toBeTrue()
+            ->and($this->quotaEnforcer->canUse($billable, 'api-calls', 101))->toBeFalse();
     });
 
     it('allows unlimited usage when limit is null', function () {

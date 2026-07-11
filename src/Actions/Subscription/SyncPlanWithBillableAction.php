@@ -8,6 +8,8 @@ use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Facades\PlanUsage;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanPrice;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class SyncPlanWithBillableAction
@@ -62,10 +64,29 @@ class SyncPlanWithBillableAction
         $oldPlanId = $this->getBillablePlanId($billable);
         $oldPlanPriceId = $this->getBillablePlanPriceId($billable);
 
-        // Update billable's plan
-        $this->updateBillablePlan($billable, $plan, $planPrice);
+        // Already on this exact plan price: nothing to sync. Routine
+        // subscription.updated webhooks (renewals, metadata edits, the echo of
+        // a swap we already applied) would otherwise re-run syncQuotasWithPlan()
+        // and overwrite prorated mid-cycle limits with the full plan allowance.
+        if ((int) $oldPlanId === $plan->id && (int) $oldPlanPriceId === $planPrice->id) {
+            return true;
+        }
 
-        // Log the change
+        // Assign the plan and sync quotas atomically. Quota failures must roll
+        // the plan ids back and rethrow: if the ids were saved while quotas
+        // failed, the same-plan guard above would skip every future webhook
+        // repair attempt, leaving entitlements permanently broken.
+        DB::transaction(function () use ($billable, $plan, $planPrice): void {
+            $this->updateBillablePlan($billable, $plan, $planPrice);
+
+            if (method_exists($billable, 'syncQuotasWithPlan')) {
+                $billable->syncQuotasWithPlan();
+            } else {
+                // Use the facade to sync quotas if the model doesn't have the method
+                PlanUsage::quotas()->syncWithPlan($billable);
+            }
+        });
+
         Log::info("Synced plan {$plan->name} with billable", [
             'billable_type' => get_class($billable),
             'billable_id' => $billable->getKey(),
@@ -75,28 +96,6 @@ class SyncPlanWithBillableAction
             'old_plan_price_id' => $oldPlanPriceId,
             'new_plan_price_id' => $planPrice->id,
         ]);
-
-        // Sync quotas with the new plan
-        try {
-            // Check if the billable implements the necessary methods
-            if (method_exists($billable, 'syncQuotasWithPlan')) {
-                $billable->syncQuotasWithPlan();
-            } else {
-                // Use the facade to sync quotas if the model doesn't have the method
-                PlanUsage::quotas()->syncWithPlan($billable);
-            }
-
-            Log::info('Successfully synced quotas for billable', [
-                'billable_type' => get_class($billable),
-                'billable_id' => $billable->getKey(),
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Failed to sync quotas for billable: '.$e->getMessage(), [
-                'billable_type' => get_class($billable),
-                'billable_id' => $billable->getKey(),
-                'exception' => $e,
-            ]);
-        }
 
         return true;
     }
@@ -130,15 +129,7 @@ class SyncPlanWithBillableAction
      */
     protected function getBillablePlanId(Billable $billable): ?int
     {
-        if (property_exists($billable, 'plan_id')) {
-            return $billable->plan_id;
-        }
-
-        if (method_exists($billable, 'getPlanId')) {
-            return $billable->getPlanId();
-        }
-
-        return null;
+        return $this->billableAttribute($billable, 'plan_id', 'getPlanId');
     }
 
     /**
@@ -146,15 +137,25 @@ class SyncPlanWithBillableAction
      */
     protected function getBillablePlanPriceId(Billable $billable): ?int
     {
-        if (property_exists($billable, 'plan_price_id')) {
-            return $billable->plan_price_id;
-        }
+        return $this->billableAttribute($billable, 'plan_price_id', 'getPlanPriceId');
+    }
 
-        if (method_exists($billable, 'getPlanPriceId')) {
-            return $billable->getPlanPriceId();
-        }
+    /**
+     * Read a plan attribute from any billable shape: custom accessor,
+     * declared property, or a real Eloquent attribute. property_exists()
+     * alone misses Eloquent columns (they live in the attributes array),
+     * which silently disabled the same-plan guard on real models.
+     */
+    protected function billableAttribute(Billable $billable, string $attribute, string $accessor): ?int
+    {
+        $value = match (true) {
+            method_exists($billable, $accessor) => $billable->{$accessor}(),
+            property_exists($billable, $attribute) => $billable->{$attribute},
+            $billable instanceof Model => $billable->getAttribute($attribute),
+            default => null,
+        };
 
-        return null;
+        return is_numeric($value) ? (int) $value : null;
     }
 
     /**
@@ -176,6 +177,13 @@ class SyncPlanWithBillableAction
         }
 
         $billable->save();
+
+        // A previously loaded plan relation still points at the OLD plan after
+        // the ids change; syncQuotasWithPlan() would then sync quotas from it,
+        // and the same-plan guard would block every future repair.
+        if ($billable instanceof Model) {
+            $billable->unsetRelation('plan');
+        }
     }
 
     /**

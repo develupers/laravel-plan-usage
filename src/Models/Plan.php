@@ -180,6 +180,8 @@ class Plan extends Model
         return match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_product_id,
             'lemon-squeezy' => $this->lemon_squeezy_product_id,
+            'polar' => $this->defaultPrice()->value('polar_product_id')
+                ?? $this->activePrices()->value('polar_product_id'),
             default => $this->stripe_product_id,
         };
     }
@@ -189,6 +191,20 @@ class Plan extends Model
      */
     public function setProviderProductId(string $productId): void
     {
+        if ($this->detectBillingProvider() === 'polar') {
+            $planPrice = $this->defaultPrice()->first()
+                ?? $this->activePrices()->orderByDesc('is_default')->first();
+
+            if ($planPrice === null) {
+                throw new \LogicException('A Polar product ID must be assigned to a plan price.');
+            }
+
+            $planPrice->polar_product_id = $productId;
+            $planPrice->save();
+
+            return;
+        }
+
         match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_product_id = $productId,
             'lemon-squeezy' => $this->lemon_squeezy_product_id = $productId,

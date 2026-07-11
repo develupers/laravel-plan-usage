@@ -4,8 +4,13 @@ declare(strict_types=1);
 
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Develupers\PlanUsage\Contracts\Billable;
+use Develupers\PlanUsage\Enums\Period;
+use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanPrice;
+use Develupers\PlanUsage\Models\Quota;
+use Develupers\PlanUsage\Traits\HasPlanFeatures;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Log;
 
 beforeEach(function () {
@@ -20,7 +25,7 @@ it('syncs plan from PlanPrice object', function () {
     $billable->plan_id = null;
     $billable->plan_price_id = null;
 
-    Log::shouldReceive('info')->twice(); // Once for sync, once for quotas
+    Log::shouldReceive('info')->once();
 
     $result = $this->action->execute($billable, $planPrice);
 
@@ -39,13 +44,117 @@ it('syncs plan from Stripe price ID string', function () {
 
     $billable = createBillable();
 
-    Log::shouldReceive('info')->twice();
+    Log::shouldReceive('info')->once();
 
     $result = $this->action->execute($billable, 'price_test123');
 
     expect($result)->toBeTrue();
     expect($billable->plan_id)->toBe($plan->id);
     expect($billable->plan_price_id)->toBe($planPrice->id);
+});
+
+it('skips the re-sync on a real Eloquent billable and preserves prorated quotas', function () {
+    // Real Eloquent model: plan ids live in the attributes array, NOT declared
+    // properties — property_exists() alone cannot see them.
+    $billableClass = new class extends Model implements Billable
+    {
+        use HasPlanFeatures;
+
+        public $timestamps = false;
+
+        protected $table = 'test_billables';
+
+        protected $guarded = [];
+    };
+
+    $feature = Feature::factory()->quota()->create([
+        'slug' => 'sync-guard-credits',
+        'reset_period' => Period::MONTH,
+    ]);
+    $plan = Plan::factory()->create();
+    $plan->features()->attach($feature->id, ['value' => '5000']);
+    $planPrice = PlanPrice::factory()->create(['plan_id' => $plan->id]);
+
+    $billable = $billableClass::query()->create([
+        'plan_id' => $plan->id,
+        'plan_price_id' => $planPrice->id,
+    ]);
+    // A mid-cycle upgrade left a prorated limit that a webhook echo must not overwrite.
+    $quota = Quota::query()->create([
+        'billable_type' => $billable->getMorphClass(),
+        'billable_id' => $billable->getKey(),
+        'feature_id' => $feature->id,
+        'limit' => 3000,
+        'used' => 150,
+        'reset_at' => now()->addDays(10),
+    ]);
+
+    expect($this->action->execute($billable, $planPrice))->toBeTrue()
+        ->and($quota->fresh()->limit)->toBe(3000.0)
+        ->and($quota->fresh()->used)->toBe(150.0);
+});
+
+it('syncs quotas from the new plan even when the old plan relation was already loaded', function () {
+    $billableClass = new class extends Model implements Billable
+    {
+        use HasPlanFeatures;
+
+        public $timestamps = false;
+
+        protected $table = 'test_billables';
+
+        protected $guarded = [];
+    };
+
+    $feature = Feature::factory()->quota()->create([
+        'slug' => 'stale-relation-credits',
+        'reset_period' => Period::MONTH,
+    ]);
+    $oldPlan = Plan::factory()->create();
+    $oldPlan->features()->attach($feature->id, ['value' => '1000']);
+    $oldPrice = PlanPrice::factory()->create(['plan_id' => $oldPlan->id]);
+    $newPlan = Plan::factory()->create();
+    $newPlan->features()->attach($feature->id, ['value' => '5000']);
+    $newPrice = PlanPrice::factory()->create(['plan_id' => $newPlan->id]);
+
+    $billable = $billableClass::query()->create([
+        'plan_id' => $oldPlan->id,
+        'plan_price_id' => $oldPrice->id,
+    ]);
+
+    // App code commonly reads ->plan earlier in the request; Eloquent caches
+    // the relation, and it must not survive the plan-id change into quota sync.
+    expect($billable->plan->id)->toBe($oldPlan->id);
+
+    Log::shouldReceive('info')->once();
+
+    expect($this->action->execute($billable, $newPrice))->toBeTrue();
+
+    $quota = Quota::query()
+        ->where('billable_type', $billable->getMorphClass())
+        ->where('billable_id', $billable->getKey())
+        ->where('feature_id', $feature->id)
+        ->first();
+
+    expect($quota)->not->toBeNull()
+        ->and($quota->limit)->toBe(5000.0)
+        ->and($billable->plan->id)->toBe($newPlan->id);
+});
+
+it('skips the re-sync when the billable is already on the target plan price', function () {
+    $plan = Plan::factory()->create();
+    $planPrice = PlanPrice::factory()->create(['plan_id' => $plan->id]);
+
+    // Routine subscription.updated webhooks (renewals, the echo of an applied
+    // swap) must not re-run syncQuotasWithPlan and overwrite prorated limits.
+    $billable = Mockery::mock(Billable::class);
+    $billable->shouldReceive('getKey')->andReturn(1);
+    $billable->plan_id = $plan->id;
+    $billable->plan_price_id = $planPrice->id;
+    $billable->shouldNotReceive('save');
+    $billable->shouldNotReceive('syncQuotasWithPlan');
+
+    expect($this->action->execute($billable, $planPrice))->toBeTrue();
 });
 
 it('returns false when plan not found', function () {
@@ -74,14 +183,14 @@ it('syncs quotas using billable method when available', function () {
     $billable->shouldReceive('save')->once();
     $billable->shouldReceive('syncQuotasWithPlan')->once();
 
-    Log::shouldReceive('info')->twice();
+    Log::shouldReceive('info')->once();
 
     $result = $this->action->execute($billable, $planPrice);
 
     expect($result)->toBeTrue();
 });
 
-it('handles quota sync failure gracefully', function () {
+it('rethrows when quota sync fails so the plan assignment rolls back', function () {
     $plan = Plan::factory()->create();
     $planPrice = PlanPrice::factory()->create(['plan_id' => $plan->id]);
 
@@ -92,15 +201,10 @@ it('handles quota sync failure gracefully', function () {
     $billable->shouldReceive('save')->once();
     $billable->shouldReceive('syncQuotasWithPlan')->once()->andThrow(new Exception('Quota sync failed'));
 
-    Log::shouldReceive('info')->once();
-    Log::shouldReceive('error')->once()->withArgs(function ($message, $context) {
-        return str_contains($message, 'Failed to sync quotas') &&
-               $context['exception'] instanceof Exception;
-    });
-
-    $result = $this->action->execute($billable, $planPrice);
-
-    expect($result)->toBeTrue(); // Still returns true as plan was synced
+    // Swallowing this would leave plan ids saved with broken quotas, and the
+    // same-plan guard would then skip every future webhook repair attempt.
+    expect(fn () => $this->action->execute($billable, $planPrice))
+        ->toThrow(Exception::class, 'Quota sync failed');
 });
 
 it('syncs multiple billables', function () {
@@ -111,7 +215,7 @@ it('syncs multiple billables', function () {
     $billable2 = createBillable(['id' => 2]);
     $billable3 = createBillable(['id' => 3]);
 
-    Log::shouldReceive('info')->times(6); // 2 per billable
+    Log::shouldReceive('info')->times(3); // 1 per billable
 
     $results = $this->action->executeMany([$billable1, $billable2, $billable3], $planPrice);
 
@@ -131,7 +235,7 @@ it('syncs by plan slug', function () {
 
     $billable = createBillable();
 
-    Log::shouldReceive('info')->twice();
+    Log::shouldReceive('info')->once();
 
     $result = $this->action->executeBySlug($billable, 'premium-plan');
 
@@ -159,7 +263,7 @@ it('syncs with specific price', function () {
 
     $billable = createBillable();
 
-    Log::shouldReceive('info')->twice();
+    Log::shouldReceive('info')->once();
 
     $result = $this->action->executeWithSpecificPrice($billable, $plan, $planPrice2);
 
@@ -204,8 +308,6 @@ it('logs old and new plan information', function () {
                    $context['old_plan_price_id'] === $oldPrice->id &&
                    $context['new_plan_price_id'] === $newPrice->id;
         });
-
-    Log::shouldReceive('info')->once(); // For quota sync
 
     $result = $this->action->execute($billable, $newPrice);
 

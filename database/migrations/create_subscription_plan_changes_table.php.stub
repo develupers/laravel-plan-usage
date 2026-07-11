@@ -1,0 +1,49 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        $tableName = config('plan-usage.tables.subscription_plan_changes', 'subscription_plan_changes');
+
+        // Guarded so re-publishing after a billing-provider switch is safe.
+        if (Schema::hasTable($tableName)) {
+            return;
+        }
+
+        Schema::create($tableName, function (Blueprint $table) {
+            $table->id();
+            $table->morphs('billable');
+            $table->string('provider');
+            $table->string('subscription_type')->default('default');
+            $table->string('provider_subscription_id');
+            $table->string('provider_change_id')->nullable();
+            $table->foreignId('from_plan_price_id')->nullable()
+                ->constrained(config('plan-usage.tables.plan_prices', 'plan_prices'))
+                ->nullOnDelete();
+            $table->foreignId('to_plan_price_id')
+                ->constrained(config('plan-usage.tables.plan_prices', 'plan_prices'))
+                ->cascadeOnDelete();
+            $table->string('timing');
+            $table->string('status')->default('pending');
+            $table->timestamp('effective_at')->nullable();
+            $table->timestamp('applied_at')->nullable();
+            $table->timestamp('cancelled_at')->nullable();
+            $table->timestamp('failed_at')->nullable();
+            $table->json('metadata')->nullable();
+            $table->timestamps();
+
+            $table->index(['provider', 'provider_subscription_id', 'status'], 'subscription_plan_changes_provider_status_index');
+            $table->index(['billable_type', 'billable_id', 'subscription_type', 'status'], 'subscription_plan_changes_billable_status_index');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists(config('plan-usage.tables.subscription_plan_changes', 'subscription_plan_changes'));
+    }
+};

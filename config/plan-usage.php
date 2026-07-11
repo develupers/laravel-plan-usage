@@ -3,11 +3,13 @@
 use Develupers\PlanUsage\Http\Middleware\CheckFeature;
 use Develupers\PlanUsage\Http\Middleware\CheckQuota;
 use Develupers\PlanUsage\Http\Middleware\ConsumeQuota;
+use Develupers\PlanUsage\Models\BillingWebhookEvent;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanFeature;
 use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Models\Quota;
+use Develupers\PlanUsage\Models\SubscriptionPlanChange;
 use Develupers\PlanUsage\Models\Usage;
 
 return [
@@ -18,7 +20,7 @@ return [
     |
     | This file contains the configuration options for the Laravel Plan Feature
     | Usage package, which manages subscription plans, features, quotas, and
-    | usage tracking with billing provider integration (Stripe or Paddle).
+    | usage tracking with billing provider integration.
     |
     */
 
@@ -28,10 +30,11 @@ return [
     |--------------------------------------------------------------------------
     |
     | Configure which billing provider to use. Supports 'stripe', 'paddle',
-    | 'lemon-squeezy', or 'auto' to auto-detect based on installed package.
+    | 'polar', 'lemon-squeezy', or 'auto' to auto-detect based on installed package.
     |
     | When set to 'auto', the package will check for installed packages:
     | - If laravel/cashier-paddle is installed, Paddle will be used
+    | - If danestves/laravel-polar is installed, Polar will be used
     | - If lemonsqueezy/laravel is installed, LemonSqueezy will be used
     | - If laravel/cashier is installed, Stripe will be used
     | - If neither is installed, an error will be thrown
@@ -61,6 +64,8 @@ return [
         'plan_feature' => PlanFeature::class,
         'usage' => Usage::class,
         'quota' => Quota::class,
+        'subscription_plan_change' => SubscriptionPlanChange::class,
+        'billing_webhook_event' => BillingWebhookEvent::class,
     ],
 
     /*
@@ -78,6 +83,8 @@ return [
         'plan_features' => 'plan_features',
         'usages' => 'usages',
         'quotas' => 'quotas',
+        'subscription_plan_changes' => 'subscription_plan_changes',
+        'billing_webhook_events' => 'billing_webhook_events',
         'billable' => 'users', // Default billable table - e.g. 'accounts', 'users', 'workspace'
     ],
 
@@ -327,6 +334,30 @@ return [
 
         // Retain pricing from Paddle (vs using local prices)
         'retain_paddle_pricing' => true,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Polar Integration
+    |--------------------------------------------------------------------------
+    |
+    | Polar is a Merchant of Record. The danestves/laravel-polar package owns
+    | customer, subscription, order, checkout, portal, and webhook transport.
+    | Plan Usage maps each PlanPrice to one Polar product and applies the
+    | resulting subscription changes to local plans and quotas.
+    |
+    | Note: webhook signature verification is owned by danestves/laravel-polar,
+    | which reads POLAR_WEBHOOK_SECRET from its own `polar` config at request
+    | time. Set POLAR_WEBHOOK_SECRET in your .env — there is no separate key here.
+    |
+    */
+    'polar' => [
+        'access_token' => env('POLAR_ACCESS_TOKEN'),
+        'organization_id' => env('POLAR_ORGANIZATION_ID'),
+        'server' => env('POLAR_SERVER', 'sandbox'),
+        'http_timeout' => 10,
+        'http_connect_timeout' => 3,
+        'past_due_keeps_entitlements' => true,
     ],
 
     /*

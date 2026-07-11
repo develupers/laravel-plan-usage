@@ -40,7 +40,8 @@ class StripeWebhookListener
 
         // Deduplicate webhook events using Stripe event ID
         $eventId = $payload['id'] ?? null;
-        if ($eventId && ! Cache::add("plan-usage:webhook:stripe:{$eventId}", true, 3600)) {
+        $dedupeKey = $eventId ? "plan-usage:webhook:stripe:{$eventId}" : null;
+        if ($dedupeKey && ! Cache::add($dedupeKey, true, 3600)) {
             Log::debug('Skipping duplicate Stripe webhook event', ['event_id' => $eventId]);
 
             return;
@@ -59,6 +60,15 @@ class StripeWebhookListener
                 'event_type' => $payload['type'],
                 'payload' => $payload,
             ]);
+
+            // Release the dedupe key and rethrow: swallowing returns HTTP 200,
+            // so Stripe would never redeliver and a transient failure would
+            // permanently lose the sync (until reconciliation).
+            if ($dedupeKey) {
+                Cache::forget($dedupeKey);
+            }
+
+            throw $e;
         }
     }
 

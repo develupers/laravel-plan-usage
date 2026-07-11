@@ -1,0 +1,53 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        $tableName = config('plan-usage.tables.billable', 'users');
+
+        Schema::table($tableName, function (Blueprint $table) use ($tableName) {
+            if (! Schema::hasColumn($tableName, 'plan_id')) {
+                $table->foreignId('plan_id')->nullable()
+                    ->constrained(config('plan-usage.tables.plans', 'plans'))
+                    ->nullOnDelete();
+            }
+
+            if (! Schema::hasColumn($tableName, 'plan_price_id')) {
+                $table->foreignId('plan_price_id')->nullable()
+                    ->constrained(config('plan-usage.tables.plan_prices', 'plan_prices'))
+                    ->nullOnDelete();
+            }
+
+            if (! Schema::hasColumn($tableName, 'plan_changed_at')) {
+                $table->timestamp('plan_changed_at')->nullable();
+            }
+        });
+    }
+
+    public function down(): void
+    {
+        $tableName = config('plan-usage.tables.billable', 'users');
+
+        // The plan-tracking columns are foreign keys into this package's
+        // tables, so rolling back the plans/plan_prices migrations requires
+        // removing them first.
+        Schema::table($tableName, function (Blueprint $table) use ($tableName) {
+            if (Schema::hasColumn($tableName, 'plan_id')) {
+                $table->dropConstrainedForeignId('plan_id');
+            }
+
+            if (Schema::hasColumn($tableName, 'plan_price_id')) {
+                $table->dropConstrainedForeignId('plan_price_id');
+            }
+
+            if (Schema::hasColumn($tableName, 'plan_changed_at')) {
+                $table->dropColumn('plan_changed_at');
+            }
+        });
+    }
+};

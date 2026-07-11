@@ -291,7 +291,7 @@ it('logs warning when sync fails', function () {
     $this->listener->handle($event);
 });
 
-it('handles exceptions gracefully', function () {
+it('logs and rethrows failures so the webhook returns non-2xx and Stripe retries', function () {
     $payload = [
         'type' => 'customer.subscription.created',
         'data' => [
@@ -333,7 +333,10 @@ it('handles exceptions gracefully', function () {
     });
 
     $event = new WebhookHandled($payload);
-    $this->listener->handle($event);
+
+    // Swallowing would return HTTP 200 and Stripe would never redeliver.
+    expect(fn () => $this->listener->handle($event))
+        ->toThrow(Exception::class, 'Database error');
 });
 
 it('logs error when billable model not configured', function () {

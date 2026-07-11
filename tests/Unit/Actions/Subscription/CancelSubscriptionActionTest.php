@@ -3,6 +3,11 @@
 declare(strict_types=1);
 
 use Develupers\PlanUsage\Actions\Subscription\CancelSubscriptionAction;
+use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
+use Develupers\PlanUsage\Contracts\Billable;
+use Develupers\PlanUsage\Contracts\BillingProvider;
+use Develupers\PlanUsage\Contracts\SubscriptionLifecycleProvider;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\ValidationException;
 use Laravel\Cashier\Subscription;
 
@@ -36,6 +41,22 @@ it('cancels subscription immediately when specified', function () {
         ->andReturn($subscription);
 
     $this->action->execute($billable, immediately: true);
+});
+
+it('removes local entitlements after a lifecycle provider confirms immediate revocation', function () {
+    $subscription = Mockery::mock(Subscription::class);
+    $subscription->shouldReceive('canceled')->once()->andReturn(false);
+    $billable = Mockery::mock(Model::class.', '.Billable::class);
+    $billable->shouldReceive('subscription')->with('default')->once()->andReturn($subscription);
+    $provider = Mockery::mock(BillingProvider::class.', '.SubscriptionLifecycleProvider::class);
+    $provider->shouldReceive('cancelSubscription')
+        ->once()
+        ->with($billable, true, 'default');
+    $deleteSubscription = Mockery::mock(DeleteSubscriptionAction::class);
+    $deleteSubscription->shouldReceive('execute')->once()->with($billable);
+
+    (new CancelSubscriptionAction($provider, $deleteSubscription))
+        ->execute($billable, immediately: true);
 });
 
 it('throws exception when no subscription found', function () {
@@ -124,3 +145,55 @@ it('throws exception when resuming subscription not in grace period', function (
 
     $this->action->resume($billable);
 })->throws(ValidationException::class, 'Subscription is not in grace period and cannot be resumed.');
+
+it('resumes a polar-style period-end cancellation that never enters a local grace period', function () {
+    // Polar keeps a scheduled cancellation ACTIVE with cancel_at_period_end,
+    // so laravel-polar's onGracePeriod() (canceled status + future end date)
+    // never passes — the old local gate made un-cancelling impossible there.
+    $subscription = new class
+    {
+        public function cancelled(): bool
+        {
+            return false;
+        }
+
+        public function onGracePeriod(): bool
+        {
+            return false;
+        }
+    };
+
+    $billable = Mockery::mock(Model::class.', '.Billable::class);
+    $billable->shouldReceive('subscription')->with('default')->once()->andReturn($subscription);
+
+    $provider = Mockery::mock(BillingProvider::class.', '.SubscriptionLifecycleProvider::class);
+    $provider->shouldReceive('resumeSubscription')
+        ->once()
+        ->with($billable, 'default');
+
+    (new CancelSubscriptionAction($provider))->resume($billable);
+});
+
+it('refuses to resume a subscription that has fully ended', function () {
+    $subscription = new class
+    {
+        public function cancelled(): bool
+        {
+            return true;
+        }
+
+        public function onGracePeriod(): bool
+        {
+            return false;
+        }
+    };
+
+    $billable = Mockery::mock(Model::class.', '.Billable::class);
+    $billable->shouldReceive('subscription')->with('default')->once()->andReturn($subscription);
+
+    $provider = Mockery::mock(BillingProvider::class.', '.SubscriptionLifecycleProvider::class);
+    $provider->shouldNotReceive('resumeSubscription');
+
+    expect(fn () => (new CancelSubscriptionAction($provider))->resume($billable))
+        ->toThrow(ValidationException::class, 'Subscription has ended and cannot be resumed.');
+});

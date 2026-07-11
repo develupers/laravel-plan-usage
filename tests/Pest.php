@@ -55,6 +55,7 @@ function createMockBillable()
     $billable->shouldReceive('newSubscription')->byDefault();
     $billable->shouldReceive('subscriptions')->byDefault();
     $billable->shouldReceive('checkout')->byDefault();
+    $billable->shouldReceive('subscribe')->byDefault();
 
     return $billable;
 }

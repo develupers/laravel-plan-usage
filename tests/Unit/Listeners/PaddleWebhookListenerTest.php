@@ -144,3 +144,30 @@ it('deduplicates events by paddle event id', function () {
     $this->listener->handle(new WebhookReceived($payload));
     $this->listener->handle(new WebhookReceived($payload));
 });
+
+it('releases the dedupe key on failure so the provider retry is processed', function () {
+    PaddleListenerTestBillable::create(['paddle_id' => 'ctm_retry']);
+
+    // First delivery fails transiently; the redelivery must succeed. Swallowing
+    // would return HTTP 200 (no provider retry), and a dedupe key left behind
+    // would block the redelivery for an hour.
+    $attempts = 0;
+    $this->syncAction->shouldReceive('execute')
+        ->twice()
+        ->andReturnUsing(function () use (&$attempts) {
+            if (++$attempts === 1) {
+                throw new Exception('Transient database error');
+            }
+
+            return true;
+        });
+
+    $payload = paddleSubscriptionPayload('subscription.created', 'ctm_retry', eventId: 'evt_retry');
+
+    expect(fn () => $this->listener->handle(new WebhookReceived($payload)))
+        ->toThrow(Exception::class, 'Transient database error');
+
+    $this->listener->handle(new WebhookReceived($payload));
+
+    expect($attempts)->toBe(2);
+});

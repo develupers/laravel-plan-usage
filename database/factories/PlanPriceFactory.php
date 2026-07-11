@@ -15,9 +15,13 @@ class PlanPriceFactory extends Factory
 
     public function definition(): array
     {
+        // Provider identifier columns (stripe_price_id, paddle_price_id,
+        // lemon_squeezy_variant_id, polar_product_id) are intentionally omitted:
+        // consumer schemas only contain the selected provider's column, so an
+        // unconditional default would fail with "column not found" on every
+        // single-provider install. Set them explicitly where needed.
         return [
             'plan_id' => Plan::factory(),
-            'stripe_price_id' => 'price_'.$this->faker->unique()->regexify('[A-Za-z0-9]{24}'),
             'price' => $this->faker->randomFloat(2, 10, 500),
             'currency' => 'usd',
             'interval' => $this->faker->randomElement([Interval::MONTH->value, Interval::YEAR->value]),

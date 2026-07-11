@@ -45,7 +45,8 @@ class LemonSqueezyWebhookListener
 
         // Deduplicate webhook events using a hash of the payload
         $eventId = $payload['meta']['webhook_id'] ?? md5(json_encode($payload));
-        if (! Cache::add("plan-usage:webhook:lemon-squeezy:{$eventId}", true, 3600)) {
+        $dedupeKey = "plan-usage:webhook:lemon-squeezy:{$eventId}";
+        if (! Cache::add($dedupeKey, true, 3600)) {
             Log::debug('Skipping duplicate LemonSqueezy webhook event', ['event_id' => $eventId]);
 
             return;
@@ -67,6 +68,13 @@ class LemonSqueezyWebhookListener
                 'error' => $e->getMessage(),
                 'event_type' => $eventType,
             ]);
+
+            // Release the dedupe key and rethrow: swallowing returns HTTP 200,
+            // so LemonSqueezy would never redeliver and a transient failure
+            // would permanently lose the sync (until reconciliation).
+            Cache::forget($dedupeKey);
+
+            throw $e;
         }
     }
 

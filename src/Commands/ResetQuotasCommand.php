@@ -24,10 +24,11 @@ class ResetQuotasCommand extends Command
             return Command::SUCCESS;
         }
 
+        // No used > 0 filter: an untouched quota can still carry a prorated or
+        // grandfathered limit that must be trued up to the plan at renewal.
         $count = Quota::query()
             ->whereNotNull('reset_at')
             ->where('reset_at', '<=', now())
-            ->where('used', '>', 0)
             ->count();
 
         if ($count === 0) {

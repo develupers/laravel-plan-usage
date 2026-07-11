@@ -1,0 +1,28 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        $tableName = config('plan-usage.tables.plan_prices', 'plan_prices');
+
+        if (! Schema::hasColumn($tableName, 'stripe_price_id')) {
+            Schema::table($tableName, function (Blueprint $table) {
+                $table->string('stripe_price_id')->nullable()->unique(); // Stripe Price ID
+            });
+        }
+    }
+
+    public function down(): void
+    {
+        // Intentionally non-destructive: on installs upgraded from the old
+        // combined schema, create_plan_prices_table owned stripe_price_id and
+        // up() was a no-op — dropping it here on a step rollback would destroy
+        // provider identifiers this migration never created. Rolling back the
+        // whole batch drops the plan_prices table anyway.
+    }
+};

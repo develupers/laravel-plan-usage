@@ -61,37 +61,22 @@ return new class extends Migration
     {
         $tableName = config('plan-usage.tables.billable', 'users');
 
+        // Only the plan-tracking columns are dropped: they are foreign keys
+        // into this package's tables, so rolling back the plans/plan_prices
+        // migrations requires removing them first. paddle_id, trial_ends_at,
+        // and billing_email are left in place — the app or Cashier Paddle may
+        // own them, and this migration cannot prove it created them.
         Schema::table($tableName, function (Blueprint $table) use ($tableName) {
-            $columnsToRemove = [];
-            $checkColumns = [
-                'paddle_id',
-                'trial_ends_at',
-                'plan_id',
-                'plan_price_id',
-                'plan_changed_at',
-                'billing_email',
-            ];
-
-            foreach ($checkColumns as $column) {
-                if (Schema::hasColumn($tableName, $column)) {
-                    $columnsToRemove[] = $column;
-                }
+            if (Schema::hasColumn($tableName, 'plan_id')) {
+                $table->dropConstrainedForeignId('plan_id');
             }
 
-            if (! empty($columnsToRemove)) {
-                // Drop foreign keys first
-                if (in_array('plan_id', $columnsToRemove)) {
-                    $table->dropConstrainedForeignId('plan_id');
-                    $columnsToRemove = array_diff($columnsToRemove, ['plan_id']);
-                }
-                if (in_array('plan_price_id', $columnsToRemove)) {
-                    $table->dropConstrainedForeignId('plan_price_id');
-                    $columnsToRemove = array_diff($columnsToRemove, ['plan_price_id']);
-                }
+            if (Schema::hasColumn($tableName, 'plan_price_id')) {
+                $table->dropConstrainedForeignId('plan_price_id');
+            }
 
-                if (! empty($columnsToRemove)) {
-                    $table->dropColumn($columnsToRemove);
-                }
+            if (Schema::hasColumn($tableName, 'plan_changed_at')) {
+                $table->dropColumn('plan_changed_at');
             }
         });
     }

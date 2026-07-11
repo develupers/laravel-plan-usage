@@ -4,11 +4,18 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Providers\Stripe;
 
+use Carbon\CarbonImmutable;
+use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Contracts\CheckoutSession;
+use Develupers\PlanUsage\Contracts\SubscriptionLifecycleProvider;
+use Develupers\PlanUsage\Enums\SubscriptionChangeTiming;
+use Develupers\PlanUsage\Support\ProviderSubscriptionChange;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Validation\ValidationException;
 use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Events\WebhookHandled;
+use Laravel\Cashier\Subscription as CashierSubscription;
 use Stripe\Price;
 use Stripe\Product;
 use Stripe\Stripe;
@@ -18,7 +25,7 @@ use Stripe\Stripe;
  *
  * This class provides Stripe-specific billing functionality through Laravel Cashier.
  */
-class StripeProvider implements BillingProvider
+class StripeProvider implements BillingProvider, SubscriptionLifecycleProvider
 {
     /**
      * Get the provider name.
@@ -194,6 +201,144 @@ class StripeProvider implements BillingProvider
         }
 
         return $billableClass::where('stripe_id', $customerId)->first();
+    }
+
+    /**
+     * Change the subscription to a different price.
+     *
+     * Stripe applies plan swaps immediately (with proration invoiced now).
+     * Scheduled (next-period) changes would require Stripe Subscription
+     * Schedules, which are not implemented here.
+     *
+     * @param  Model&Billable  $billable
+     * @param  string  $productId  The target Stripe price ID
+     */
+    public function changeSubscription(
+        Model $billable,
+        string $productId,
+        SubscriptionChangeTiming $timing,
+        string $subscriptionName = 'default'
+    ): ProviderSubscriptionChange {
+        if ($timing !== SubscriptionChangeTiming::Immediate) {
+            throw ValidationException::withMessages([
+                'subscription' => ['Stripe supports immediate plan changes only. Scheduled changes are not available for this provider.'],
+            ]);
+        }
+
+        $subscription = $this->cashierSubscription($billable, $subscriptionName);
+
+        // For Stripe the PlanPrice provider identifier is a Stripe price ID.
+        // swapAndInvoice() applies the change now and invoices the proration.
+        $subscription->swapAndInvoice($productId);
+
+        // Cashier's currentPeriodStart()/currentPeriodEnd() issue one Stripe API
+        // retrieve PER subscription item PER call; a single subscription fetch
+        // yields both period bounds in one round-trip.
+        [$periodStart, $periodEnd] = $this->currentBillingPeriod($subscription);
+
+        return new ProviderSubscriptionChange(
+            providerSubscriptionId: (string) $subscription->stripe_id,
+            // The swap is synchronous: if it did not throw, the new price is active.
+            currentProductId: $productId,
+            pendingProductId: null,
+            periodStart: $periodStart,
+            periodEnd: $periodEnd,
+        );
+    }
+
+    /**
+     * Resolve the current billing period from a single Stripe API call.
+     *
+     * Mirrors Cashier's semantics: earliest item period start, latest item
+     * period end (Stripe moved these fields onto subscription items).
+     *
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
+     */
+    protected function currentBillingPeriod(CashierSubscription $subscription): array
+    {
+        $stripeSubscription = $subscription->asStripeSubscription();
+
+        $start = null;
+        $end = null;
+
+        foreach ($stripeSubscription->items->data ?? [] as $item) {
+            $itemStart = $item->current_period_start ?? null;
+            $itemEnd = $item->current_period_end ?? null;
+
+            if ($itemStart !== null && ($start === null || $itemStart < $start)) {
+                $start = $itemStart;
+            }
+
+            if ($itemEnd !== null && ($end === null || $itemEnd > $end)) {
+                $end = $itemEnd;
+            }
+        }
+
+        $periodStart = $start === null
+            ? CarbonImmutable::now()
+            : CarbonImmutable::createFromTimestamp($start);
+
+        return [
+            $periodStart,
+            $end === null ? $periodStart->addMonth() : CarbonImmutable::createFromTimestamp($end),
+        ];
+    }
+
+    /**
+     * Stripe has no scheduled plan changes, so there is nothing to cancel.
+     *
+     * @param  Model&Billable  $billable
+     */
+    public function cancelPendingSubscriptionChange(Model $billable, string $subscriptionName = 'default'): void
+    {
+        throw ValidationException::withMessages([
+            'subscription' => ['Stripe does not support scheduled plan changes, so there is no pending change to cancel.'],
+        ]);
+    }
+
+    /**
+     * @param  Model&Billable  $billable
+     */
+    public function cancelSubscription(
+        Model $billable,
+        bool $immediately = false,
+        string $subscriptionName = 'default'
+    ): void {
+        $subscription = $this->cashierSubscription($billable, $subscriptionName);
+
+        if ($immediately) {
+            $subscription->cancelNow();
+
+            return;
+        }
+
+        $subscription->cancel();
+    }
+
+    /**
+     * @param  Model&Billable  $billable
+     */
+    public function resumeSubscription(Model $billable, string $subscriptionName = 'default'): void
+    {
+        $this->cashierSubscription($billable, $subscriptionName)->resume();
+    }
+
+    /**
+     * Resolve the Cashier subscription for the billable, or fail.
+     *
+     * @param  Model&Billable  $billable
+     */
+    protected function cashierSubscription(Model $billable, string $subscriptionName): CashierSubscription
+    {
+        $subscription = $billable->subscription($subscriptionName);
+
+        if (! $subscription instanceof CashierSubscription) {
+            throw ValidationException::withMessages([
+                'subscription' => ['No active Stripe subscription found.'],
+            ]);
+        }
+
+        return $subscription;
     }
 
     /**

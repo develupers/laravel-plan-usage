@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * Interface for billing provider implementations.
  *
- * This interface defines the contract for billing providers (Stripe, Paddle, etc.)
+ * This interface defines the contract for billing providers (Stripe, Paddle, Polar, etc.)
  * to enable provider-agnostic subscription management.
  */
 interface BillingProvider
@@ -17,28 +17,28 @@ interface BillingProvider
     /**
      * Get the provider name.
      *
-     * @return string 'stripe', 'paddle', or 'lemon-squeezy'
+     * @return string 'stripe', 'paddle', 'polar', or 'lemon-squeezy'
      */
     public function name(): string;
 
     /**
      * Get the column name for storing the customer ID.
      *
-     * @return string e.g., 'stripe_id', 'paddle_id', or 'lemon_squeezy_id'
+     * @return string e.g., 'stripe_id', 'paddle_id', 'polar_id', or 'lemon_squeezy_id'
      */
     public function getCustomerIdColumn(): string;
 
     /**
      * Get the column name for storing the price ID.
      *
-     * @return string e.g., 'stripe_price_id', 'paddle_price_id', or 'lemon_squeezy_variant_id'
+     * @return string e.g., 'stripe_price_id', 'paddle_price_id', 'polar_product_id', or 'lemon_squeezy_variant_id'
      */
     public function getPriceIdColumn(): string;
 
     /**
      * Get the column name for storing the product ID.
      *
-     * @return string e.g., 'stripe_product_id', 'paddle_product_id', or 'lemon_squeezy_product_id'
+     * @return string e.g., 'stripe_product_id', 'paddle_product_id', 'polar_product_id', or 'lemon_squeezy_product_id'
      */
     public function getProductIdColumn(): string;
 

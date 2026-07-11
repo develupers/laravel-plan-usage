@@ -19,6 +19,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $stripe_price_id
  * @property string|null $paddle_price_id
  * @property string|null $lemon_squeezy_variant_id
+ * @property string|null $polar_product_id
  * @property float $price
  * @property string $currency
  * @property Interval $interval
@@ -39,6 +40,7 @@ class PlanPrice extends Model
         'stripe_price_id',
         'paddle_price_id',
         'lemon_squeezy_variant_id',
+        'polar_product_id',
         'price',
         'currency',
         'interval',
@@ -200,6 +202,7 @@ class PlanPrice extends Model
         $column = match ($instance->detectBillingProvider()) {
             'paddle' => 'paddle_price_id',
             'lemon-squeezy' => 'lemon_squeezy_variant_id',
+            'polar' => 'polar_product_id',
             default => 'stripe_price_id',
         };
 
@@ -214,6 +217,7 @@ class PlanPrice extends Model
         return match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_price_id,
             'lemon-squeezy' => $this->lemon_squeezy_variant_id,
+            'polar' => $this->polar_product_id,
             default => $this->stripe_price_id,
         };
     }
@@ -226,6 +230,7 @@ class PlanPrice extends Model
         match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_price_id = $priceId,
             'lemon-squeezy' => $this->lemon_squeezy_variant_id = $priceId,
+            'polar' => $this->polar_product_id = $priceId,
             default => $this->stripe_price_id = $priceId,
         };
     }

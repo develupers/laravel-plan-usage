@@ -1,6 +1,6 @@
 {
     "name": "develupers/laravel-plan-usage",
-    "description": "A Laravel package for managing subscription plans, features, quotas, and usage tracking with Laravel Cashier integration",
+    "description": "A Laravel package for managing subscription plans, features, quotas, and usage tracking across multiple billing providers",
     "keywords": [
         "develupers",
         "laravel",
@@ -31,6 +31,7 @@
         "laravel/cashier": "^15.0||^16.0"
     },
     "require-dev": {
+        "danestves/laravel-polar": "^2.13",
         "larastan/larastan": "^3.0",
         "laravel/cashier-paddle": "^2.8",
         "laravel/pint": "^1.14",
@@ -84,6 +85,7 @@
         }
     },
     "suggest": {
+        "danestves/laravel-polar": "Required for Polar billing provider integration",
         "laravel/cashier-paddle": "Required for Paddle billing provider integration",
         "lemonsqueezy/laravel": "Required for LemonSqueezy billing provider integration"
     },

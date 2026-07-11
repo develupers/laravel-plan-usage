@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage;
 
+use Danestves\LaravelPolar\Events\WebhookHandled as PolarWebhookHandled;
+use Danestves\LaravelPolar\LaravelPolar;
+use Develupers\PlanUsage\Actions\Subscription\ApplyPlanChangeAction;
+use Develupers\PlanUsage\Actions\Subscription\CancelPendingPlanChangeAction;
 use Develupers\PlanUsage\Actions\Subscription\CancelSubscriptionAction;
+use Develupers\PlanUsage\Actions\Subscription\ChangeSubscriptionPlanAction;
 use Develupers\PlanUsage\Actions\Subscription\CreateStripeCheckoutSessionAction;
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
 use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
@@ -20,6 +25,8 @@ use Develupers\PlanUsage\Providers\LemonSqueezy\LemonSqueezyProvider;
 use Develupers\PlanUsage\Providers\LemonSqueezy\LemonSqueezyWebhookListener;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
 use Develupers\PlanUsage\Providers\Paddle\PaddleWebhookListener;
+use Develupers\PlanUsage\Providers\Polar\PolarProvider;
+use Develupers\PlanUsage\Providers\Polar\PolarWebhookListener;
 use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
 use Develupers\PlanUsage\Providers\Stripe\StripeWebhookListener;
 use Develupers\PlanUsage\Services\PlanManager;
@@ -76,6 +83,18 @@ class PlanUsageServiceProvider extends PackageServiceProvider
         );
 
         $this->app->singleton(
+            ApplyPlanChangeAction::class
+        );
+
+        $this->app->singleton(
+            ChangeSubscriptionPlanAction::class
+        );
+
+        $this->app->singleton(
+            CancelPendingPlanChangeAction::class
+        );
+
+        $this->app->singleton(
             CreateStripeCheckoutSessionAction::class
         );
 
@@ -108,9 +127,10 @@ class PlanUsageServiceProvider extends PackageServiceProvider
         return match ($provider) {
             'stripe' => $this->resolveStripeProvider(),
             'paddle' => $this->resolvePaddleProvider(),
+            'polar' => $this->resolvePolarProvider(),
             'lemon-squeezy' => $this->resolveLemonSqueezyProvider(),
             default => throw new \InvalidArgumentException(
-                "Unknown billing provider: {$provider}. Supported providers are: stripe, paddle, lemon-squeezy"
+                "Unknown billing provider: {$provider}. Supported providers are: stripe, paddle, polar, lemon-squeezy"
             ),
         };
     }
@@ -143,6 +163,21 @@ class PlanUsageServiceProvider extends PackageServiceProvider
         }
 
         return new PaddleProvider;
+    }
+
+    /**
+     * Resolve the Polar provider with validation.
+     */
+    protected function resolvePolarProvider(): PolarProvider
+    {
+        if (! class_exists(LaravelPolar::class)) {
+            throw new \RuntimeException(
+                'Polar provider configured but danestves/laravel-polar is not installed. '.
+                'Install it with: composer require danestves/laravel-polar'
+            );
+        }
+
+        return new PolarProvider;
     }
 
     /**
@@ -196,21 +231,48 @@ class PlanUsageServiceProvider extends PackageServiceProvider
 
         $billableMigration = match ($provider) {
             'paddle' => 'add_billable_columns_paddle',
+            'polar' => 'add_billable_columns_polar',
             'lemon-squeezy' => 'add_billable_columns_lemon_squeezy',
             'stripe' => 'add_billable_columns_stripe',
             default => 'add_billable_columns_stripe', // Fallback to Stripe
         };
 
-        return [
+        // Only the selected provider's price/product identifier column is created.
+        $priceColumnMigration = match ($provider) {
+            'paddle' => 'add_paddle_price_id_to_plan_prices',
+            'polar' => 'add_polar_product_id_to_plan_prices',
+            'lemon-squeezy' => 'add_lemon_squeezy_variant_id_to_plan_prices',
+            'stripe' => 'add_stripe_price_id_to_plan_prices',
+            default => 'add_stripe_price_id_to_plan_prices', // Fallback to Stripe
+        };
+
+        $migrations = [
             'create_plans_table',
             'create_features_table',
             'create_plan_features_table',
             'create_plan_prices_table',
+            $priceColumnMigration,
             'create_usage_table',
             'create_quotas_table',
-            $billableMigration,
-            'add_lifetime_to_plans_table',
         ];
+
+        // Managed plan changes (ChangeSubscriptionPlanAction) record a row per
+        // change, so the table is needed by every provider that implements
+        // SubscriptionLifecycleProvider.
+        if (in_array($provider, ['stripe', 'paddle', 'polar'], true)) {
+            $migrations[] = 'create_subscription_plan_changes_table';
+        }
+
+        // Durable webhook idempotency is Polar-specific; Stripe/Paddle/LemonSqueezy
+        // dedupe via their Cashier webhook handlers and a cache lock instead.
+        if ($provider === 'polar') {
+            $migrations[] = 'create_billing_webhook_events_table';
+        }
+
+        $migrations[] = $billableMigration;
+        $migrations[] = 'add_lifetime_to_plans_table';
+
+        return $migrations;
     }
 
     /**
@@ -242,6 +304,14 @@ class PlanUsageServiceProvider extends PackageServiceProvider
             \Event::listen(
                 WebhookReceived::class,
                 PaddleWebhookListener::class
+            );
+        }
+
+        // Register Polar webhook listener
+        if ($this->isPolarProvider() && class_exists(PolarWebhookHandled::class)) {
+            \Event::listen(
+                PolarWebhookHandled::class,
+                PolarWebhookListener::class
             );
         }
 

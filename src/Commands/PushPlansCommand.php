@@ -9,6 +9,7 @@ use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Providers\LemonSqueezy\LemonSqueezyProvider;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
+use Develupers\PlanUsage\Providers\Polar\PolarProvider;
 use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
 use Illuminate\Console\Command;
 
@@ -26,7 +27,7 @@ class PushPlansCommand extends Command
      * @var string
      */
     protected $signature = 'plans:push
-                            {--provider= : Override the billing provider (stripe, paddle, or lemon-squeezy)}
+                            {--provider= : Override the billing provider (stripe, paddle, polar, or lemon-squeezy)}
                             {--force : Force update existing products}
                             {--dry-run : Show what would be created without actually creating}';
 
@@ -35,7 +36,7 @@ class PushPlansCommand extends Command
      *
      * @var string
      */
-    protected $description = 'Sync local plans to the billing provider (Stripe, Paddle, or LemonSqueezy)';
+    protected $description = 'Sync local plans to the billing provider (Stripe, Paddle, Polar, or LemonSqueezy)';
 
     /**
      * Execute the console command.
@@ -61,6 +62,7 @@ class PushPlansCommand extends Command
             $this->info(match ($provider->name()) {
                 'stripe' => 'Install it with: composer require laravel/cashier',
                 'paddle' => 'Install it with: composer require laravel/cashier-paddle',
+                'polar' => 'Install it with: composer require danestves/laravel-polar',
                 'lemon-squeezy' => 'Install it with: composer require lemonsqueezy/laravel',
                 default => 'Install the required provider package',
             });
@@ -104,12 +106,13 @@ class PushPlansCommand extends Command
             return match ($name) {
                 'stripe' => new StripeProvider,
                 'paddle' => new PaddleProvider,
+                'polar' => new PolarProvider,
                 'lemon-squeezy' => new LemonSqueezyProvider,
                 default => throw new \InvalidArgumentException("Unknown provider: {$name}"),
             };
         } catch (\InvalidArgumentException $e) {
             $this->error($e->getMessage());
-            $this->info('Supported providers: stripe, paddle, lemon-squeezy');
+            $this->info('Supported providers: stripe, paddle, polar, lemon-squeezy');
 
             return null;
         }
@@ -181,11 +184,13 @@ class PushPlansCommand extends Command
             $this->newLine();
             $this->table(
                 ['Plan', 'Product ID', 'Price Interval', 'Price ID'],
-                $plans->flatMap(function ($plan) use ($priceIdColumn, $productIdColumn) {
-                    return $plan->prices->map(function (PlanPrice $planPrice) use ($plan, $priceIdColumn, $productIdColumn) {
+                $plans->flatMap(function ($plan) use ($priceIdColumn, $productIdColumn, $provider) {
+                    return $plan->prices->map(function (PlanPrice $planPrice) use ($plan, $priceIdColumn, $productIdColumn, $provider) {
                         return [
                             $plan->name,
-                            $plan->{$productIdColumn} ?? 'N/A',
+                            $provider->name() === 'polar'
+                                ? ($planPrice->{$productIdColumn} ?? 'N/A')
+                                : ($plan->{$productIdColumn} ?? 'N/A'),
                             $planPrice->interval->value,
                             $planPrice->{$priceIdColumn} ?? 'N/A',
                         ];

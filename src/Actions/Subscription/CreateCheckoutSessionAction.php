@@ -7,6 +7,7 @@ namespace Develupers\PlanUsage\Actions\Subscription;
 use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Contracts\CheckoutSession;
+use Develupers\PlanUsage\Enums\Interval;
 use Develupers\PlanUsage\Models\PlanPrice;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\ValidationException;
@@ -14,7 +15,7 @@ use Illuminate\Validation\ValidationException;
 /**
  * Provider-agnostic action for creating checkout sessions.
  *
- * This action delegates to the configured billing provider (Stripe or Paddle)
+ * This action delegates to the configured billing provider
  * to create a checkout session for subscription.
  */
 class CreateCheckoutSessionAction
@@ -59,6 +60,17 @@ class CreateCheckoutSessionAction
         if (! $plan || ! $plan->isAvailableForPurchase()) {
             throw ValidationException::withMessages([
                 'plan' => ['The selected plan is not available for purchase.'],
+            ]);
+        }
+
+        // Lifetime purchases create no subscription row, so the subscribed()
+        // guard above cannot catch a repeat purchase. Buying the same one-time
+        // product twice would double-charge — and refunding the duplicate
+        // would revoke the entitlement the surviving order still grants.
+        if ($planPrice->interval === Interval::LIFETIME
+            && (int) $billable->getAttribute('plan_price_id') === $planPrice->id) {
+            throw ValidationException::withMessages([
+                'plan' => ['You already own this plan.'],
             ]);
         }
 

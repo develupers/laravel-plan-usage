@@ -45,6 +45,21 @@ parameters:
         -
             identifier: property.notFound
             path: src/Providers/Stripe/StripeCheckoutSession.php
+        # Cashier subscription magic attributes (stripe_id, paddle_id) read on the
+        # lifecycle provider implementations — columns exist at runtime via Cashier.
+        -
+            identifier: property.notFound
+            path: src/Providers/Stripe/StripeProvider.php
+        -
+            identifier: property.notFound
+            path: src/Providers/Paddle/PaddleProvider.php
+        # Quota::syncLimitWithPlan defensively catches morphTo resolution failures:
+        # alias-mocked or otherwise broken billable classes throw BadMethodCallException
+        # or Error at runtime (proven by the test suite), but PHPStan cannot see that
+        # Eloquent relation resolution can throw.
+        -
+            identifier: catch.neverThrown
+            path: src/Models/Quota.php
         # Deprecated classes still registered in service provider for backwards compatibility
         -
             identifier: classConstant.deprecatedClass

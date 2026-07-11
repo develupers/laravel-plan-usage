@@ -48,6 +48,10 @@ class SyncBillablePlanFromStripe
                 'event_type' => $payload['type'],
                 'payload' => $payload,
             ]);
+
+            // Rethrow: swallowing returns HTTP 200, so Stripe would never
+            // redeliver and a transient failure would permanently lose the sync.
+            throw $e;
         }
     }
 

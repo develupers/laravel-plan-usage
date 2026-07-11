@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
+use Develupers\PlanUsage\Providers\Polar\PolarProvider;
 use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
 
 /**
@@ -14,6 +15,7 @@ describe('BillingProvider Contract', function () {
     dataset('providers', [
         'Stripe Provider' => [fn () => new StripeProvider],
         'Paddle Provider' => [fn () => new PaddleProvider],
+        'Polar Provider' => [fn () => new PolarProvider],
     ]);
 
     it('implements BillingProvider interface', function (BillingProvider $provider) {
@@ -75,5 +77,13 @@ describe('BillingProvider Contract', function () {
         expect($stripe->name())->not->toBe($paddle->name())
             ->and($stripe->name())->toBe('stripe')
             ->and($paddle->name())->toBe('paddle');
+    });
+
+    it('polar maps purchasable products to plan prices', function () {
+        $polar = new PolarProvider;
+
+        expect($polar->getCustomerIdColumn())->toBe('polar_id')
+            ->and($polar->getPriceIdColumn())->toBe('polar_product_id')
+            ->and($polar->getProductIdColumn())->toBe('polar_product_id');
     });
 });

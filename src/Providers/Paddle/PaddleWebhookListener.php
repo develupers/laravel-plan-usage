@@ -43,7 +43,8 @@ class PaddleWebhookListener
 
         // Deduplicate webhook events using Paddle event ID
         $eventId = $payload['event_id'] ?? null;
-        if ($eventId && ! Cache::add("plan-usage:webhook:paddle:{$eventId}", true, 3600)) {
+        $dedupeKey = $eventId ? "plan-usage:webhook:paddle:{$eventId}" : null;
+        if ($dedupeKey && ! Cache::add($dedupeKey, true, 3600)) {
             Log::debug('Skipping duplicate Paddle webhook event', ['event_id' => $eventId]);
 
             return;
@@ -64,6 +65,15 @@ class PaddleWebhookListener
                 'event_type' => $eventType,
                 'payload' => $payload,
             ]);
+
+            // Release the dedupe key and rethrow: swallowing returns HTTP 200,
+            // so Paddle would never redeliver and a transient failure would
+            // permanently lose the sync (until reconciliation).
+            if ($dedupeKey) {
+                Cache::forget($dedupeKey);
+            }
+
+            throw $e;
         }
     }
 

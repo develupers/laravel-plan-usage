@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -185,9 +186,48 @@ class Quota extends Model
         /** @var Carbon|null $nextReset */
         $nextReset = $this->feature->getNextResetDate();
         $this->reset_at = $nextReset;
+        $this->syncLimitWithPlan();
         $this->save();
 
         return $this;
+    }
+
+    /**
+     * True the limit up to the current plan's allowance.
+     *
+     * Mid-cycle plan changes store a prorated (upgrade) or grandfathered
+     * (downgrade) limit that is only valid for the remainder of the period;
+     * every reset re-derives the limit from the billable's current plan so
+     * the next period grants exactly what the plan promises.
+     */
+    public function syncLimitWithPlan(): void
+    {
+        // Best-effort: a quota row whose morph type no longer resolves to a
+        // real, working Eloquent model keeps its current limit.
+        $billableClass = Relation::getMorphedModel($this->billable_type) ?? $this->billable_type;
+
+        if (! is_string($billableClass) || ! class_exists($billableClass)) {
+            return;
+        }
+
+        try {
+            $billable = $this->billable;
+        } catch (\Throwable) {
+            return;
+        }
+
+        if ($billable === null || ! method_exists($billable, 'plan')) {
+            return;
+        }
+
+        $plan = $billable->plan;
+
+        if (! $plan instanceof Plan || ! $plan->hasFeature($this->feature->slug)) {
+            return;
+        }
+
+        $value = $plan->getFeatureValue($this->feature->slug);
+        $this->limit = $value === null ? null : (float) $value;
     }
 
     /**

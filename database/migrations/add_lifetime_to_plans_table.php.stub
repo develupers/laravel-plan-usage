@@ -8,16 +8,24 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table(config('plan-usage.tables.plans', 'plans'), function (Blueprint $table) {
+        $tableName = config('plan-usage.tables.plans', 'plans');
+
+        // Fresh installs already get is_lifetime from create_plans_table; this
+        // migration only upgrades databases created before the column existed.
+        if (Schema::hasColumn($tableName, 'is_lifetime')) {
+            return;
+        }
+
+        Schema::table($tableName, function (Blueprint $table) {
             $table->boolean('is_lifetime')->default(false)->index()->after('is_active');
         });
     }
 
     public function down(): void
     {
-        Schema::table(config('plan-usage.tables.plans', 'plans'), function (Blueprint $table) {
-            $table->dropIndex(['is_lifetime']);
-            $table->dropColumn('is_lifetime');
-        });
+        // Intentionally non-destructive: on fresh installs create_plans_table
+        // owns this column and up() was a no-op — dropping it here on a step
+        // rollback would destroy data this migration never created. Rolling
+        // back the whole batch drops the plans table anyway.
     }
 };

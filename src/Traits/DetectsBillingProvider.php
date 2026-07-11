@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Traits;
 
+use Danestves\LaravelPolar\LaravelPolar;
 use Laravel\Paddle\Cashier;
 use LemonSqueezy\Laravel\LemonSqueezy;
 
@@ -11,14 +12,14 @@ use LemonSqueezy\Laravel\LemonSqueezy;
  * Trait for detecting the configured billing provider.
  *
  * This trait provides a centralized way to determine whether Stripe, Paddle,
- * or LemonSqueezy is the active billing provider based on configuration or auto-detection.
+ * Polar, or LemonSqueezy is the active billing provider based on configuration or auto-detection.
  */
 trait DetectsBillingProvider
 {
     /**
      * Detect the current billing provider.
      *
-     * @return string 'stripe', 'paddle', or 'lemon-squeezy'
+     * @return string 'stripe', 'paddle', 'polar', or 'lemon-squeezy'
      */
     protected function detectBillingProvider(): string
     {
@@ -27,6 +28,10 @@ trait DetectsBillingProvider
         if ($provider === 'auto') {
             if (class_exists(Cashier::class)) {
                 return 'paddle';
+            }
+
+            if (class_exists(LaravelPolar::class)) {
+                return 'polar';
             }
 
             if (class_exists(LemonSqueezy::class)) {
@@ -53,6 +58,14 @@ trait DetectsBillingProvider
     protected function isPaddleProvider(): bool
     {
         return $this->detectBillingProvider() === 'paddle';
+    }
+
+    /**
+     * Check if the current provider is Polar.
+     */
+    protected function isPolarProvider(): bool
+    {
+        return $this->detectBillingProvider() === 'polar';
     }
 
     /**

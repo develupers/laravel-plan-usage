@@ -60,6 +60,18 @@ class QuotaEnforcer
             return false;
         }
 
+        // An expired quota is reset lazily by the write path (enforce). The
+        // read path must evaluate against that reset's projection — used = 0,
+        // limit trued up to the current plan — WITHOUT saving, or read-only
+        // checks (CheckQuota middleware) would keep rejecting requests after
+        // renewal until the first consume performs the actual reset.
+        if ($quota->needsReset() && $quota->feature && $quota->feature->resetsPeriodically()) {
+            $quota = $quota->replicate();
+            $quota->setRelation('billable', $billable);
+            $quota->used = 0;
+            $quota->syncLimitWithPlan();
+        }
+
         // Unlimited quota
         if (is_null($quota->limit)) {
             return true;
@@ -95,11 +107,12 @@ class QuotaEnforcer
                 return false;
             }
 
-            // Check if quota needs reset under lock
+            // Check if quota needs reset under lock. Quota::reset() is the single
+            // reset primitive — it also trues the limit up to the current plan
+            // (prorated mid-cycle limits must not survive into a new period).
             if ($this->shouldReset($lockedQuota)) {
-                $lockedQuota->used = 0;
-                $lockedQuota->reset_at = $this->calculateResetTime($feature);
-                $lockedQuota->save();
+                $lockedQuota->setRelation('feature', $feature);
+                $lockedQuota->reset();
             }
 
             // Unlimited quota
@@ -244,11 +257,11 @@ class QuotaEnforcer
                 return;
             }
 
-            // Check if quota needs reset under lock
+            // Check if quota needs reset under lock (single reset primitive,
+            // including the plan-limit true-up).
             if ($this->shouldReset($lockedQuota)) {
-                $lockedQuota->used = 0;
-                $lockedQuota->reset_at = $this->calculateResetTime($feature);
-                $lockedQuota->save();
+                $lockedQuota->setRelation('feature', $feature);
+                $lockedQuota->reset();
             }
 
             $lockedQuota->increment('used', $amount);
@@ -307,8 +320,13 @@ class QuotaEnforcer
                 return;
             }
 
+            // Explicit reset: zero usage unconditionally, but still true the
+            // limit up to the current plan so a prorated mid-cycle limit does
+            // not survive the reset.
             $locked->used = 0;
             $locked->reset_at = $this->calculateResetTime($feature);
+            $locked->setRelation('feature', $feature);
+            $locked->syncLimitWithPlan();
             $locked->save();
         });
 
@@ -321,13 +339,19 @@ class QuotaEnforcer
      */
     public function resetAll(Model $billable): void
     {
-        $this->quotaModel::query()
+        $quotas = $this->quotaModel::query()
             ->where('billable_type', $billable->getMorphClass())
             ->where('billable_id', $billable->getKey())
-            ->update([
-                'used' => 0,
-                'reset_at' => DB::raw('NOW()'),
-            ]);
+            ->with('feature')
+            ->get();
+
+        foreach ($quotas as $quota) {
+            $quota->setRelation('billable', $billable);
+            $quota->used = 0;
+            $quota->reset_at = $quota->feature ? $this->calculateResetTime($quota->feature) : null;
+            $quota->syncLimitWithPlan();
+            $quota->save();
+        }
 
         $this->clearQuotaCache($billable);
     }
@@ -420,9 +444,8 @@ class QuotaEnforcer
                 return;
             }
 
-            $locked->used = 0;
-            $locked->reset_at = $this->calculateResetTime($feature);
-            $locked->save();
+            $locked->setRelation('feature', $feature);
+            $locked->reset();
         });
 
         $quota->refresh();

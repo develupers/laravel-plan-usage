@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Traits;
 
+use Develupers\PlanUsage\Actions\Subscription\CancelPendingPlanChangeAction;
+use Develupers\PlanUsage\Actions\Subscription\ChangeSubscriptionPlanAction;
 use Develupers\PlanUsage\Contracts\BillingProvider;
+use Develupers\PlanUsage\Enums\SubscriptionChangeTiming;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Models\Quota;
+use Develupers\PlanUsage\Models\SubscriptionPlanChange;
 use Develupers\PlanUsage\Models\Usage;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
@@ -22,6 +26,7 @@ use Illuminate\Support\Facades\Schema;
  * IMPORTANT: You must also add the appropriate Cashier Billable trait to your model:
  * - For Stripe: use Laravel\Cashier\Billable;
  * - For Paddle: use Laravel\Paddle\Billable;
+ * - For Polar: use Danestves\LaravelPolar\Billable;
  *
  * Example:
  * ```php
@@ -102,12 +107,44 @@ trait HasPlanFeatures
         $priceWasRequested = isset($options['plan_price_id'])
             || isset($options['price_id'])
             || isset($options['stripe_price_id'])
-            || isset($options['paddle_price_id']);
+            || isset($options['paddle_price_id'])
+            || isset($options['polar_product_id']);
 
         if ($priceWasRequested && ! $selectedPlanPrice) {
             throw new \InvalidArgumentException(
                 'The specified price does not belong to this plan.'
             );
+        }
+
+        // Resolve the provider price up front so billing capability can be
+        // validated BEFORE any local entitlements are granted.
+        $billingEnabled = config('plan-usage.stripe.enabled', false)
+            || config('plan-usage.billing.provider') !== null;
+
+        $priceId = null;
+
+        if ($billingEnabled && $planPriceToAssign) {
+            $priceId = $options['price_id']
+                ?? $options['stripe_price_id']
+                ?? $options['paddle_price_id']
+                ?? $options['polar_product_id']
+                ?? $planPriceToAssign->getProviderPriceId();
+
+            // Checkout-based providers (Polar, Paddle) expose subscribed() but not
+            // newSubscription() — their subscriptions are created through checkout.
+            // Fail loud here instead of silently granting a paid plan with no
+            // provider subscription or payment behind it.
+            if ($priceId
+                && method_exists($this, 'subscribed')
+                && ! $this->subscribed()
+                && ! method_exists($this, 'newSubscription')) {
+                throw new \LogicException(
+                    'This billable cannot create a provider subscription directly. '
+                    .'Create the subscription through the provider checkout flow '
+                    .'(CreateCheckoutSessionAction) and let the webhook assign the plan, '
+                    .'or use changePlan() to switch an existing subscription.'
+                );
+            }
         }
 
         // Wrap plan assignment + quota sync in a transaction to prevent race conditions
@@ -120,6 +157,10 @@ trait HasPlanFeatures
 
             $this->save();
 
+            // A plan relation loaded earlier in the request still points at the
+            // OLD plan; drop it so quota sync reads the plan we just assigned.
+            $this->unsetRelation('plan');
+
             // Sync quotas: remove orphaned quotas from old plan, initialize new ones
             $this->syncQuotasWithPlan();
         });
@@ -127,27 +168,72 @@ trait HasPlanFeatures
         $this->quotaEnforcer()->clearQuotaCache($this);
 
         // Handle billing provider subscription if configured
-        $billingEnabled = config('plan-usage.stripe.enabled', false)
-            || config('plan-usage.billing.provider') !== null;
-
-        if ($billingEnabled && $planPriceToAssign) {
-            $priceId = $options['price_id']
-                ?? $options['stripe_price_id']
-                ?? $options['paddle_price_id']
-                ?? $planPriceToAssign->getProviderPriceId();
-
-            if ($priceId && method_exists($this, 'subscribed')) {
-                // Create or update subscription using Cashier methods
-                if ($this->subscribed()) {
-                    $this->subscription()->swap($priceId);
-                } else {
-                    $this->newSubscription('default', $priceId)
-                        ->create($options['payment_method'] ?? null);
-                }
+        if ($priceId && method_exists($this, 'subscribed')) {
+            // Create or update subscription using Cashier methods
+            if ($this->subscribed()) {
+                $this->subscription()->swap($priceId);
+            } elseif (method_exists($this, 'newSubscription')) {
+                $this->newSubscription('default', $priceId)
+                    ->create($options['payment_method'] ?? null);
             }
         }
 
         return $this;
+    }
+
+    /**
+     * Change the subscription to a different plan price through the billing provider.
+     *
+     * Requires a provider that implements SubscriptionLifecycleProvider
+     * (Stripe, Paddle, or Polar). Immediate changes swap and prorate now;
+     * NextPeriod schedules the change for the next renewal (Polar only).
+     */
+    public function changePlan(
+        PlanPrice $targetPlanPrice,
+        SubscriptionChangeTiming|string $timing = SubscriptionChangeTiming::Immediate,
+        string $subscriptionName = 'default'
+    ): SubscriptionPlanChange {
+        if (is_string($timing)) {
+            $timing = SubscriptionChangeTiming::from($timing);
+        }
+
+        return app(ChangeSubscriptionPlanAction::class)
+            ->execute($this, $targetPlanPrice, $timing, $subscriptionName);
+    }
+
+    /**
+     * Cancel a pending (scheduled) plan change before it takes effect.
+     */
+    public function cancelPendingPlanChange(string $subscriptionName = 'default'): SubscriptionPlanChange
+    {
+        return app(CancelPendingPlanChangeAction::class)->execute($this, $subscriptionName);
+    }
+
+    /**
+     * Get the pending (scheduled) plan change, if any.
+     */
+    public function pendingPlanChange(string $subscriptionName = 'default'): ?SubscriptionPlanChange
+    {
+        // Read-only accessor: a misconfigured/uninstalled provider must not
+        // turn a view-level check into an exception. No resolvable provider
+        // also means no pending change the package could act on.
+        try {
+            $provider = app(BillingProvider::class)->name();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        /** @var class-string<SubscriptionPlanChange> $planChangeModel */
+        $planChangeModel = config('plan-usage.models.subscription_plan_change', SubscriptionPlanChange::class);
+
+        return $planChangeModel::query()
+            ->pending()
+            ->where('billable_type', $this->getMorphClass())
+            ->where('billable_id', $this->getKey())
+            ->where('provider', $provider)
+            ->where('subscription_type', $subscriptionName)
+            ->latest('id')
+            ->first();
     }
 
     /**
@@ -170,6 +256,10 @@ trait HasPlanFeatures
 
         if (isset($options['paddle_price_id'])) {
             return $plan->prices->firstWhere('paddle_price_id', $options['paddle_price_id']);
+        }
+
+        if (isset($options['polar_product_id'])) {
+            return $plan->prices->firstWhere('polar_product_id', $options['polar_product_id']);
         }
 
         return null;
@@ -381,8 +471,21 @@ trait HasPlanFeatures
         $this->quotas()
             ->whereNotNull('reset_at')
             ->where('reset_at', '<=', now())
+            ->with('feature')
             ->each(function ($quota) {
-                $quota->reset();
+                // Re-read under a row lock and re-check expiry: a concurrent
+                // consumer may have lazily reset AND incremented this quota,
+                // and saving the stale instance would zero the new usage.
+                DB::transaction(function () use ($quota): void {
+                    $locked = $quota->newQuery()->whereKey($quota->getKey())->lockForUpdate()->first();
+
+                    if ($locked === null || ! $locked->needsReset()) {
+                        return;
+                    }
+
+                    $locked->setRelation('feature', $quota->feature);
+                    $locked->reset();
+                });
             });
     }
 
@@ -417,7 +520,7 @@ trait HasPlanFeatures
         $subscription = $this->subscription($type);
 
         return $subscription !== null
-            && $subscription->canceled()
+            && $this->subscriptionIsCancelled($subscription)
             && ! $subscription->onGracePeriod();
     }
 
@@ -438,6 +541,22 @@ trait HasPlanFeatures
             return false;
         }
 
-        return ! ($subscription->canceled() && ! $subscription->onGracePeriod());
+        return ! ($this->subscriptionIsCancelled($subscription) && ! $subscription->onGracePeriod());
+    }
+
+    /**
+     * Normalize the US and UK spellings used by supported billing packages.
+     */
+    private function subscriptionIsCancelled(object $subscription): bool
+    {
+        if (method_exists($subscription, 'canceled')) {
+            return $subscription->canceled();
+        }
+
+        if (method_exists($subscription, 'cancelled')) {
+            return $subscription->cancelled();
+        }
+
+        return false;
     }
 }

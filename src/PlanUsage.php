@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage;
 
+use Develupers\PlanUsage\Actions\Subscription\CancelPendingPlanChangeAction;
+use Develupers\PlanUsage\Actions\Subscription\ChangeSubscriptionPlanAction;
+use Develupers\PlanUsage\Enums\SubscriptionChangeTiming;
 use Develupers\PlanUsage\Models\Plan;
+use Develupers\PlanUsage\Models\PlanPrice;
+use Develupers\PlanUsage\Models\SubscriptionPlanChange;
 use Develupers\PlanUsage\Services\PlanManager;
 use Develupers\PlanUsage\Services\QuotaEnforcer;
 use Develupers\PlanUsage\Services\UsageTracker;
@@ -78,6 +83,32 @@ class PlanUsage
         }
 
         return $allowed;
+    }
+
+    /**
+     * Change a billable's subscription to a different plan price through the
+     * billing provider. Requires a SubscriptionLifecycleProvider.
+     */
+    public function changePlan(
+        $billable,
+        PlanPrice $targetPlanPrice,
+        SubscriptionChangeTiming|string $timing = SubscriptionChangeTiming::Immediate,
+        string $subscriptionName = 'default'
+    ): SubscriptionPlanChange {
+        if (is_string($timing)) {
+            $timing = SubscriptionChangeTiming::from($timing);
+        }
+
+        return app(ChangeSubscriptionPlanAction::class)
+            ->execute($billable, $targetPlanPrice, $timing, $subscriptionName);
+    }
+
+    /**
+     * Cancel a billable's pending (scheduled) plan change.
+     */
+    public function cancelPendingPlanChange($billable, string $subscriptionName = 'default'): SubscriptionPlanChange
+    {
+        return app(CancelPendingPlanChangeAction::class)->execute($billable, $subscriptionName);
     }
 
     /**

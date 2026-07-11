@@ -5,13 +5,26 @@ declare(strict_types=1);
 namespace Develupers\PlanUsage\Commands\Subscription;
 
 use Carbon\Carbon;
+use Carbon\CarbonImmutable;
+use Develupers\PlanUsage\Actions\Subscription\ApplyPlanChangeAction;
 use Develupers\PlanUsage\Actions\Subscription\DeleteSubscriptionAction;
+use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Develupers\PlanUsage\Contracts\BillingProvider;
+use Develupers\PlanUsage\Enums\SubscriptionChangeStatus;
+use Develupers\PlanUsage\Enums\SubscriptionChangeTiming;
+use Develupers\PlanUsage\Events\SubscriptionPlanChangeCancelled;
+use Develupers\PlanUsage\Events\SubscriptionPlanChanged;
+use Develupers\PlanUsage\Models\PlanPrice;
+use Develupers\PlanUsage\Models\SubscriptionPlanChange;
 use Develupers\PlanUsage\Providers\LemonSqueezy\LemonSqueezyProvider;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
+use Develupers\PlanUsage\Providers\Polar\PolarProvider;
 use Develupers\PlanUsage\Providers\Stripe\StripeProvider;
+use Develupers\PlanUsage\Support\ProviderSubscriptionChange;
+use Develupers\PlanUsage\Support\SubscriptionStateLock;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Laravel\Cashier\Cashier;
 use Stripe\Exception\ApiErrorException;
@@ -26,7 +39,7 @@ class ReconcileSubscriptionsCommand extends Command
     protected $signature = 'subscriptions:reconcile
                             {--dry-run : Show what would happen without making changes}
                             {--force : Skip confirmation prompt}
-                            {--provider= : Override the billing provider (stripe, paddle, or lemon-squeezy)}';
+                            {--provider= : Override the billing provider (stripe, paddle, polar, or lemon-squeezy)}';
 
     /**
      * The console command description.
@@ -76,11 +89,19 @@ class ReconcileSubscriptionsCommand extends Command
         }
 
         // Find billables with expired subscriptions that still have plans
-        $query = $billableClass::whereNotNull('plan_id')
-            ->whereHas('subscriptions', function ($query) {
+        $query = $billableClass::whereNotNull('plan_id');
+
+        if ($provider->name() === 'polar') {
+            // Polar reconciles active subscriptions too (pending plan changes),
+            // so only skip billables with no subscription rows at all — those are
+            // lifetime/one-time purchases whose plan must not be touched.
+            $query->whereHas('subscriptions');
+        } else {
+            $query->whereHas('subscriptions', function ($query) {
                 $query->whereNotNull('ends_at')
                     ->where('ends_at', '<', now());
             });
+        }
 
         $count = $query->count();
 
@@ -118,6 +139,9 @@ class ReconcileSubscriptionsCommand extends Command
         } elseif ($provider->name() === 'lemon-squeezy') {
             $this->info('Pre-fetching subscriptions from LemonSqueezy API...');
             $batchSubscriptions = $this->fetchAllLemonSqueezySubscriptions();
+        } elseif ($provider instanceof PolarProvider) {
+            $this->info('Pre-fetching subscriptions from Polar API...');
+            $batchSubscriptions = $this->fetchAllPolarSubscriptions($provider);
         }
 
         if ($batchSubscriptions !== null) {
@@ -138,6 +162,16 @@ class ReconcileSubscriptionsCommand extends Command
                 if (! $subscription) {
                     // No subscription but has plan - clean up
                     $this->warn('  No subscription record found but billable has plan');
+
+                    if ($provider->name() === 'polar') {
+                        // A Polar billable without a 'default' subscription may hold a
+                        // lifetime/one-time purchase or a custom-typed subscription;
+                        // never revoke entitlements without provider confirmation.
+                        $this->line('  Skipped: no default Polar subscription to reconcile against');
+                        $skipped++;
+
+                        return;
+                    }
 
                     if (! $dryRun) {
                         app(DeleteSubscriptionAction::class)->execute($billable);
@@ -235,12 +269,13 @@ class ReconcileSubscriptionsCommand extends Command
             return match ($name) {
                 'stripe' => new StripeProvider,
                 'paddle' => new PaddleProvider,
+                'polar' => new PolarProvider,
                 'lemon-squeezy' => new LemonSqueezyProvider,
                 default => throw new \InvalidArgumentException("Unknown provider: {$name}"),
             };
         } catch (\InvalidArgumentException $e) {
             $this->error($e->getMessage());
-            $this->info('Supported providers: stripe, paddle, lemon-squeezy');
+            $this->info('Supported providers: stripe, paddle, polar, lemon-squeezy');
 
             return null;
         }
@@ -270,9 +305,200 @@ class ReconcileSubscriptionsCommand extends Command
             return $this->reconcileLemonSqueezySubscription($billable, $subscription, $dryRun, $batchSubscriptions);
         }
 
+        if ($provider instanceof PolarProvider) {
+            return $this->reconcilePolarSubscription($provider, $billable, $subscription, $dryRun, $batchSubscriptions);
+        }
+
         $this->warn("  Provider {$provider->name()} reconciliation not implemented");
 
         return 'skipped';
+    }
+
+    protected function reconcilePolarSubscription(
+        PolarProvider $provider,
+        $billable,
+        $subscription,
+        bool $dryRun,
+        ?Collection $batchSubscriptions = null
+    ): string {
+        try {
+            $subscriptionId = $subscription->polar_id ?? null;
+
+            if (! is_string($subscriptionId) || $subscriptionId === '') {
+                $this->warn('  No Polar subscription ID found');
+
+                return 'skipped';
+            }
+
+            // Serialize with plan-change actions and webhook processing.
+            return app(SubscriptionStateLock::class)->block($billable, function () use ($provider, $billable, $subscription, $dryRun, $batchSubscriptions, $subscriptionId): string {
+                $remoteSubscription = $batchSubscriptions?->get($subscriptionId);
+
+                // A batch-fetched copy may already be stale by the time the
+                // lock is held; re-fetch when a pending change is about to be
+                // evaluated so it is applied against current provider state.
+                if ($remoteSubscription === null || $this->hasPendingPolarChange($subscriptionId)) {
+                    $remoteSubscription = $provider->fetchSubscription($subscriptionId) ?? $remoteSubscription;
+                }
+
+                if ($remoteSubscription === null) {
+                    $this->warn('  Polar subscription could not be fetched');
+
+                    return 'error';
+                }
+
+                $status = $remoteSubscription->status->value;
+                $this->info("  Polar status: {$status}");
+
+                if (in_array($status, ['canceled', 'unpaid'], true)
+                    && $remoteSubscription->endedAt !== null
+                    && CarbonImmutable::instance($remoteSubscription->endedAt)->isPast()) {
+                    if (! $dryRun) {
+                        app(DeleteSubscriptionAction::class)->execute($billable);
+                        $this->cancelPolarPendingChanges($billable, $subscriptionId);
+                    }
+
+                    $this->warn($dryRun
+                        ? '  [DRY-RUN] Would remove plan from billable'
+                        : '  Removed plan from billable');
+
+                    return 'removed';
+                }
+
+                $changed = false;
+
+                if (! $remoteSubscription->cancelAtPeriodEnd && $subscription->ends_at !== null) {
+                    if (! $dryRun) {
+                        $subscription->ends_at = null;
+                        $subscription->save();
+                    }
+
+                    $changed = true;
+                }
+
+                if (! $dryRun) {
+                    $changed = $this->reconcilePolarPlan(
+                        $billable,
+                        $remoteSubscription,
+                        $subscriptionId
+                    ) || $changed;
+                }
+
+                return $changed ? 'updated' : 'skipped';
+            });
+        } catch (\Throwable $exception) {
+            $this->error("  Polar Error: {$exception->getMessage()}");
+            Log::error('ReconcileSubscriptions: Failed to reconcile Polar subscription', [
+                'billable_type' => get_class($billable),
+                'billable_id' => $billable->getKey(),
+                'error' => $exception->getMessage(),
+            ]);
+
+            return 'error';
+        }
+    }
+
+    protected function hasPendingPolarChange(string $subscriptionId): bool
+    {
+        return $this->planChangeModel()::query()
+            ->pending()
+            ->where('provider', 'polar')
+            ->where('provider_subscription_id', $subscriptionId)
+            ->exists();
+    }
+
+    protected function fetchAllPolarSubscriptions(PolarProvider $provider): ?Collection
+    {
+        try {
+            return $provider->fetchSubscriptions();
+        } catch (\Throwable $exception) {
+            Log::warning('Failed to batch-fetch Polar subscriptions', [
+                'error' => $exception->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    protected function reconcilePolarPlan($billable, $remoteSubscription, string $subscriptionId): bool
+    {
+        /** @var class-string<PlanPrice> $planPriceModel */
+        $planPriceModel = config('plan-usage.models.plan_price', PlanPrice::class);
+        $currentPlanPrice = $planPriceModel::query()
+            ->where('polar_product_id', $remoteSubscription->productId)
+            ->first();
+        $pendingChange = $this->planChangeModel()::query()
+            ->pending()
+            ->where('provider', 'polar')
+            ->where('provider_subscription_id', $subscriptionId)
+            ->latest('id')
+            ->first();
+
+        if ($pendingChange !== null && $remoteSubscription->pendingUpdate !== null) {
+            $pendingChange->update([
+                'provider_change_id' => $remoteSubscription->pendingUpdate->id,
+                'effective_at' => $remoteSubscription->pendingUpdate->appliesAt,
+            ]);
+
+            return true;
+        }
+
+        if ($pendingChange !== null && $remoteSubscription->pendingUpdate === null) {
+            if ($pendingChange->toPlanPrice->polar_product_id === $remoteSubscription->productId) {
+                $providerChange = new ProviderSubscriptionChange(
+                    providerSubscriptionId: $remoteSubscription->id,
+                    currentProductId: $remoteSubscription->productId,
+                    pendingProductId: null,
+                    periodStart: CarbonImmutable::instance($remoteSubscription->currentPeriodStart),
+                    periodEnd: CarbonImmutable::instance($remoteSubscription->currentPeriodEnd),
+                );
+                // Mirror the webhook listener: only scheduled (next-period)
+                // changes reset usage; a stranded Immediate record is repaired
+                // with immediate semantics (prorate limit, preserve usage).
+                $adjustments = app(ApplyPlanChangeAction::class)->execute(
+                    $billable,
+                    $pendingChange->toPlanPrice,
+                    $providerChange,
+                    resetUsage: $pendingChange->timing === SubscriptionChangeTiming::NextPeriod,
+                );
+                $pendingChange->markApplied();
+                Event::dispatch(new SubscriptionPlanChanged($billable, $pendingChange, $adjustments));
+
+                return true;
+            }
+
+            $pendingChange->markCancelled();
+            Event::dispatch(new SubscriptionPlanChangeCancelled($billable, $pendingChange));
+        }
+
+        if ($currentPlanPrice !== null && (int) $billable->getAttribute('plan_price_id') !== $currentPlanPrice->id) {
+            app(SyncPlanWithBillableAction::class)->execute($billable, $currentPlanPrice);
+
+            return true;
+        }
+
+        return $pendingChange !== null;
+    }
+
+    protected function cancelPolarPendingChanges($billable, string $subscriptionId): void
+    {
+        $this->planChangeModel()::query()
+            ->where('provider', 'polar')
+            ->where('provider_subscription_id', $subscriptionId)
+            ->where('status', SubscriptionChangeStatus::Pending)
+            ->get()
+            ->each(function (SubscriptionPlanChange $planChange) use ($billable): void {
+                $planChange->markCancelled();
+                Event::dispatch(new SubscriptionPlanChangeCancelled($billable, $planChange));
+            });
+    }
+
+    /**
+     * @return class-string<SubscriptionPlanChange>
+     */
+    protected function planChangeModel(): string
+    {
+        return config('plan-usage.models.subscription_plan_change', SubscriptionPlanChange::class);
     }
 
     /**

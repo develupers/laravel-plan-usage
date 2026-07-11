@@ -72,14 +72,32 @@ class TestCase extends Orchestra
             $table->index('expiration');
         });
 
+        Schema::connection('sqlite_cache')->create('cache_locks', function ($table) {
+            $table->string('key')->primary();
+            $table->string('owner');
+            $table->integer('expiration');
+        });
+
         // Run migrations
+        // The test database exercises every provider, so run all of the
+        // per-provider price-column migrations (in production only the selected
+        // provider's column is installed — see PlanUsageServiceProvider::getMigrations()).
         $migrations = [
             'create_plans_table',
             'create_plan_prices_table',
+            'add_stripe_price_id_to_plan_prices',
+            'add_paddle_price_id_to_plan_prices',
+            'add_lemon_squeezy_variant_id_to_plan_prices',
+            'add_polar_product_id_to_plan_prices',
             'create_features_table',
             'create_plan_features_table',
             'create_usage_table',
             'create_quotas_table',
+            'create_subscription_plan_changes_table',
+            'create_billing_webhook_events_table',
+            // Runs after create_plans_table (which already has is_lifetime) to
+            // exercise the fresh-install publish combination — must be a no-op.
+            'add_lifetime_to_plans_table',
         ];
 
         foreach ($migrations as $migration) {
@@ -118,6 +136,27 @@ class TestCase extends Orchestra
             $table->string('stripe_product');
             $table->string('stripe_price');
             $table->integer('quantity')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('polar_customers', function (Blueprint $table) {
+            $table->id();
+            $table->morphs('billable');
+            $table->string('polar_id')->nullable()->unique();
+            $table->timestamp('trial_ends_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('polar_subscriptions', function (Blueprint $table) {
+            $table->id();
+            $table->morphs('billable');
+            $table->string('type');
+            $table->string('polar_id')->unique();
+            $table->string('status');
+            $table->string('product_id');
+            $table->timestamp('current_period_end')->nullable();
+            $table->timestamp('trial_ends_at')->nullable();
+            $table->timestamp('ends_at')->nullable();
             $table->timestamps();
         });
     }

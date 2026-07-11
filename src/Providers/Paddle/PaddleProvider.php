@@ -4,12 +4,19 @@ declare(strict_types=1);
 
 namespace Develupers\PlanUsage\Providers\Paddle;
 
+use Carbon\CarbonImmutable;
+use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Contracts\CheckoutSession;
+use Develupers\PlanUsage\Contracts\SubscriptionLifecycleProvider;
+use Develupers\PlanUsage\Enums\SubscriptionChangeTiming;
+use Develupers\PlanUsage\Support\ProviderSubscriptionChange;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Validation\ValidationException;
 use Laravel\Paddle\Cashier;
 use Laravel\Paddle\Events\WebhookReceived;
 use Laravel\Paddle\Exceptions\PaddleException;
+use Laravel\Paddle\Subscription as PaddleSubscription;
 
 /**
  * Paddle billing provider implementation.
@@ -17,7 +24,7 @@ use Laravel\Paddle\Exceptions\PaddleException;
  * This class provides Paddle-specific billing functionality through Laravel Cashier Paddle.
  * Paddle acts as Merchant of Record, handling all tax/VAT compliance.
  */
-class PaddleProvider implements BillingProvider
+class PaddleProvider implements BillingProvider, SubscriptionLifecycleProvider
 {
     /**
      * Get the provider name.
@@ -436,6 +443,132 @@ class PaddleProvider implements BillingProvider
         }
 
         return null;
+    }
+
+    /**
+     * Change the subscription to a different price.
+     *
+     * Paddle applies plan swaps immediately (proration invoiced now).
+     * Paddle Billing has no native scheduled plan change, so next-period
+     * timing is not implemented here.
+     *
+     * @param  Model&Billable  $billable
+     * @param  string  $productId  The target Paddle price ID
+     */
+    public function changeSubscription(
+        Model $billable,
+        string $productId,
+        SubscriptionChangeTiming $timing,
+        string $subscriptionName = 'default'
+    ): ProviderSubscriptionChange {
+        if ($timing !== SubscriptionChangeTiming::Immediate) {
+            throw ValidationException::withMessages([
+                'subscription' => ['Paddle supports immediate plan changes only. Scheduled changes are not available for this provider.'],
+            ]);
+        }
+
+        $subscription = $this->cashierSubscription($billable, $subscriptionName);
+
+        // Cashier Paddle defaults swaps to next-period billing; swapAndInvoice()
+        // switches to an immediate prorated charge so the change settles now.
+        $subscription->swapAndInvoice($productId);
+
+        $period = $this->currentBillingPeriod($subscription);
+
+        return new ProviderSubscriptionChange(
+            providerSubscriptionId: (string) $subscription->paddle_id,
+            // The swap is synchronous: if it did not throw, the new price is active.
+            currentProductId: $productId,
+            pendingProductId: null,
+            periodStart: $period['start'],
+            periodEnd: $period['end'],
+        );
+    }
+
+    /**
+     * Paddle has no scheduled plan changes, so there is nothing to cancel.
+     *
+     * @param  Model&Billable  $billable
+     */
+    public function cancelPendingSubscriptionChange(Model $billable, string $subscriptionName = 'default'): void
+    {
+        throw ValidationException::withMessages([
+            'subscription' => ['Paddle does not support scheduled plan changes, so there is no pending change to cancel.'],
+        ]);
+    }
+
+    /**
+     * @param  Model&Billable  $billable
+     */
+    public function cancelSubscription(
+        Model $billable,
+        bool $immediately = false,
+        string $subscriptionName = 'default'
+    ): void {
+        $subscription = $this->cashierSubscription($billable, $subscriptionName);
+
+        if ($immediately) {
+            $subscription->cancelNow();
+
+            return;
+        }
+
+        $subscription->cancel();
+    }
+
+    /**
+     * @param  Model&Billable  $billable
+     */
+    public function resumeSubscription(Model $billable, string $subscriptionName = 'default'): void
+    {
+        // Paddle un-cancels a scheduled cancellation via stopCancelation();
+        // resume() is reserved for paused subscriptions.
+        $this->cashierSubscription($billable, $subscriptionName)->stopCancelation();
+    }
+
+    /**
+     * Resolve the current billing period from the Paddle API.
+     *
+     * Cashier Paddle does not store the period locally, so it is fetched.
+     *
+     * @return array{start: CarbonImmutable, end: CarbonImmutable}
+     */
+    protected function currentBillingPeriod(PaddleSubscription $subscription): array
+    {
+        $remote = $subscription->asPaddleSubscription();
+        $period = is_array($remote['current_billing_period'] ?? null)
+            ? $remote['current_billing_period']
+            : [];
+
+        $start = isset($period['starts_at'])
+            ? CarbonImmutable::parse($period['starts_at'])
+            : CarbonImmutable::now();
+
+        $end = isset($period['ends_at'])
+            ? CarbonImmutable::parse($period['ends_at'])
+            : (isset($remote['next_billed_at'])
+                ? CarbonImmutable::parse($remote['next_billed_at'])
+                : CarbonImmutable::now()->addMonth());
+
+        return ['start' => $start, 'end' => $end];
+    }
+
+    /**
+     * Resolve the Cashier subscription for the billable, or fail.
+     *
+     * @param  Model&Billable  $billable
+     */
+    protected function cashierSubscription(Model $billable, string $subscriptionName): PaddleSubscription
+    {
+        $subscription = $billable->subscription($subscriptionName);
+
+        if (! $subscription instanceof PaddleSubscription) {
+            throw ValidationException::withMessages([
+                'subscription' => ['No active Paddle subscription found.'],
+            ]);
+        }
+
+        return $subscription;
     }
 
     /**

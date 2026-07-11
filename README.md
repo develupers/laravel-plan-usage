@@ -6,7 +6,7 @@
 [![Total Downloads](https://img.shields.io/packagist/dt/develupers/laravel-plan-usage.svg?style=flat-square)](https://packagist.org/packages/develupers/laravel-plan-usage)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A powerful Laravel package for managing subscription plans, features, quotas, and usage tracking. Perfect for SaaS applications that need flexible plan management with feature access control and usage monitoring. Seamlessly integrates with Laravel Cashier for billing with support for **Stripe, Paddle, and LemonSqueezy**.
+A powerful Laravel package for managing subscription plans, features, quotas, and usage tracking. Perfect for SaaS applications that need flexible plan management with feature access control and usage monitoring. Supports **Stripe, Paddle, Polar, and LemonSqueezy** billing integrations.
 
 ## ✨ Features
 
@@ -14,8 +14,8 @@ A powerful Laravel package for managing subscription plans, features, quotas, an
 - 🎯 **Feature Access Control** - Define boolean, limit, and quota-based features
 - 📈 **Usage Tracking** - Monitor and track feature consumption in real-time
 - 🚦 **Quota Enforcement** - Automatic quota limits with configurable warning thresholds
-- 💳 **Multi-Provider Billing** - Support for Stripe, Paddle, and LemonSqueezy billing providers
-- 🌍 **MoR Support** - Use Paddle or LemonSqueezy as Merchant of Record for simplified tax/VAT handling
+- 💳 **Multi-Provider Billing** - Support for Stripe, Paddle, Polar, and LemonSqueezy billing providers
+- 🌍 **MoR Support** - Use Paddle, Polar, or LemonSqueezy as Merchant of Record for simplified tax/VAT handling
 - 💱 **Multi-Currency Support** - Support for different currencies per pricing option
 - 📅 **Flexible Pricing Intervals** - Daily, weekly, monthly, yearly, or lifetime pricing
 - 🔄 **Periodic Reset Options** - Daily, weekly, monthly, or yearly quota resets
@@ -29,10 +29,11 @@ A powerful Laravel package for managing subscription plans, features, quotas, an
 ## 📋 Requirements
 
 - PHP 8.3+
-- Laravel 11.x or 12.x
+- Laravel 11.x, 12.x, or 13.x
 - **One of the following billing packages:**
   - Laravel Cashier 15.x (for Stripe)
   - Laravel Cashier Paddle 2.x (for Paddle Billing)
+  - Laravel Polar 2.13+ (for Polar)
   - LemonSqueezy Laravel (for LemonSqueezy)
 
 ## 🚀 Installation
@@ -74,6 +75,8 @@ return [
         'plan_features' => 'plan_features',
         'usages' => 'usages',
         'quotas' => 'quotas',
+        'subscription_plan_changes' => 'subscription_plan_changes',
+        'billing_webhook_events' => 'billing_webhook_events',
     ],
 
     'cache' => [
@@ -95,6 +98,7 @@ return [
         // 'auto' = detect from installed package
         // 'stripe' = force Stripe provider
         // 'paddle' = force Paddle provider
+        // 'polar' = force Polar provider
         // 'lemon-squeezy' = force LemonSqueezy provider
         'provider' => env('BILLING_PROVIDER', 'auto'),
     ],
@@ -113,6 +117,15 @@ return [
         'api_key' => env('PADDLE_API_KEY'),
         'webhook_secret' => env('PADDLE_WEBHOOK_SECRET'),
         'client_side_token' => env('PADDLE_CLIENT_SIDE_TOKEN'),
+    ],
+
+    // Polar-specific configuration (only needed if using Polar)
+    // Webhook signature verification is handled by danestves/laravel-polar via
+    // POLAR_WEBHOOK_SECRET in its own config, so there is no key for it here.
+    'polar' => [
+        'access_token' => env('POLAR_ACCESS_TOKEN'),
+        'organization_id' => env('POLAR_ORGANIZATION_ID'),
+        'server' => env('POLAR_SERVER', 'sandbox'),
     ],
 
     // LemonSqueezy-specific configuration (only needed if using LemonSqueezy)
@@ -155,7 +168,7 @@ echo $account->plan->name; // "Free"
 
 ## 💳 Billing Provider Setup
 
-This package supports **Stripe**, **Paddle**, and **LemonSqueezy** as billing providers. You can only use one provider at a time.
+This package supports **Stripe**, **Paddle**, **Polar**, and **LemonSqueezy** as billing providers. You can only use one provider at a time.
 
 ### Option 1: Stripe (Default)
 
@@ -195,7 +208,36 @@ PADDLE_WEBHOOK_SECRET=your-webhook-secret
 PADDLE_CLIENT_SIDE_TOKEN=your-client-token
 ```
 
-### Option 3: LemonSqueezy (Merchant of Record)
+### Option 3: Polar (Merchant of Record)
+
+Install Laravel Polar and run its installer:
+
+```bash
+composer require danestves/laravel-polar
+php artisan polar:install
+```
+
+Add to your `.env`:
+
+```env
+BILLING_PROVIDER=polar
+POLAR_ACCESS_TOKEN=your-access-token
+POLAR_ORGANIZATION_ID=your-organization-id
+POLAR_SERVER=sandbox
+POLAR_WEBHOOK_SECRET=your-webhook-secret
+```
+
+Each `PlanPrice` maps to a distinct Polar product through
+`polar_product_id`. Monthly and yearly subscriptions are separate Polar
+products even when they grant the same application plan.
+
+Lifetime plans are fully supported on Polar: a `PlanPrice` with the
+`lifetime` interval is pushed as a **one-time** Polar product, the plan and
+quotas are assigned when the `order.paid` webhook arrives (no subscription is
+created), and a fully refunded order revokes them again. Mark the plan
+`is_lifetime = true` so subscription enforcement never touches its holders.
+
+### Option 4: LemonSqueezy (Merchant of Record)
 
 LemonSqueezy acts as Merchant of Record, similar to Paddle. It uses "variants" instead of "prices" for different pricing options.
 
@@ -216,7 +258,7 @@ LEMON_SQUEEZY_SIGNING_SECRET=your-webhook-secret
 
 ### Auto-Detection
 
-If `BILLING_PROVIDER` is set to `auto` (or not set), the package will automatically detect which billing package is installed and use the appropriate provider. Detection priority: Paddle > LemonSqueezy > Stripe.
+If `BILLING_PROVIDER` is set to `auto` (or not set), the package will automatically detect which billing package is installed and use the appropriate provider. Detection priority: Paddle > Polar > LemonSqueezy > Stripe.
 
 ### Automatic Migration Selection
 
@@ -224,9 +266,14 @@ The package automatically publishes the correct migration for your billable tabl
 
 - **Stripe**: Adds `stripe_id`, `pm_type`, `pm_last_four`, `trial_ends_at` columns
 - **Paddle**: Adds `paddle_id`, `trial_ends_at`, `billing_email` columns
+- **Polar**: Uses Polar's polymorphic customer/subscription tables and adds only the plan tracking columns
 - **LemonSqueezy**: Adds `lemon_squeezy_id`, `trial_ends_at` columns
 
 All migrations also add plan tracking columns: `plan_id`, `plan_price_id`, `plan_changed_at`.
+
+The `plan_prices` table likewise only receives the selected provider's price/product identifier column (`stripe_price_id`, `paddle_price_id`, `lemon_squeezy_variant_id`, or `polar_product_id`). The managed subscription-change table (`subscription_plan_changes`) is published for providers that support managed plan changes (Stripe, Paddle, and Polar); the durable webhook-event table (`billing_webhook_events`) is Polar-only.
+
+> **Switching billing providers?** Migrations are selected from the provider detected at publish time, so after installing the new provider package and updating `BILLING_PROVIDER`, re-run `php artisan vendor:publish --tag="plan-usage-migrations"` and `php artisan migrate`. Only the new provider's migrations are added (already-published ones are skipped), and every provider-specific migration is guarded with `hasColumn`/`hasTable` checks so re-running is safe. Skipping this step leaves the new provider's column/tables missing — e.g. Polar webhooks will fail without the `billing_webhook_events` table.
 
 > The Paddle stub also adds a `billing_email` override (falls back to the owner/user email). Paddle allows only one customer per email, so each billable needs its own billing identity to subscribe independently; `PaddleProvider::updateCustomerEmail()` pushes changes to Paddle.
 
@@ -238,6 +285,9 @@ php artisan vendor:publish --tag=cashier-migrations
 
 # For Paddle
 php artisan vendor:publish --provider="Laravel\Paddle\CashierServiceProvider"
+
+# For Polar
+php artisan polar:install
 
 # For LemonSqueezy
 php artisan vendor:publish --tag="lemon-squeezy-migrations"
@@ -265,6 +315,17 @@ class Account extends Model
 ```php
 use Develupers\PlanUsage\Traits\HasPlanFeatures;
 use Laravel\Paddle\Billable;
+
+class Account extends Model
+{
+    use Billable, HasPlanFeatures;
+}
+```
+
+**For Polar:**
+```php
+use Danestves\LaravelPolar\Billable;
+use Develupers\PlanUsage\Traits\HasPlanFeatures;
 
 class Account extends Model
 {
@@ -309,6 +370,7 @@ $monthlyPrice = PlanPrice::create([
     'plan_id' => $plan->id,
     'stripe_price_id' => 'price_monthly123',       // Stripe Price ID
     'paddle_price_id' => 'pri_01xyz789',           // Paddle Price ID
+    'polar_product_id' => 'prod_polar_monthly123', // Polar Product ID
     'lemon_squeezy_variant_id' => '67890',         // LemonSqueezy Variant ID
     'price' => 49.00,
     'currency' => 'USD',
@@ -321,6 +383,7 @@ $yearlyPrice = PlanPrice::create([
     'plan_id' => $plan->id,
     'stripe_price_id' => 'price_yearly456',
     'paddle_price_id' => 'pri_01abc456',
+    'polar_product_id' => 'prod_polar_yearly456',
     'lemon_squeezy_variant_id' => '67891',
     'price' => 490.00, // Discounted yearly price
     'currency' => 'USD',
@@ -333,7 +396,7 @@ $apiFeature = Feature::create([
     'name' => 'API Calls',
     'slug' => 'api-calls',
     'type' => 'quota',
-    'reset_period' => 'monthly',
+    'reset_period' => 'month',
 ]);
 
 // Link feature to plan with a value
@@ -708,6 +771,9 @@ The package dispatches events you can listen to:
 - `QuotaWarning` - When usage reaches warning threshold (80%, 100%)
 - `QuotaExceeded` - When quota limit is exceeded
 - `PlanRevoked` - When a plan is revoked due to no active subscription (see [Enforcing Plan Subscriptions](#enforcing-plan-subscriptions))
+- `SubscriptionPlanChangeScheduled` - When a future plan change is accepted by the provider
+- `SubscriptionPlanChanged` - When a confirmed plan change is applied locally
+- `SubscriptionPlanChangeCancelled` - When a pending plan change is cancelled
 
 ```php
 // In your EventServiceProvider or via Laravel auto-discovery
@@ -744,7 +810,7 @@ This is handled at the package level, so your listeners don't need any deduplica
 
 ## 💳 Billing Provider Integration
 
-The package seamlessly integrates with Laravel Cashier for both Stripe and Paddle:
+The package integrates with Cashier Stripe, Cashier Paddle, Laravel Polar, and LemonSqueezy through one billing provider contract.
 
 ### Provider-Agnostic Methods
 
@@ -752,16 +818,69 @@ The package seamlessly integrates with Laravel Cashier for both Stripe and Paddl
 // Get the current provider's price ID for a plan price
 $priceId = $planPrice->getProviderPriceId();
 
-// Find a plan by its provider's price ID (works with Stripe, Paddle, and LemonSqueezy)
+// Find a plan by its provider's price/product ID
 $plan = Plan::findByProviderPriceId($priceId);
 
 // Get/set the provider's product ID
 $productId = $plan->getProviderProductId();
 $plan->setProviderProductId('prod_ABC123');
 
-// Creating subscription (works with all providers)
-$billable->newSubscription('default', $planPrice->getProviderPriceId())->create();
+// Create a provider checkout for a plan price
+$checkout = app(\Develupers\PlanUsage\Actions\Subscription\CreateCheckoutSessionAction::class)
+    ->executeForPlanPrice($billable, $planPrice, [
+        'success_url' => route('billing.success'),
+        'cancel_url' => route('billing.index'),
+    ]);
+
+return $checkout->redirect();
 ```
+
+### Managed Plan Changes
+
+Use the managed plan-change API instead of calling the provider's subscription model directly. This keeps the remote subscription, local plan, quotas, and pending-change audit record consistent.
+
+Provider support:
+
+| Timing | Stripe | Paddle | Polar |
+|---|---|---|---|
+| `Immediate` (swap + prorate now) | ✅ | ✅ | ✅ |
+| `NextPeriod` (scheduled change at renewal) | ❌ | ❌ | ✅ |
+
+```php
+use Develupers\PlanUsage\Actions\Subscription\CancelSubscriptionAction;
+use Develupers\PlanUsage\Enums\SubscriptionChangeTiming;
+
+// Upgrade now. The provider invoices the prorated price difference immediately,
+// then the package grants the prorated quota difference after confirmation.
+$change = $account->changePlan($growthMonthlyPrice);
+
+// Downgrade on renewal (Polar only). Current plan limits and quotas remain
+// unchanged until the provider reports that the pending product is now current.
+$change = $account->changePlan($starterMonthlyPrice, SubscriptionChangeTiming::NextPeriod);
+
+// Inspect or remove a scheduled downgrade before it takes effect.
+$pending = $account->pendingPlanChange();
+$account->cancelPendingPlanChange();
+
+// The same operations are available through the facade:
+// PlanUsage::changePlan($account, $growthMonthlyPrice);
+// PlanUsage::cancelPendingPlanChange($account);
+
+// Cancel at period end, resume during the grace period, or revoke now.
+app(CancelSubscriptionAction::class)->execute($account);
+app(CancelSubscriptionAction::class)->resume($account);
+app(CancelSubscriptionAction::class)->execute($account, immediately: true);
+```
+
+The package applies these entitlement rules:
+
+- Immediate quota upgrades add only the prorated difference for the remaining entitlement period.
+- Scheduled changes do not alter current entitlements early.
+- When a scheduled change becomes effective, quota usage resets and the target allowance is applied.
+- Period-end cancellation keeps access through Polar's paid grace period; revocation removes the plan and quotas.
+- Webhook deliveries are durably deduplicated and ordered per subscription. `subscriptions:reconcile` repairs state after missed webhooks.
+
+For asset limits such as active projects, this package updates the numeric plan limit but does not delete or lock application records. Your application should enforce the new limit after the scheduled change is applied—for example, by asking the user which projects remain active and making excess projects read-only.
 
 ### Syncing Plans to Billing Provider
 
@@ -774,6 +893,7 @@ php artisan plans:push
 # Sync to specific provider
 php artisan plans:push --provider=stripe
 php artisan plans:push --provider=paddle
+php artisan plans:push --provider=polar
 php artisan plans:push --provider=lemon-squeezy
 
 # Preview what would be synced (no changes made)
@@ -879,6 +999,7 @@ php artisan subscriptions:reconcile
 # Reconcile with specific provider
 php artisan subscriptions:reconcile --provider=stripe
 php artisan subscriptions:reconcile --provider=paddle
+php artisan subscriptions:reconcile --provider=polar
 php artisan subscriptions:reconcile --provider=lemon-squeezy
 
 # Preview changes
@@ -904,6 +1025,17 @@ $plan->paddle_product_id = 'pro_01ABC123';
 // Each price connects to Paddle Prices
 $price->paddle_price_id = 'pri_01XYZ789';
 ```
+
+### Polar-Specific
+
+Polar sells products rather than a separate product/price pair. Each local `PlanPrice` therefore maps to one Polar product:
+
+```php
+$monthlyPrice->polar_product_id = 'prod_01MONTHLY';
+$yearlyPrice->polar_product_id = 'prod_01YEARLY';
+```
+
+Use `plans:push --provider=polar` to create those products automatically. Laravel Polar owns customer, checkout, portal, order, subscription, and webhook transport; this package owns the mapping from the confirmed Polar subscription to plans, features, quotas, and usage.
 
 ### LemonSqueezy-Specific
 
