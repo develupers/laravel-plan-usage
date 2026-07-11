@@ -506,6 +506,12 @@ if ($plan->isLifetime()) {
 
 Lifetime plans still benefit from quota resets — a lifetime plan with 8,000 monthly credits will reset to 0 used credits each month. The only difference is that the plan is never removed due to a missing subscription.
 
+### Lifetime Purchases on Polar
+
+Polar is the only provider with true one-time purchases: a `LIFETIME`-interval `PlanPrice` maps to a one-time Polar product. The `order.paid` webhook assigns the plan and quotas (orders belonging to a subscription are ignored), and a **fully refunded order is the only thing that revokes a lifetime plan** — subscription lifecycle events, reconciliation, and enforcement all skip lifetime holders, so a historical (cancelled) subscription can never wipe a lifetime plan bought afterwards.
+
+Checkout blocks buying the same lifetime plan price twice (one-time purchases create no subscription row, so the usual `subscribed()` guard cannot catch a repeat purchase). Known limitation: purchases made outside the package's checkout (e.g. Polar dashboard payment links) are not deduplicated — sell lifetime products through `CreateCheckoutSessionAction` to keep refund semantics safe.
+
 ### Migration
 
 If upgrading from a previous version, publish and run the migration:
@@ -770,6 +776,21 @@ The package integrates with Cashier Stripe, Cashier Paddle, and Laravel Polar th
 
 **Design boundary**: the provider libraries own the money — payments, invoices, taxes, payment methods, and the billing clock. This package owns the entitlements — what a customer may use inside your application, and how much of it is left. It only reaches into a provider where entitlement correctness requires owning the call path (plan changes, cancellation), and it never replicates provider machinery it can consume instead.
 
+### Webhook Behavior & Entitlement Policy
+
+Providers do not guarantee webhook delivery order, so payloads are treated only as triggers: listeners re-fetch the subscription's **current** state from the provider API inside a per-billable lock and converge the local plan to that authoritative response — out-of-order deliveries are harmless. Failed deliveries return a non-2xx response (and release their dedupe key) so the provider redelivers.
+
+One shared status policy governs listeners, `subscriptions:reconcile`, and subscription enforcement:
+
+| Remote status | Outcome |
+|---|---|
+| `active`, `trialing` | Plan granted / synced |
+| `past_due` | Kept by default; set `plan-usage.{stripe,paddle,polar}.past_due_keeps_entitlements` to `false` to revoke |
+| `canceled` (Polar) | Grace period — kept until the effective end passes |
+| Everything else (`incomplete`, `unpaid`, `paused`, `canceled`, unknown) | Plan revoked |
+
+Revocation is fail-closed (the plan-clear commits before quota cleanup, so a cleanup failure still denies access) and idempotent (a billable already on the configured `subscription.default_plan_id` is never re-processed, preserving free-tier usage).
+
 ### Provider-Agnostic Methods
 
 ```php
@@ -803,6 +824,8 @@ Provider support:
 |---|---|---|---|
 | `Immediate` (swap + prorate now) | ✅ | ✅ | ✅ |
 | `NextPeriod` (scheduled change at renewal) | ❌ | ❌ | ✅ |
+
+Only the **configured default-type subscription** (`subscription.default_name`, `'default'` by default) controls the billable's plan: `changePlan()` rejects other subscription names, webhook events for add-on subscriptions are ignored, and immediate cancellation only revokes the plan when the default subscription itself was cancelled.
 
 A timing is exposed only where the provider supports it **natively** — the package never emulates provider-side scheduling with local timers, because the provider owns the billing clock and only it can bill the new price correctly at renewal. (Stripe could gain `NextPeriod` later via its native Subscription Schedules; Paddle has no native equivalent.) Feature-detect instead of catching exceptions:
 
