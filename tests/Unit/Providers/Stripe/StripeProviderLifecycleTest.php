@@ -28,7 +28,7 @@ class FakeStripeLifecycleSubscription extends CashierSubscription
 
     public bool $wasResumed = false;
 
-    public function swapAndInvoice(string|array $prices, array $options = [])
+    public function swapAndInvoice($prices, array $options = [])
     {
         $this->swappedTo = is_array($prices) ? ($prices[0] ?? null) : $prices;
 
