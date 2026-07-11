@@ -26,7 +26,6 @@ use Illuminate\Support\Carbon;
  * @property Period|null $reset_period
  * @property string|null $stripe_meter_id
  * @property string|null $paddle_meter_id
- * @property string|null $lemon_squeezy_meter_id
  * @property bool $is_consumable
  * @property int $sort_order
  * @property array|null $metadata
@@ -52,7 +51,6 @@ class Feature extends Model
         'reset_period',
         'stripe_meter_id',
         'paddle_meter_id',
-        'lemon_squeezy_meter_id',
         'is_consumable',
         'sort_order',
         'metadata',
@@ -196,7 +194,6 @@ class Feature extends Model
     {
         return match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_meter_id,
-            'lemon-squeezy' => $this->lemon_squeezy_meter_id,
             default => $this->stripe_meter_id,
         };
     }
@@ -208,7 +205,6 @@ class Feature extends Model
     {
         match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_meter_id = $meterId,
-            'lemon-squeezy' => $this->lemon_squeezy_meter_id = $meterId,
             default => $this->stripe_meter_id = $meterId,
         };
     }

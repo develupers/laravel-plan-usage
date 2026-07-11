@@ -24,7 +24,6 @@ use Illuminate\Support\Collection;
  * @property string|null $description
  * @property string|null $stripe_product_id
  * @property string|null $paddle_product_id
- * @property string|null $lemon_squeezy_product_id
  * @property int $trial_days
  * @property int $sort_order
  * @property bool $is_active
@@ -59,7 +58,6 @@ class Plan extends Model
         'description',
         'stripe_product_id',
         'paddle_product_id',
-        'lemon_squeezy_product_id',
         'trial_days',
         'sort_order',
         'is_active',
@@ -179,7 +177,6 @@ class Plan extends Model
     {
         return match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_product_id,
-            'lemon-squeezy' => $this->lemon_squeezy_product_id,
             'polar' => $this->defaultPrice()->value('polar_product_id')
                 ?? $this->activePrices()->value('polar_product_id'),
             default => $this->stripe_product_id,
@@ -207,7 +204,6 @@ class Plan extends Model
 
         match ($this->detectBillingProvider()) {
             'paddle' => $this->paddle_product_id = $productId,
-            'lemon-squeezy' => $this->lemon_squeezy_product_id = $productId,
             default => $this->stripe_product_id = $productId,
         };
     }

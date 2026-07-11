@@ -21,7 +21,6 @@ class PlanFactory extends Factory
             'slug' => $this->faker->unique()->slug(2),
             'description' => $this->faker->sentence(),
             'stripe_product_id' => 'prod_'.$this->faker->unique()->regexify('[A-Za-z0-9]{14}'),
-            'lemon_squeezy_product_id' => null,
             'is_active' => true,
             'is_lifetime' => false,
             'type' => 'public',

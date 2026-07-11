@@ -30,12 +30,11 @@ return [
     |--------------------------------------------------------------------------
     |
     | Configure which billing provider to use. Supports 'stripe', 'paddle',
-    | 'polar', 'lemon-squeezy', or 'auto' to auto-detect based on installed package.
+    | 'polar', or 'auto' to auto-detect based on installed package.
     |
     | When set to 'auto', the package will check for installed packages:
     | - If laravel/cashier-paddle is installed, Paddle will be used
     | - If danestves/laravel-polar is installed, Polar will be used
-    | - If lemonsqueezy/laravel is installed, LemonSqueezy will be used
     | - If laravel/cashier is installed, Stripe will be used
     | - If neither is installed, an error will be thrown
     |
@@ -358,31 +357,6 @@ return [
         'http_timeout' => 10,
         'http_connect_timeout' => 3,
         'past_due_keeps_entitlements' => true,
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | LemonSqueezy Integration
-    |--------------------------------------------------------------------------
-    |
-    | Configure LemonSqueezy integration for subscriptions and payments.
-    | These settings are only used when billing.provider is 'lemon-squeezy'
-    | or 'auto' and lemonsqueezy/laravel is installed.
-    |
-    | Note: LemonSqueezy acts as Merchant of Record, handling all tax/VAT compliance.
-    | LemonSqueezy uses "variants" instead of "prices" — each variant represents
-    | a specific pricing option for a product.
-    |
-    */
-    'lemon-squeezy' => [
-        // LemonSqueezy API key
-        'api_key' => env('LEMON_SQUEEZY_API_KEY'),
-
-        // LemonSqueezy store ID
-        'store' => env('LEMON_SQUEEZY_STORE'),
-
-        // Webhook signing secret for signature verification
-        'webhook_secret' => env('LEMON_SQUEEZY_SIGNING_SECRET'),
     ],
 
     /*

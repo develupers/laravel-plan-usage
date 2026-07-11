@@ -14,7 +14,7 @@ return new class extends Migration
                 ->constrained(config('plan-usage.tables.plans', 'plans'))
                 ->cascadeOnDelete();
             // Provider-specific price/product identifiers (stripe_price_id,
-            // paddle_price_id, lemon_squeezy_variant_id, polar_product_id) are added
+            // paddle_price_id, polar_product_id) are added
             // by a per-provider migration so only the selected provider's column
             // is created. See add_<provider>_price_id_to_plan_prices.
             $table->decimal('price', 10, 2)->default(0);

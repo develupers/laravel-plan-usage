@@ -87,7 +87,6 @@ class TestCase extends Orchestra
             'create_plan_prices_table',
             'add_stripe_price_id_to_plan_prices',
             'add_paddle_price_id_to_plan_prices',
-            'add_lemon_squeezy_variant_id_to_plan_prices',
             'add_polar_product_id_to_plan_prices',
             'create_features_table',
             'create_plan_features_table',

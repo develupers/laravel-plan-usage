@@ -21,8 +21,6 @@ use Develupers\PlanUsage\Commands\Stripe\PushPlansStripeCommand;
 use Develupers\PlanUsage\Commands\Subscription\ReconcileSubscriptionsCommand;
 use Develupers\PlanUsage\Commands\WarmCacheCommand;
 use Develupers\PlanUsage\Contracts\BillingProvider;
-use Develupers\PlanUsage\Providers\LemonSqueezy\LemonSqueezyProvider;
-use Develupers\PlanUsage\Providers\LemonSqueezy\LemonSqueezyWebhookListener;
 use Develupers\PlanUsage\Providers\Paddle\PaddleProvider;
 use Develupers\PlanUsage\Providers\Paddle\PaddleWebhookListener;
 use Develupers\PlanUsage\Providers\Polar\PolarProvider;
@@ -36,7 +34,6 @@ use Develupers\PlanUsage\Traits\DetectsBillingProvider;
 use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Events\WebhookHandled;
 use Laravel\Paddle\Events\WebhookReceived;
-use LemonSqueezy\Laravel\LemonSqueezy;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -128,9 +125,8 @@ class PlanUsageServiceProvider extends PackageServiceProvider
             'stripe' => $this->resolveStripeProvider(),
             'paddle' => $this->resolvePaddleProvider(),
             'polar' => $this->resolvePolarProvider(),
-            'lemon-squeezy' => $this->resolveLemonSqueezyProvider(),
             default => throw new \InvalidArgumentException(
-                "Unknown billing provider: {$provider}. Supported providers are: stripe, paddle, polar, lemon-squeezy"
+                "Unknown billing provider: {$provider}. Supported providers are: stripe, paddle, polar"
             ),
         };
     }
@@ -181,21 +177,6 @@ class PlanUsageServiceProvider extends PackageServiceProvider
     }
 
     /**
-     * Resolve the LemonSqueezy provider with validation.
-     */
-    protected function resolveLemonSqueezyProvider(): LemonSqueezyProvider
-    {
-        if (! class_exists(LemonSqueezy::class)) {
-            throw new \RuntimeException(
-                'LemonSqueezy provider configured but lemonsqueezy/laravel is not installed. '.
-                'Install it with: composer require lemonsqueezy/laravel'
-            );
-        }
-
-        return new LemonSqueezyProvider;
-    }
-
-    /**
      * Configure the package.
      */
     public function configurePackage(Package $package): void
@@ -232,7 +213,6 @@ class PlanUsageServiceProvider extends PackageServiceProvider
         $billableMigration = match ($provider) {
             'paddle' => 'add_billable_columns_paddle',
             'polar' => 'add_billable_columns_polar',
-            'lemon-squeezy' => 'add_billable_columns_lemon_squeezy',
             'stripe' => 'add_billable_columns_stripe',
             default => 'add_billable_columns_stripe', // Fallback to Stripe
         };
@@ -241,7 +221,6 @@ class PlanUsageServiceProvider extends PackageServiceProvider
         $priceColumnMigration = match ($provider) {
             'paddle' => 'add_paddle_price_id_to_plan_prices',
             'polar' => 'add_polar_product_id_to_plan_prices',
-            'lemon-squeezy' => 'add_lemon_squeezy_variant_id_to_plan_prices',
             'stripe' => 'add_stripe_price_id_to_plan_prices',
             default => 'add_stripe_price_id_to_plan_prices', // Fallback to Stripe
         };
@@ -263,7 +242,7 @@ class PlanUsageServiceProvider extends PackageServiceProvider
             $migrations[] = 'create_subscription_plan_changes_table';
         }
 
-        // Durable webhook idempotency is Polar-specific; Stripe/Paddle/LemonSqueezy
+        // Durable webhook idempotency is Polar-specific; Stripe/Paddle
         // dedupe via their Cashier webhook handlers and a cache lock instead.
         if ($provider === 'polar') {
             $migrations[] = 'create_billing_webhook_events_table';
@@ -315,12 +294,5 @@ class PlanUsageServiceProvider extends PackageServiceProvider
             );
         }
 
-        // Register LemonSqueezy webhook listener
-        if ($this->isLemonSqueezyProvider() && class_exists(\LemonSqueezy\Laravel\Events\WebhookHandled::class)) {
-            \Event::listen(
-                \LemonSqueezy\Laravel\Events\WebhookHandled::class,
-                LemonSqueezyWebhookListener::class
-            );
-        }
     }
 }

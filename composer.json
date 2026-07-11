@@ -86,8 +86,7 @@
     },
     "suggest": {
         "danestves/laravel-polar": "Required for Polar billing provider integration",
-        "laravel/cashier-paddle": "Required for Paddle billing provider integration",
-        "lemonsqueezy/laravel": "Required for LemonSqueezy billing provider integration"
+        "laravel/cashier-paddle": "Required for Paddle billing provider integration"
     },
     "minimum-stability": "dev",
     "prefer-stable": true

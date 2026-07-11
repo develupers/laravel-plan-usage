@@ -21,7 +21,6 @@ describe('Plan Model', function () {
                 'description',
                 'stripe_product_id',
                 'paddle_product_id',
-                'lemon_squeezy_product_id',
                 'trial_days',
                 'sort_order',
                 'is_active',

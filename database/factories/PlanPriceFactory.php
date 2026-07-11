@@ -16,7 +16,7 @@ class PlanPriceFactory extends Factory
     public function definition(): array
     {
         // Provider identifier columns (stripe_price_id, paddle_price_id,
-        // lemon_squeezy_variant_id, polar_product_id) are intentionally omitted:
+        // polar_product_id) are intentionally omitted:
         // consumer schemas only contain the selected provider's column, so an
         // unconditional default would fail with "column not found" on every
         // single-provider install. Set them explicitly where needed.
