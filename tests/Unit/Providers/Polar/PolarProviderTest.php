@@ -117,6 +117,37 @@ it('creates one Polar checkout product for the selected plan price', function ()
         ->and($allowDiscountCodes->getValue($checkout))->toBeFalse();
 });
 
+it('pins the checkout to an existing Polar customer', function () {
+    // Without the pin, a re-subscribe (or a checkout after a billing-email
+    // change) creates a SECOND Polar customer for the same billable; the
+    // local polar_customers row keeps the first polar_id, stranding the
+    // portal and invoices on the old customer.
+    $billable = PolarProviderTestBillable::query()->create();
+    Customer::query()->create([
+        'billable_type' => $billable->getMorphClass(),
+        'billable_id' => $billable->getKey(),
+        'polar_id' => 'customer_polar_existing',
+    ]);
+
+    $session = $this->provider->createCheckoutSession($billable, 'prod_monthly');
+
+    $checkout = $session->getProviderCheckout();
+    $customerId = new ReflectionProperty($checkout, 'customerId');
+
+    expect($customerId->getValue($checkout))->toBe('customer_polar_existing');
+});
+
+it('leaves the checkout customer unpinned for first-time billables', function () {
+    $billable = PolarProviderTestBillable::query()->create();
+
+    $session = $this->provider->createCheckoutSession($billable, 'prod_monthly');
+
+    $checkout = $session->getProviderCheckout();
+    $customerId = new ReflectionProperty($checkout, 'customerId');
+
+    expect($customerId->getValue($checkout))->toBeNull();
+});
+
 it('resolves billables through the canonical Polar customer table', function () {
     $billable = PolarProviderTestBillable::query()->create();
     Customer::query()->create([

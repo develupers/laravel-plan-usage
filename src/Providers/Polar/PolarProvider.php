@@ -69,6 +69,18 @@ class PolarProvider implements BillingProvider, SubscriptionLifecycleProvider
             is_array($metadata) ? $metadata : [],
         );
 
+        // Pin the checkout to the billable's existing Polar customer so a
+        // later checkout (re-subscribe, changed billing email) can never
+        // create a second Polar customer for the same billable — the local
+        // polar_customers row keeps the first polar_id, which would strand
+        // the portal and invoices on the old customer. Polar links the
+        // resulting order/subscription to this customer id deterministically.
+        $existingPolarId = $billable->customer?->polar_id;
+
+        if (is_string($existingPolarId) && $existingPolarId !== '') {
+            $checkout->withCustomerId($existingPolarId);
+        }
+
         if (isset($options['success_url'])) {
             $checkout->withSuccessUrl((string) $options['success_url']);
         }
