@@ -183,7 +183,7 @@ class PlanUsageServiceProvider extends PackageServiceProvider
             );
         }
 
-        return new PolarProvider;
+        return $this->app->make(PolarProvider::class);
     }
 
     /**

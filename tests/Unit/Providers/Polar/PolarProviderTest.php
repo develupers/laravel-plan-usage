@@ -261,3 +261,116 @@ it('reports support for both immediate and next-period plan change timings', fun
     expect($this->provider->supportsTiming(SubscriptionChangeTiming::Immediate))->toBeTrue()
         ->and($this->provider->supportsTiming(SubscriptionChangeTiming::NextPeriod))->toBeTrue();
 });
+
+class RenamedPolarCustomer extends Customer
+{
+    protected $table = 'renamed_customers';
+}
+
+class SoftDeletablePolarBillable extends Model implements Billable
+{
+    use HasPlanFeatures;
+    use \Illuminate\Database\Eloquent\SoftDeletes;
+    use PolarBillable;
+
+    public $timestamps = false;
+
+    protected $table = 'soft_deletable_billables';
+
+    protected $guarded = [];
+}
+
+class ScheduledCancellationPolarProvider extends PolarProvider
+{
+    /** @var array<string, mixed> */
+    public array $syncAttributes = [];
+
+    public ?string $cancelledSubscriptionId = null;
+
+    protected function scheduleCancellationAtPeriodEnd(string $subscriptionId): array
+    {
+        $this->cancelledSubscriptionId = $subscriptionId;
+
+        return $this->syncAttributes;
+    }
+}
+
+afterEach(function () {
+    \Danestves\LaravelPolar\LaravelPolar::useCustomerModel(Customer::class);
+});
+
+it('resolves the billable through the registered customer model', function () {
+    \Illuminate\Support\Facades\Schema::create('renamed_customers', function ($table) {
+        $table->id();
+        $table->morphs('billable');
+        $table->string('polar_id')->nullable()->unique();
+        $table->timestamp('trial_ends_at')->nullable();
+        $table->timestamps();
+    });
+    \Danestves\LaravelPolar\LaravelPolar::useCustomerModel(RenamedPolarCustomer::class);
+
+    $billable = PolarProviderTestBillable::query()->create([]);
+    RenamedPolarCustomer::query()->create([
+        'billable_type' => $billable->getMorphClass(),
+        'billable_id' => $billable->getKey(),
+        'polar_id' => 'customer_renamed_1',
+    ]);
+
+    $resolved = $this->provider->findBillableByCustomerId('customer_renamed_1');
+
+    expect($resolved)->toBeInstanceOf(PolarProviderTestBillable::class)
+        ->and($resolved->is($billable))->toBeTrue();
+});
+
+it('resolves a soft deleted billable for late provider events', function () {
+    \Illuminate\Support\Facades\Schema::create('soft_deletable_billables', function ($table) {
+        $table->id();
+        $table->foreignId('plan_id')->nullable();
+        $table->foreignId('plan_price_id')->nullable();
+        $table->timestamp('plan_changed_at')->nullable();
+        $table->softDeletes();
+    });
+
+    $billable = SoftDeletablePolarBillable::query()->create([]);
+    Customer::query()->create([
+        'billable_type' => $billable->getMorphClass(),
+        'billable_id' => $billable->getKey(),
+        'polar_id' => 'customer_trashed_1',
+    ]);
+    $billable->delete();
+
+    $resolved = $this->provider->findBillableByCustomerId('customer_trashed_1');
+
+    expect($resolved)->toBeInstanceOf(SoftDeletablePolarBillable::class)
+        ->and($resolved->trashed())->toBeTrue();
+});
+
+it('persists the scheduled end date on a period-end cancellation', function () {
+    $periodEnd = now()->addMonth()->startOfSecond();
+    $billable = PolarProviderTestBillable::query()->create([]);
+    $subscription = $billable->subscriptions()->create([
+        'type' => 'default',
+        'polar_id' => 'sub_cancel_sync_1',
+        'status' => 'active',
+        'product_id' => 'product_cancel_sync',
+        'current_period_end' => $periodEnd,
+    ]);
+
+    $provider = new ScheduledCancellationPolarProvider;
+    $provider->syncAttributes = [
+        'status' => 'active',
+        'product_id' => 'product_cancel_sync',
+        'current_period_end' => $periodEnd,
+        'trial_end' => null,
+        'ends_at' => $periodEnd,
+    ];
+
+    $provider->cancelSubscription($billable, immediately: false);
+
+    $subscription->refresh();
+
+    expect($provider->cancelledSubscriptionId)->toBe('sub_cancel_sync_1')
+        ->and($subscription->ends_at)->not->toBeNull()
+        ->and($subscription->ends_at->equalTo($periodEnd))->toBeTrue()
+        ->and($subscription->status->value)->toBe('active');
+});

@@ -217,9 +217,9 @@ class ReconcileSubscriptionsCommand extends Command
     {
         try {
             return match ($name) {
-                'stripe' => new StripeProvider,
-                'paddle' => new PaddleProvider,
-                'polar' => new PolarProvider,
+                'stripe' => app(StripeProvider::class),
+                'paddle' => app(PaddleProvider::class),
+                'polar' => app(PolarProvider::class),
                 default => throw new \InvalidArgumentException("Unknown provider: {$name}"),
             };
         } catch (\InvalidArgumentException $e) {

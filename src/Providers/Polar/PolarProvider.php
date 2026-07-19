@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Develupers\PlanUsage\Providers\Polar;
 
 use Carbon\CarbonImmutable;
-use Danestves\LaravelPolar\Customer;
 use Danestves\LaravelPolar\Events\WebhookHandled;
 use Danestves\LaravelPolar\LaravelPolar;
 use Develupers\PlanUsage\Contracts\Billable;
@@ -17,6 +16,8 @@ use Develupers\PlanUsage\Enums\SubscriptionChangeTiming;
 use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Support\ProviderSubscriptionChange;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
@@ -183,12 +184,31 @@ class PolarProvider implements BillingProvider, SubscriptionLifecycleProvider
 
     public function findBillableByCustomerId(string $customerId): ?Model
     {
-        if (! class_exists(Customer::class)) {
+        if (! class_exists(LaravelPolar::class)) {
             return null;
         }
 
-        $customer = Customer::query()->where('polar_id', $customerId)->first();
-        $billable = $customer?->billable;
+        $customerModel = LaravelPolar::$customerModel;
+        $customer = $customerModel::query()->where('polar_id', $customerId)->first();
+
+        if ($customer === null) {
+            return null;
+        }
+
+        $billableClass = Relation::getMorphedModel($customer->billable_type)
+            ?? $customer->billable_type;
+
+        if (! is_a($billableClass, Model::class, true)) {
+            return null;
+        }
+
+        $query = $billableClass::query();
+
+        if (in_array(SoftDeletes::class, class_uses_recursive($billableClass), true)) {
+            $query->withTrashed();
+        }
+
+        $billable = $query->find($customer->billable_id);
 
         return $billable instanceof Model ? $billable : null;
     }
@@ -281,7 +301,7 @@ class PolarProvider implements BillingProvider, SubscriptionLifecycleProvider
         $subscription = $this->subscription($billable, $subscriptionName);
 
         if (! $immediately) {
-            $subscription->cancel();
+            $subscription->sync($this->scheduleCancellationAtPeriodEnd($subscription->polar_id));
 
             return;
         }
@@ -508,6 +528,30 @@ class PolarProvider implements BillingProvider, SubscriptionLifecycleProvider
     /**
      * @return array<string, mixed>
      */
+    /**
+     * Schedule a period-end cancellation and return the local sync attributes.
+     *
+     * Deliberately does NOT delegate to danestves' Subscription::cancel():
+     * its sync maps ends_at from the response's endedAt (null until the
+     * subscription actually terminates) and discards the scheduled endsAt,
+     * so the local row would never record when access ends.
+     *
+     * @return array<string, mixed>
+     */
+    protected function scheduleCancellationAtPeriodEnd(string $subscriptionId): array
+    {
+        $response = $this->sdk()->subscriptions->update(
+            id: $subscriptionId,
+            subscriptionUpdate: new Components\SubscriptionCancel(cancelAtPeriodEnd: true),
+        );
+
+        if ($response->subscription === null) {
+            throw new \RuntimeException('Polar did not return the updated subscription.');
+        }
+
+        return $this->subscriptionSyncAttributes($response->subscription);
+    }
+
     protected function subscriptionSyncAttributes(Components\Subscription $subscription): array
     {
         return [
