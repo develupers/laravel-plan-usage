@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Danestves\LaravelPolar\Billable as PolarBillable;
 use Danestves\LaravelPolar\Checkout;
 use Danestves\LaravelPolar\Customer;
+use Danestves\LaravelPolar\LaravelPolar;
 use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Contracts\BillingProvider;
 use Develupers\PlanUsage\Enums\Interval;
@@ -15,7 +16,9 @@ use Develupers\PlanUsage\Providers\Polar\PolarCheckoutSession;
 use Develupers\PlanUsage\Providers\Polar\PolarProvider;
 use Develupers\PlanUsage\Traits\HasPlanFeatures;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Polar\Models\Components;
 use Polar\Models\Components\SubscriptionProrationBehavior;
 
@@ -270,8 +273,8 @@ class RenamedPolarCustomer extends Customer
 class SoftDeletablePolarBillable extends Model implements Billable
 {
     use HasPlanFeatures;
-    use \Illuminate\Database\Eloquent\SoftDeletes;
     use PolarBillable;
+    use SoftDeletes;
 
     public $timestamps = false;
 
@@ -296,18 +299,18 @@ class ScheduledCancellationPolarProvider extends PolarProvider
 }
 
 afterEach(function () {
-    \Danestves\LaravelPolar\LaravelPolar::useCustomerModel(Customer::class);
+    LaravelPolar::useCustomerModel(Customer::class);
 });
 
 it('resolves the billable through the registered customer model', function () {
-    \Illuminate\Support\Facades\Schema::create('renamed_customers', function ($table) {
+    Schema::create('renamed_customers', function ($table) {
         $table->id();
         $table->morphs('billable');
         $table->string('polar_id')->nullable()->unique();
         $table->timestamp('trial_ends_at')->nullable();
         $table->timestamps();
     });
-    \Danestves\LaravelPolar\LaravelPolar::useCustomerModel(RenamedPolarCustomer::class);
+    LaravelPolar::useCustomerModel(RenamedPolarCustomer::class);
 
     $billable = PolarProviderTestBillable::query()->create([]);
     RenamedPolarCustomer::query()->create([
@@ -323,7 +326,7 @@ it('resolves the billable through the registered customer model', function () {
 });
 
 it('resolves a soft deleted billable for late provider events', function () {
-    \Illuminate\Support\Facades\Schema::create('soft_deletable_billables', function ($table) {
+    Schema::create('soft_deletable_billables', function ($table) {
         $table->id();
         $table->foreignId('plan_id')->nullable();
         $table->foreignId('plan_price_id')->nullable();
