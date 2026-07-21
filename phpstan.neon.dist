@@ -49,6 +49,11 @@ parameters:
         -
             identifier: property.notFound
             path: src/Providers/Paddle/PaddleProvider.php
+        # laravel-polar's Billable trait provides the customer relation (polar_id)
+        # at runtime; the Billable&Model intersect can't see it.
+        -
+            identifier: property.notFound
+            path: src/Providers/Polar/PolarProvider.php
         # Quota::syncLimitWithPlan defensively catches morphTo resolution failures:
         # alias-mocked or otherwise broken billable classes throw BadMethodCallException
         # or Error at runtime (proven by the test suite), but PHPStan cannot see that
