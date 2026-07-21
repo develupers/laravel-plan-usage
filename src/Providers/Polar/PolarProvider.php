@@ -373,13 +373,15 @@ class PolarProvider implements BillingProvider, SubscriptionLifecycleProvider
         Model $plan,
         PlanPrice $planPrice
     ): Components\ProductCreateOneTime|Components\ProductCreateRecurring {
+        // organization_id is intentionally omitted: Polar organization tokens
+        // (the standard token type) imply the organization and the API rejects
+        // requests that set it explicitly ("Setting organization_id is
+        // disallowed when using an organization token").
         $attributes = [
             'name' => $this->productName($plan, $planPrice),
             'prices' => [$this->productPrice($planPrice)],
             'metadata' => $this->productMetadata($plan, $planPrice),
             'description' => $plan->description,
-            'organizationId' => config('polar.organization_id')
-                ?? config('plan-usage.polar.organization_id'),
         ];
 
         if ($planPrice->interval === Interval::LIFETIME) {
