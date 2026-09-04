@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Real attributes-backed billable: the read-path projection resolves the plan
@@ -290,6 +291,37 @@ describe('QuotaEnforcer', function () {
         // Assert
         $quota = Quota::where('feature_id', $feature->id)->first();
         expect($quota->used)->toBe(0.0);
+    });
+
+    it('decrements with SQL that is valid on MySQL, not only SQLite', function () {
+        // SQLite accepts the two-argument scalar MAX(a, b); MySQL's MAX() is
+        // aggregate-only, so a MAX-based clamp is a syntax error there — and
+        // it was, on every production refund. The suite runs on SQLite, so
+        // guard the statement shape itself rather than trusting the driver.
+        $feature = Feature::factory()->create(['slug' => 'api-calls']);
+        $billable = createBillable();
+        attachPlanGranting($billable, $feature);
+
+        Quota::create([
+            'billable_type' => $billable->getMorphClass(),
+            'billable_id' => $billable->getKey(),
+            'feature_id' => $feature->id,
+            'limit' => 100,
+            'used' => 50,
+        ]);
+
+        $statements = [];
+        DB::listen(function ($query) use (&$statements) {
+            $statements[] = $query->sql;
+        });
+
+        $this->quotaEnforcer->decrement($billable, 'api-calls', 20);
+
+        $update = collect($statements)->first(fn ($sql) => str_starts_with(strtolower($sql), 'update'));
+
+        expect($update)->not->toBeNull()
+            ->and($update)->toContain('CASE WHEN')
+            ->and(strtoupper($update))->not->toContain('MAX(');
     });
 
     it('resets quota', function () {

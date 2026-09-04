@@ -294,7 +294,12 @@ class QuotaEnforcer
         }
 
         $this->quotaModel::where('id', $quota->id)
-            ->update(['used' => DB::raw('MAX(used - '.(float) $amount.', 0)')]);
+            // CASE, not MAX(a, b): the two-argument scalar MAX exists in SQLite
+            // (the test driver) but MySQL's MAX() is aggregate-only, so the
+            // old form was a syntax error on every production refund.
+            ->update(['used' => DB::raw(
+                'CASE WHEN used - '.(float) $amount.' < 0 THEN 0 ELSE used - '.(float) $amount.' END'
+            )]);
 
         $this->clearQuotaCache($billable);
     }
