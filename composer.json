@@ -31,7 +31,7 @@
         "laravel/cashier": "^15.0||^16.0"
     },
     "require-dev": {
-        "danestves/laravel-polar": "^2.13",
+        "danestves/laravel-polar": "^3.1",
         "larastan/larastan": "^3.0",
         "laravel/cashier-paddle": "^2.8",
         "laravel/pint": "^1.14",
