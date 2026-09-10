@@ -15,8 +15,8 @@ use Develupers\PlanUsage\Traits\HasPlanFeatures;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 
 /**
  * Real attributes-backed billable: the read-path projection resolves the plan
