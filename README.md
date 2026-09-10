@@ -31,30 +31,62 @@ A powerful Laravel package for managing subscription plans, features, quotas, an
 - PHP 8.3+
 - Laravel 11.x, 12.x, or 13.x
 - **One of the following billing packages:**
-  - Laravel Cashier 15.x (for Stripe)
-  - Laravel Cashier Paddle 2.x (for Paddle Billing)
-  - Laravel Polar 2.13+ (for Polar)
+  - Laravel Cashier 15.x or 16.x (for Stripe; installed automatically)
+  - Laravel Cashier Paddle 2.8+ (for Paddle Billing; install separately)
+  - Laravel Polar 2.13+ within 2.x (for Polar; install separately)
 
 ## 🚀 Installation
 
-You can install the package via composer:
+Install the package from [Packagist](https://packagist.org/packages/develupers/laravel-plan-usage) by running this command in your Laravel application's root directory:
 
 ```bash
 composer require develupers/laravel-plan-usage
 ```
 
-Run the installation command to set up everything:
+Laravel automatically discovers the service provider and facade aliases. No custom Composer repository or manual provider registration is required.
+
+### Select Your Billing Provider
+
+Stripe's `laravel/cashier` package is installed as a dependency. For Paddle or Polar, also install the matching integration:
+
+```bash
+# Paddle
+composer require laravel/cashier-paddle:"^2.8"
+
+# Polar
+composer require danestves/laravel-polar:"^2.13"
+```
+
+Set your chosen provider in `.env` **before publishing migrations**, because the package publishes different migrations for each provider:
+
+```dotenv
+BILLING_PROVIDER=stripe
+```
+
+Use `paddle` or `polar` instead when appropriate. Clear any cached configuration:
+
+```bash
+php artisan config:clear
+```
+
+### Publish and Configure
+
+For a fresh installation, publish the configuration and the selected provider's migrations:
 
 ```bash
 php artisan plan-usage:install
 ```
 
-This command will:
-- Publish the configuration file
-- Publish database migrations
-- Set up the necessary tables
+This writes `config/plan-usage.php` and migration files in `database/migrations`; it does not run the migrations. The installer overwrites the published configuration, so use the individual `vendor:publish` commands when updating an existing installation:
 
-Then run the migrations:
+```bash
+php artisan vendor:publish --tag="plan-usage-config"
+php artisan vendor:publish --tag="plan-usage-migrations"
+```
+
+Before migrating, configure `models.billable` and `tables.billable` in `config/plan-usage.php` for your billable model and table. Add the package's `HasPlanFeatures` trait and your provider's Billable trait to that model, and complete the provider's database and webhook setup. See the [Installation Guide](docs/INSTALLATION.md) for model examples and provider configuration.
+
+Then create the tables:
 
 ```bash
 php artisan migrate
