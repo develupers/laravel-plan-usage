@@ -258,6 +258,8 @@ it('applies a pending change safely when the webhook omits billing period fields
 });
 
 it('keeps entitlements during a period-end cancellation', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-07-09 12:00:00 UTC'));
+
     $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
         $this->billable,
         'subscription.canceled',
@@ -420,6 +422,8 @@ it('revokes a stale plan when the default subscription reports a non-holding sta
 });
 
 it('revokes when a canceled subscription grace period has already ended', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-07-09 12:00:00 UTC'));
+
     // Polar 'canceled' is a grace period only while the effective end is in
     // the future — a delayed delivery after ends_at must revoke, not KEEP.
     $payload = polarPlanUsagePayload(
