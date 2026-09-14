@@ -21,6 +21,8 @@ use Develupers\PlanUsage\Support\EntitlementStatusPolicy;
 use Develupers\PlanUsage\Support\ProviderSubscriptionChange;
 use Develupers\PlanUsage\Support\SubscriptionStateLock;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Stripe\Exception\ApiErrorException;
@@ -89,7 +91,14 @@ class ReconcileSubscriptionsCommand extends Command
         // out-of-order webhooks), and planless ones (to recover a missed
         // initial checkout). Billables with a plan but NO subscription rows
         // (lifetime purchases, manually granted plans) are never touched here.
-        $query = $billableClass::whereHas('subscriptions');
+        //
+        // Soft-deleted billables are included: their subscriptions keep
+        // running (a period-end cancellation, or one that was never
+        // cancelled) and a restore must not bring back a plan the provider
+        // revoked while the row was trashed.
+        $query = in_array(SoftDeletes::class, class_uses_recursive($billableClass), true)
+            ? $billableClass::withTrashed()->whereHas('subscriptions')
+            : $billableClass::whereHas('subscriptions');
 
         $count = $query->count();
 
@@ -379,6 +388,13 @@ class ReconcileSubscriptionsCommand extends Command
                 $status = $remoteSubscription->status->value;
                 $this->info("  Polar status: {$status}");
 
+                // The local row is the source for hasLiveSubscription() /
+                // subscriptionHasEnded() (checkout-vs-swap routing). Webhooks
+                // write it in delivery order with no ordering guard, so a lost
+                // or late terminal event can leave it live forever — converge
+                // it to the remote truth before deciding anything.
+                $rowChanged = $this->syncPolarSubscriptionRow($provider, $subscription, $remoteSubscription, $dryRun);
+
                 // Shared policy, with Polar's grace semantics: 'canceled'
                 // KEEPs entitlements until ended_at passes (revocation
                 // arrives as subscription.revoked).
@@ -405,19 +421,10 @@ class ReconcileSubscriptionsCommand extends Command
                     // are — no grant, no revocation.
                     $this->info('  Status keeps current entitlements (policy)');
 
-                    return 'skipped';
+                    return $rowChanged ? 'updated' : 'skipped';
                 }
 
-                $changed = false;
-
-                if (! $remoteSubscription->cancelAtPeriodEnd && $subscription->ends_at !== null) {
-                    if (! $dryRun) {
-                        $subscription->ends_at = null;
-                        $subscription->save();
-                    }
-
-                    $changed = true;
-                }
+                $changed = $rowChanged;
 
                 if (! $dryRun) {
                     $changed = $this->reconcilePolarPlan(
@@ -439,6 +446,50 @@ class ReconcileSubscriptionsCommand extends Command
 
             return 'error';
         }
+    }
+
+    /**
+     * Converge the local subscription row (status, product, period, end) to
+     * the remote Polar subscription. Returns whether anything differed.
+     */
+    protected function syncPolarSubscriptionRow(PolarProvider $provider, $subscription, $remoteSubscription, bool $dryRun): bool
+    {
+        if (! $subscription instanceof Model || ! method_exists($subscription, 'sync')) {
+            return false;
+        }
+
+        $attributes = $provider->subscriptionSyncAttributes($remoteSubscription);
+        $localStatus = $subscription->status instanceof \BackedEnum
+            ? $subscription->status->value
+            : $subscription->status;
+        $differs = $localStatus !== $attributes['status']
+            || $subscription->product_id !== $attributes['product_id']
+            || ! $this->sameInstant($subscription->current_period_end, $attributes['current_period_end'])
+            || ! $this->sameInstant($subscription->ends_at, $attributes['ends_at']);
+
+        if (! $differs) {
+            return false;
+        }
+
+        if ($dryRun) {
+            $this->line("  [DRY-RUN] Would sync local subscription row (status {$localStatus} → {$attributes['status']})");
+
+            return true;
+        }
+
+        $subscription->sync($attributes);
+        $this->info("  Synced local subscription row (status {$localStatus} → {$attributes['status']})");
+
+        return true;
+    }
+
+    private function sameInstant(mixed $local, mixed $remote): bool
+    {
+        if ($local === null || $remote === null) {
+            return $local === null && $remote === null;
+        }
+
+        return Carbon::parse($local)->equalTo(Carbon::parse($remote));
     }
 
     protected function reconcilePolarPlan($billable, $remoteSubscription, string $subscriptionId): bool

@@ -202,21 +202,11 @@ class Quota extends Model
      */
     public function syncLimitWithPlan(): void
     {
-        // Best-effort: a quota row whose morph type no longer resolves to a
-        // real, working Eloquent model keeps its current limit.
-        $billableClass = Relation::getMorphedModel($this->billable_type) ?? $this->billable_type;
+        $billable = $this->relationLoaded('billable')
+            ? $this->getRelation('billable')
+            : $this->resolveBillableForLimitSync();
 
-        if (! is_string($billableClass) || ! class_exists($billableClass)) {
-            return;
-        }
-
-        try {
-            $billable = $this->billable;
-        } catch (\Throwable) {
-            return;
-        }
-
-        if ($billable === null || ! method_exists($billable, 'plan')) {
+        if (! $billable instanceof Model || ! method_exists($billable, 'plan')) {
             return;
         }
 
@@ -228,6 +218,27 @@ class Quota extends Model
 
         $value = $plan->getFeatureValue($this->feature->slug);
         $this->limit = $value === null ? null : (float) $value;
+    }
+
+    /**
+     * Best-effort billable resolution: a quota row whose morph type no longer
+     * resolves to a real, working Eloquent model keeps its current limit.
+     */
+    private function resolveBillableForLimitSync(): ?Model
+    {
+        $billableClass = Relation::getMorphedModel($this->billable_type) ?? $this->billable_type;
+
+        if (! is_string($billableClass) || ! class_exists($billableClass)) {
+            return null;
+        }
+
+        try {
+            $billable = $this->billable;
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $billable instanceof Model ? $billable : null;
     }
 
     /**

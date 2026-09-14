@@ -92,3 +92,13 @@ it('treats a canceled subscription past its grace period as ended, not live', fu
     expect($billable->fresh()->hasLiveSubscription())->toBeFalse()
         ->and($billable->fresh()->subscriptionHasEnded())->toBeTrue();
 });
+
+it('treats an incomplete_expired subscription as ended, not live', function () {
+    // The first payment never completed and the provider will not revive
+    // the row: it must not block a fresh checkout or be routed to a swap.
+    $billable = SubscriptionStateTestBillable::create([]);
+    paddleSubscriptionRow($billable, 'incomplete_expired');
+
+    expect($billable->fresh()->hasLiveSubscription())->toBeFalse()
+        ->and($billable->fresh()->subscriptionHasEnded())->toBeTrue();
+});

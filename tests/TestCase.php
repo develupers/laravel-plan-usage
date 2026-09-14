@@ -2,6 +2,7 @@
 
 namespace Develupers\PlanUsage\Tests;
 
+use Develupers\PlanUsage\Models\BillingWebhookEvent;
 use Develupers\PlanUsage\PlanUsageServiceProvider;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Schema\Blueprint;
@@ -18,6 +19,8 @@ class TestCase extends Orchestra
         Factory::guessFactoryNamesUsing(
             fn (string $modelName) => 'Develupers\\PlanUsage\\Database\\Factories\\'.class_basename($modelName).'Factory'
         );
+
+        BillingWebhookEvent::flushSchemaCache();
 
         // Clear cache before each test to ensure isolation
         Cache::store('sqlite')->flush();
@@ -94,6 +97,7 @@ class TestCase extends Orchestra
             'create_quotas_table',
             'create_subscription_plan_changes_table',
             'create_billing_webhook_events_table',
+            'add_payload_to_billing_webhook_events_table',
             // Runs after create_plans_table (which already has is_lifetime) to
             // exercise the fresh-install publish combination — must be a no-op.
             'add_lifetime_to_plans_table',

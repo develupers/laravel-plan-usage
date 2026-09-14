@@ -15,6 +15,7 @@ use Develupers\PlanUsage\Enums\Interval;
 use Develupers\PlanUsage\Enums\Period;
 use Develupers\PlanUsage\Enums\SubscriptionChangeStatus;
 use Develupers\PlanUsage\Enums\SubscriptionChangeTiming;
+use Develupers\PlanUsage\Exceptions\DeferredWebhookReplayException;
 use Develupers\PlanUsage\Models\BillingWebhookEvent;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
@@ -25,6 +26,9 @@ use Develupers\PlanUsage\Services\QuotaEnforcer;
 use Develupers\PlanUsage\Support\SubscriptionStateLock;
 use Develupers\PlanUsage\Traits\HasPlanFeatures;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 
 class PolarWebhookTestBillable extends Model implements Billable
 {
@@ -36,6 +40,11 @@ class PolarWebhookTestBillable extends Model implements Billable
     protected $table = 'test_billables';
 
     protected $guarded = [];
+}
+
+class PolarWebhookTrashedBillable extends PolarWebhookTestBillable
+{
+    use SoftDeletes;
 }
 
 /**
@@ -224,6 +233,7 @@ it('repairs a stranded immediate change without wiping usage', function () {
 });
 
 it('applies a pending change safely when the webhook omits billing period fields', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-07-16 00:00:00 UTC'));
     $this->starterPrice->update(['interval' => Interval::MONTH]);
     $planChange = SubscriptionPlanChange::query()->create([
         'billable_type' => $this->billable->getMorphClass(),
@@ -249,8 +259,9 @@ it('applies a pending change safely when the webhook omits billing period fields
 
     $quota = $this->billable->fresh()->quotas()->where('feature_id', $this->credits->id)->firstOrFail();
 
-    // Fallback period end = period start + target price interval (1 month),
-    // NOT "now" — the freshly granted quota must not be immediately expired.
+    // The quota window is the feature's calendar reset period (next reset
+    // = Aug 1), independent of the missing billing-period fields — the
+    // freshly granted quota must not be immediately expired.
     expect($planChange->fresh()->status)->toBe(SubscriptionChangeStatus::Applied)
         ->and($this->billable->fresh()->plan_id)->toBe($this->starter->id)
         ->and($quota->reset_at?->toDateTimeString())->toBe('2026-08-01 00:00:00')
@@ -397,6 +408,14 @@ it('rethrows processing failures and leaves the durable event retryable', functi
 it('ignores subscription events for a non-default (add-on) polar subscription', function () {
     // An add-on subscription's lifecycle must not revoke or replace the main
     // plan: its revoked event previously deleted the billable's entitlements.
+    // laravel-polar creates a local row for every subscription, typed from
+    // the checkout metadata — the add-on has its own, non-default row.
+    $this->billable->subscriptions()->create([
+        'type' => 'addon',
+        'polar_id' => 'sub_addon_999',
+        'status' => 'active',
+        'product_id' => 'prod_webhook_growth',
+    ]);
     $payload = polarPlanUsagePayload($this->billable, 'subscription.revoked', 'prod_webhook_growth');
     $payload['data']['id'] = 'sub_addon_999';
 
@@ -484,4 +503,316 @@ it('never lets a historical subscription event revoke a lifetime plan', function
 
     expect($this->billable->fresh()->plan_id)->toBe($lifetimePlan->id)
         ->and(BillingWebhookEvent::query()->whereNotNull('ignored_at')->count())->toBe(1);
+});
+
+it('defers an event that beats subscription.created and replays it once the row exists', function () {
+    // Polar emits created/active/updated within milliseconds; queued jobs
+    // can process `active` before `created` has inserted the local row.
+    // Ignoring it used to make `created` look stale too — dropping the
+    // grant for both and leaving a paid account planless until reconcile.
+    $billable = PolarWebhookTestBillable::query()->create([]);
+    Customer::query()->create([
+        'billable_type' => $billable->getMorphClass(),
+        'billable_id' => $billable->getKey(),
+        'polar_id' => 'customer_new_1',
+    ]);
+
+    $active = polarPlanUsagePayload($billable, 'subscription.active', 'prod_webhook_growth', modifiedAt: '2026-07-09T12:00:01Z');
+    $active['data']['id'] = 'sub_new_1';
+    $active['data']['customer_id'] = 'customer_new_1';
+
+    $this->listener->handle(new WebhookHandled($active));
+
+    $deferred = BillingWebhookEvent::query()->firstOrFail();
+
+    expect($billable->fresh()->plan_id)->toBeNull()
+        ->and($deferred->processed_at)->toBeNull()
+        ->and($deferred->ignored_at)->toBeNull()
+        ->and($deferred->last_error)->toBe(PolarWebhookListener::DEFERRED_ERROR);
+
+    // laravel-polar's created handler inserts the row (from the created
+    // payload, still `incomplete`), then dispatches WebhookHandled.
+    $billable->subscriptions()->create([
+        'type' => 'default',
+        'polar_id' => 'sub_new_1',
+        'status' => 'incomplete',
+        'product_id' => 'prod_webhook_growth',
+    ]);
+    $created = polarPlanUsagePayload($billable, 'subscription.created', 'prod_webhook_growth', modifiedAt: '2026-07-09T12:00:00Z', status: 'incomplete');
+    $created['data']['id'] = 'sub_new_1';
+    $created['data']['customer_id'] = 'customer_new_1';
+
+    $this->listener->handle(new WebhookHandled($created));
+
+    $row = $billable->subscriptions()->where('polar_id', 'sub_new_1')->firstOrFail();
+
+    expect($billable->fresh()->plan_id)->toBe($this->growth->id)
+        ->and(BillingWebhookEvent::query()->whereNotNull('processed_at')->count())->toBe(2)
+        ->and(BillingWebhookEvent::query()->whereNotNull('ignored_at')->count())->toBe(0)
+        ->and($deferred->fresh()->last_error)->toBeNull()
+        // The replayed payload also brought the local row up to date —
+        // laravel-polar skipped it because the row did not exist yet.
+        ->and($row->status->value)->toBe('active');
+});
+
+it('restores the local subscription row after a stale terminal event overwrote it', function () {
+    // laravel-polar syncs the row in DELIVERY order before this listener
+    // runs; a late `revoked` flips a live row to ended even though the
+    // listener ignores it — which would unlock a duplicate checkout.
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.updated',
+        'prod_webhook_growth',
+        modifiedAt: '2026-07-10T12:00:00Z',
+    )));
+
+    $row = $this->billable->subscriptions()->where('polar_id', 'sub_webhook_123')->firstOrFail();
+    // What laravel-polar's revoked handler would have written from the stale payload.
+    $row->update(['status' => 'canceled', 'ends_at' => '2026-07-01 00:00:00']);
+
+    $stale = polarPlanUsagePayload($this->billable, 'subscription.revoked', 'prod_webhook_growth', modifiedAt: '2026-07-09T12:00:00Z', status: 'canceled');
+    $stale['data']['ends_at'] = '2026-07-01T00:00:00Z';
+
+    $this->listener->handle(new WebhookHandled($stale));
+
+    $row = $row->fresh();
+
+    expect($this->billable->fresh()->plan_id)->toBe($this->growth->id)
+        ->and(BillingWebhookEvent::query()->whereNotNull('ignored_at')->count())->toBe(1)
+        ->and($row->status->value)->toBe('active')
+        ->and($row->ends_at)->toBeNull()
+        ->and($this->billable->fresh()->hasLiveSubscription())->toBeTrue();
+});
+
+it('does not let a webhook older than a pending change cancel it', function () {
+    // The user cancelled a scheduled downgrade and immediately scheduled a
+    // new one. The delayed `updated` echo of the CANCEL (no pending_update,
+    // product = current) must not cancel the fresh record Polar still holds.
+    $planChange = SubscriptionPlanChange::query()->create([
+        'billable_type' => $this->billable->getMorphClass(),
+        'billable_id' => $this->billable->getKey(),
+        'provider' => 'polar',
+        'subscription_type' => 'default',
+        'provider_subscription_id' => 'sub_webhook_123',
+        'from_plan_price_id' => $this->growthPrice->id,
+        'to_plan_price_id' => $this->starterPrice->id,
+        'timing' => SubscriptionChangeTiming::NextPeriod,
+        'status' => SubscriptionChangeStatus::Pending,
+    ]);
+
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.updated',
+        'prod_webhook_growth',
+        modifiedAt: now()->subHour()->toIso8601ZuluString(),
+    )));
+
+    expect($planChange->fresh()->status)->toBe(SubscriptionChangeStatus::Pending)
+        ->and(BillingWebhookEvent::query()->whereNotNull('processed_at')->count())->toBe(1);
+
+    // Provider state observed AFTER the record was created is authoritative.
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.updated',
+        'prod_webhook_growth',
+        modifiedAt: now()->addMinute()->toIso8601ZuluString(),
+    )));
+
+    expect($planChange->fresh()->status)->toBe(SubscriptionChangeStatus::Cancelled);
+});
+
+it('resolves a soft-deleted billable from the checkout metadata', function () {
+    // The subscription keeps emitting events during a deletion recovery
+    // window; a restore must find the state those events left behind.
+    Schema::table('test_billables', function (Blueprint $table): void {
+        $table->timestamp('deleted_at')->nullable();
+    });
+    $billable = PolarWebhookTrashedBillable::query()->create([
+        'plan_id' => $this->growth->id,
+        'plan_price_id' => $this->growthPrice->id,
+    ]);
+    $billable->subscriptions()->create([
+        'type' => 'default',
+        'polar_id' => 'sub_trashed_1',
+        'status' => 'active',
+        'product_id' => 'prod_webhook_growth',
+    ]);
+    $billable->delete();
+
+    $payload = polarPlanUsagePayload($billable, 'subscription.revoked', 'prod_webhook_growth', status: 'canceled');
+    $payload['data']['id'] = 'sub_trashed_1';
+    $payload['data']['customer_id'] = 'customer_unknown';
+
+    $this->listener->handle(new WebhookHandled($payload));
+
+    expect(PolarWebhookTrashedBillable::withTrashed()->findOrFail($billable->getKey())->plan_id)->toBeNull()
+        ->and(BillingWebhookEvent::query()->whereNotNull('processed_at')->count())->toBe(1);
+});
+
+it('keeps processing webhooks when the payload column has not been published yet', function () {
+    Schema::table('billing_webhook_events', function (Blueprint $table): void {
+        $table->dropColumn('payload');
+    });
+    BillingWebhookEvent::flushSchemaCache();
+
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.updated',
+        'prod_webhook_starter',
+    )));
+
+    expect($this->billable->fresh()->plan_id)->toBe($this->starter->id)
+        ->and(BillingWebhookEvent::query()->whereNotNull('processed_at')->count())->toBe(1);
+});
+
+it('leaves a stale event retryable when restoring the local row fails', function () {
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.updated',
+        'prod_webhook_growth',
+        modifiedAt: '2026-07-10T12:00:00Z',
+    )));
+
+    // Corrupt the stored payload the repair reads from so sync() throws.
+    $processed = BillingWebhookEvent::query()->firstOrFail();
+    $payload = $processed->payload;
+    $payload['data']['status'] = 'not-a-status';
+    $processed->update(['payload' => $payload]);
+
+    $row = $this->billable->subscriptions()->where('polar_id', 'sub_webhook_123')->firstOrFail();
+    $row->update(['status' => 'canceled', 'ends_at' => '2026-07-01 00:00:00']);
+
+    $stale = polarPlanUsagePayload($this->billable, 'subscription.revoked', 'prod_webhook_growth', modifiedAt: '2026-07-09T12:00:00Z', status: 'canceled');
+
+    expect(fn () => $this->listener->handle(new WebhookHandled($stale)))->toThrow(ValueError::class);
+
+    $staleEvent = BillingWebhookEvent::query()->where('event_type', 'subscription.revoked')->firstOrFail();
+
+    // Not acknowledged: a redelivery (or the next drain) retries the repair.
+    expect($staleEvent->ignored_at)->toBeNull()
+        ->and($staleEvent->processed_at)->toBeNull()
+        ->and($staleEvent->last_error)->not->toBeNull();
+
+    $payload['data']['status'] = 'active';
+    $processed->update(['payload' => $payload]);
+
+    $this->listener->handle(new WebhookHandled($stale));
+
+    expect($staleEvent->fresh()->ignored_at)->not->toBeNull()
+        ->and($row->fresh()->status->value)->toBe('active');
+});
+
+it('drains an older deferred delivery on the next event instead of leaving it dangling', function () {
+    $billable = PolarWebhookTestBillable::query()->create([]);
+    Customer::query()->create([
+        'billable_type' => $billable->getMorphClass(),
+        'billable_id' => $billable->getKey(),
+        'polar_id' => 'customer_new_2',
+    ]);
+
+    $active = polarPlanUsagePayload($billable, 'subscription.active', 'prod_webhook_starter', modifiedAt: '2026-07-09T12:00:01Z');
+    $active['data']['id'] = 'sub_new_2';
+    $active['data']['customer_id'] = 'customer_new_2';
+    $this->listener->handle(new WebhookHandled($active));
+
+    $billable->subscriptions()->create([
+        'type' => 'default',
+        'polar_id' => 'sub_new_2',
+        'status' => 'active',
+        'product_id' => 'prod_webhook_growth',
+    ]);
+
+    // A NEWER delivery arrives (a mid-period swap to growth). The deferred
+    // `active` is older than it, so draining must resolve it as stale — not
+    // apply its starter product over the newer state, and not leave it
+    // waiting forever.
+    $updated = polarPlanUsagePayload($billable, 'subscription.updated', 'prod_webhook_growth', modifiedAt: '2026-07-09T12:00:05Z');
+    $updated['data']['id'] = 'sub_new_2';
+    $updated['data']['customer_id'] = 'customer_new_2';
+    $this->listener->handle(new WebhookHandled($updated));
+
+    $deferred = BillingWebhookEvent::query()->where('event_type', 'subscription.active')->firstOrFail();
+
+    expect($billable->fresh()->plan_id)->toBe($this->growth->id)
+        ->and($deferred->ignored_at)->not->toBeNull()
+        ->and($deferred->last_error)->toBeNull()
+        ->and(BillingWebhookEvent::query()->deferred()->count())->toBe(0);
+});
+
+it('fails the job when a deferred replay fails and drains it again on redelivery', function () {
+    // Without this, a replay that hits a transient failure — with no newer
+    // event ever arriving — would leave the deferred grant stranded.
+    $billable = PolarWebhookTestBillable::query()->create([]);
+    Customer::query()->create([
+        'billable_type' => $billable->getMorphClass(),
+        'billable_id' => $billable->getKey(),
+        'polar_id' => 'customer_new_3',
+    ]);
+
+    $active = polarPlanUsagePayload($billable, 'subscription.active', 'prod_webhook_growth', modifiedAt: '2026-07-09T12:00:01Z');
+    $active['data']['id'] = 'sub_new_3';
+    $active['data']['customer_id'] = 'customer_new_3';
+    $this->listener->handle(new WebhookHandled($active));
+
+    $billable->subscriptions()->create([
+        'type' => 'default',
+        'polar_id' => 'sub_new_3',
+        'status' => 'incomplete',
+        'product_id' => 'prod_webhook_growth',
+    ]);
+    $created = polarPlanUsagePayload($billable, 'subscription.created', 'prod_webhook_growth', modifiedAt: '2026-07-09T12:00:00Z', status: 'incomplete');
+    $created['data']['id'] = 'sub_new_3';
+    $created['data']['customer_id'] = 'customer_new_3';
+
+    // The plan sync fails transiently during the replay of `active`.
+    $failingSync = Mockery::mock(SyncPlanWithBillableAction::class);
+    $failingSync->shouldReceive('execute')->once()->andThrow(new RuntimeException('deadlock'));
+    $failingListener = new PolarWebhookListener(
+        new PolarProvider,
+        $failingSync,
+        new DeleteSubscriptionAction,
+        new ConfirmPendingPlanChangeAction(new ApplyPlanChangeAction(app(QuotaEnforcer::class))),
+        new SubscriptionStateLock,
+    );
+
+    expect(fn () => $failingListener->handle(new WebhookHandled($created)))
+        ->toThrow(DeferredWebhookReplayException::class, 'deadlock');
+
+    $createdEvent = BillingWebhookEvent::query()->where('event_type', 'subscription.created')->firstOrFail();
+    $activeEvent = BillingWebhookEvent::query()->where('event_type', 'subscription.active')->firstOrFail();
+
+    expect($billable->fresh()->plan_id)->toBeNull()
+        ->and($createdEvent->processed_at)->not->toBeNull()
+        ->and($createdEvent->last_error)->toBeNull()
+        ->and($activeEvent->processed_at)->toBeNull()
+        ->and($activeEvent->last_error)->toBe('deadlock');
+
+    // A queue retry / Polar redelivery of the already-processed `created`
+    // drains the backlog with a healthy listener.
+    $this->listener->handle(new WebhookHandled($created));
+
+    expect($billable->fresh()->plan_id)->toBe($this->growth->id)
+        ->and($activeEvent->fresh()->processed_at)->not->toBeNull()
+        ->and($activeEvent->fresh()->last_error)->toBeNull()
+        ->and(BillingWebhookEvent::query()->count())->toBe(2);
+});
+
+it('short-circuits a redelivery when nothing is waiting', function () {
+    $event = new WebhookHandled(polarPlanUsagePayload($this->billable, 'subscription.updated', 'prod_webhook_starter'));
+    $this->listener->handle($event);
+
+    $sync = Mockery::mock(SyncPlanWithBillableAction::class);
+    $sync->shouldReceive('execute')->never();
+    $listener = new PolarWebhookListener(
+        new PolarProvider,
+        $sync,
+        new DeleteSubscriptionAction,
+        new ConfirmPendingPlanChangeAction(new ApplyPlanChangeAction(app(QuotaEnforcer::class))),
+        new SubscriptionStateLock,
+    );
+
+    $listener->handle($event);
+
+    expect(BillingWebhookEvent::query()->count())->toBe(1)
+        ->and($this->billable->fresh()->plan_id)->toBe($this->starter->id);
 });

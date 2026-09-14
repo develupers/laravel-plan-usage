@@ -367,7 +367,7 @@ trait HasPlanFeatures
             return null;
         }
 
-        $quota = $this->quotas()->where('feature_id', $feature->id)->first();
+        $quota = $this->projectedQuota($this->quotas()->where('feature_id', $feature->id)->first());
 
         return $quota ? $quota->remaining() : null;
     }
@@ -383,7 +383,7 @@ trait HasPlanFeatures
             return null;
         }
 
-        $quota = $this->quotas()->where('feature_id', $feature->id)->first();
+        $quota = $this->projectedQuota($this->quotas()->where('feature_id', $feature->id)->first());
 
         return $quota ? $quota->usagePercentage() : 0;
     }
@@ -417,7 +417,7 @@ trait HasPlanFeatures
             return null;
         }
 
-        $quota = $this->quotas()->where('feature_id', $feature->id)->first();
+        $quota = $this->projectedQuota($this->quotas()->where('feature_id', $feature->id)->first());
 
         if (! $quota) {
             // Quota not initialized yet — fall back to the plan's granted
@@ -432,6 +432,28 @@ trait HasPlanFeatures
             'used' => $quota->used,
             'remaining' => $quota->remaining(),
         ];
+    }
+
+    /**
+     * The quota as the write path will see it: an expired quota is reset
+     * lazily on the next consume (or by the reset job), so read paths must
+     * evaluate the reset's projection — used = 0, limit trued up to the
+     * current plan — WITHOUT saving. Otherwise readers keep reporting last
+     * period's exhausted usage between the boundary and the first consume.
+     */
+    protected function projectedQuota(?Quota $quota): ?Quota
+    {
+        if ($quota === null || ! $quota->needsReset() || ! $quota->feature?->resetsPeriodically()) {
+            return $quota;
+        }
+
+        $projected = $quota->replicate();
+        $projected->setRelation('feature', $quota->feature);
+        $projected->setRelation('billable', $this);
+        $projected->used = 0;
+        $projected->syncLimitWithPlan();
+
+        return $projected;
     }
 
     /**
@@ -521,9 +543,7 @@ trait HasPlanFeatures
     {
         $subscription = $this->subscription($type);
 
-        return $subscription !== null
-            && $this->subscriptionIsCancelled($subscription)
-            && ! $subscription->onGracePeriod();
+        return $subscription !== null && $this->subscriptionIsTerminal($subscription);
     }
 
     /**
@@ -543,7 +563,24 @@ trait HasPlanFeatures
             return false;
         }
 
-        return ! ($this->subscriptionIsCancelled($subscription) && ! $subscription->onGracePeriod());
+        return ! $this->subscriptionIsTerminal($subscription);
+    }
+
+    /**
+     * A row the provider will never revive: canceled past its grace period,
+     * or an `incomplete_expired` checkout whose first payment never
+     * completed. Neither blocks a fresh checkout, and neither can be swapped.
+     */
+    private function subscriptionIsTerminal(object $subscription): bool
+    {
+        if ($this->subscriptionIsCancelled($subscription) && ! $subscription->onGracePeriod()) {
+            return true;
+        }
+
+        $status = $subscription->status ?? null;
+        $status = $status instanceof \BackedEnum ? $status->value : $status;
+
+        return $status === 'incomplete_expired';
     }
 
     /**

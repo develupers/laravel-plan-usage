@@ -133,10 +133,13 @@ trait EnforcesQuotas
 
     /**
      * Increment quota usage.
+     *
+     * @return bool Whether a quota row was incremented (false when the billable
+     *              has no plan or the plan does not grant the feature).
      */
-    public function incrementQuotaUsage(string $featureSlug, float $amount = 1): void
+    public function incrementQuotaUsage(string $featureSlug, float $amount = 1): bool
     {
-        $this->quotaEnforcer()->increment($this, $featureSlug, $amount);
+        return $this->quotaEnforcer()->increment($this, $featureSlug, $amount);
     }
 
     /**

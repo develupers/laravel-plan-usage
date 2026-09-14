@@ -2,9 +2,11 @@
 
 declare(strict_types=1);
 
+use Develupers\PlanUsage\Enums\Period;
 use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Models\PlanFeature;
+use Develupers\PlanUsage\Models\Quota;
 
 /** @return array{0: object, 1: Plan} */
 function billableOnPlan(): array
@@ -67,4 +69,49 @@ it('reports a granted metered feature with its limit', function () {
         ->and($usage['limit'])->toBe(1000.0)
         ->and($usage['used'])->toBe(0)
         ->and($usage['remaining'])->toBe(1000.0);
+});
+
+it('reports an expired quota as reset without writing it', function () {
+    // The write path resets lazily on the next consume; until then (or the
+    // hourly reset job) read paths must not report last period's exhausted
+    // usage — pacing readers would keep throttling a fresh period.
+    [$billable, $plan] = billableOnPlan();
+    $feature = grantPlanFeature($plan, 'expiring-credits', 'quota', '1000');
+    $feature->update(['reset_period' => Period::MONTH]);
+    $quota = Quota::query()->create([
+        'billable_type' => $billable->getMorphClass(),
+        'billable_id' => $billable->getKey(),
+        'feature_id' => $feature->id,
+        'limit' => 800, // prorated by an earlier change; trues up to the plan on reset
+        'used' => 800,
+        'reset_at' => now()->subDay(),
+    ]);
+
+    $usage = $billable->getFeatureUsage('expiring-credits');
+
+    expect($usage['used'])->toBe(0.0)
+        ->and($usage['limit'])->toBe(1000.0)
+        ->and($usage['remaining'])->toBe(1000.0)
+        ->and($billable->getFeatureRemaining('expiring-credits'))->toBe(1000.0)
+        ->and($billable->getFeatureUsagePercentage('expiring-credits'))->toBe(0.0)
+        // Projection only: the row itself is reset by the write path.
+        ->and($quota->fresh()->used)->toBe(800.0)
+        ->and($quota->fresh()->limit)->toBe(800.0);
+});
+
+it('reports a non-expired quota as stored', function () {
+    [$billable, $plan] = billableOnPlan();
+    $feature = grantPlanFeature($plan, 'live-credits', 'quota', '1000');
+    $feature->update(['reset_period' => Period::MONTH]);
+    Quota::query()->create([
+        'billable_type' => $billable->getMorphClass(),
+        'billable_id' => $billable->getKey(),
+        'feature_id' => $feature->id,
+        'limit' => 1000,
+        'used' => 250,
+        'reset_at' => now()->addDay(),
+    ]);
+
+    expect($billable->getFeatureUsage('live-credits')['used'])->toBe(250.0)
+        ->and($billable->getFeatureRemaining('live-credits'))->toBe(750.0);
 });

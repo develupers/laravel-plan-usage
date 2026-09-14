@@ -554,14 +554,24 @@ class PolarProvider implements BillingProvider, SubscriptionLifecycleProvider
         return $this->subscriptionSyncAttributes($response->subscription);
     }
 
-    protected function subscriptionSyncAttributes(Components\Subscription $subscription): array
+    /**
+     * The local subscription row attributes for a remote Polar subscription,
+     * shaped for laravel-polar's Subscription::sync().
+     *
+     * @return array<string, mixed>
+     */
+    public function subscriptionSyncAttributes(Components\Subscription $subscription): array
     {
         return [
-            'status' => $subscription->status,
+            'status' => $subscription->status->value,
             'product_id' => $subscription->productId,
             'current_period_end' => $subscription->currentPeriodEnd,
             'trial_end' => $subscription->trialEnd,
-            'ends_at' => $subscription->endsAt ?? $subscription->endedAt,
+            // The actual end wins over a scheduled one: a subscription revoked
+            // early can carry both, and a future ends_at on an ended row would
+            // read as a grace period (live) and block a fresh checkout. Same
+            // precedence the entitlement decision uses (endedAt ?? endsAt).
+            'ends_at' => $subscription->endedAt ?? $subscription->endsAt,
         ];
     }
 }

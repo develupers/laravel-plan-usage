@@ -275,7 +275,7 @@ The package automatically publishes the correct migration for your billable tabl
 
 All migrations also add plan tracking columns: `plan_id`, `plan_price_id`, `plan_changed_at`.
 
-The `plan_prices` table likewise only receives the selected provider's price/product identifier column (`stripe_price_id`, `paddle_price_id`, or `polar_product_id`). The managed subscription-change table (`subscription_plan_changes`) is published for providers that support managed plan changes (Stripe, Paddle, and Polar); the durable webhook-event table (`billing_webhook_events`) is Polar-only.
+The `plan_prices` table likewise only receives the selected provider's price/product identifier column (`stripe_price_id`, `paddle_price_id`, or `polar_product_id`). The managed subscription-change table (`subscription_plan_changes`) is published for providers that support managed plan changes (Stripe, Paddle, and Polar); the durable webhook-event table (`billing_webhook_events`) and its follow-up `payload` column migration (`add_payload_to_billing_webhook_events_table`) are Polar-only.
 
 > **Switching billing providers?** Migrations are selected from the provider detected at publish time, so after installing the new provider package and updating `BILLING_PROVIDER`, re-run `php artisan vendor:publish --tag="plan-usage-migrations"` and `php artisan migrate`. Only the new provider's migrations are added (already-published ones are skipped), and every provider-specific migration is guarded with `hasColumn`/`hasTable` checks so re-running is safe. Skipping this step leaves the new provider's column/tables missing — e.g. Polar webhooks will fail without the `billing_webhook_events` table.
 
@@ -442,7 +442,9 @@ $remaining = $account->getRemainingQuota('api-calls');
 $usage = $account->getFeatureUsage('api-calls');
 // Returns: ['limit' => 5000, 'used' => 1250, 'remaining' => 3750]
 // Returns null when there's nothing to meter — see "getFeatureUsage() can
-// return null" under Usage Tracking & Analytics.
+// return null" under Usage Tracking & Analytics. A quota whose reset_at has
+// passed is reported as already reset (used 0, limit trued up to the plan),
+// matching what the next consume will see — the row itself is reset lazily.
 ```
 
 ## 🔍 Understanding Feature Checks
@@ -553,7 +555,7 @@ php artisan vendor:publish --tag=plan-usage-migrations
 php artisan migrate
 ```
 
-This adds the `is_lifetime` boolean column (default: `false`) to the plans table.
+This adds the `is_lifetime` boolean column (default: `false`) to the plans table, and — for Polar — the `payload` column on `billing_webhook_events`. The Polar listener keeps working without that column, but only with it can it replay deliveries that arrived before their subscription row existed and repair the local row after a stale delivery (see [Webhook Behavior](#webhook-behavior--entitlement-policy)).
 
 ## 💰 Pricing Structure
 
@@ -810,7 +812,14 @@ The package integrates with Cashier Stripe, Cashier Paddle, and Laravel Polar th
 
 ### Webhook Behavior & Entitlement Policy
 
-Providers do not guarantee webhook delivery order, so payloads are treated only as triggers: listeners re-fetch the subscription's **current** state from the provider API inside a per-billable lock and converge the local plan to that authoritative response — out-of-order deliveries are harmless. Failed deliveries return a non-2xx response (and release their dedupe key) so the provider redelivers.
+Providers do not guarantee webhook delivery order. Stripe and Paddle listeners treat payloads only as triggers: they re-fetch the subscription's **current** state from the provider API inside a per-billable lock and converge the local plan to that authoritative response, and a failed delivery returns a non-2xx response (releasing its dedupe key) so the provider redelivers.
+
+Polar deliveries are acknowledged by `danestves/laravel-polar` before processing, so ordering is enforced durably instead, per subscription, in `billing_webhook_events`:
+
+- Only **processed** events count as newer in the out-of-order check. Ignored events (unresolved billable, add-on subscription, stale delivery) never make an older sibling look stale.
+- A delivery that arrives before `subscription.created` has inserted the local row (Polar emits created/active/updated within milliseconds) is **deferred** — left unprocessed with a `last_error` marker — and replayed once a later delivery finds the row. Every later delivery for the subscription, including a redelivery or queue retry of an already-processed one, drains that backlog.
+- laravel-polar syncs the local subscription row in delivery order *before* the listener runs, so after ignoring a stale delivery the listener re-syncs the row from the newest processed payload (a late `revoked` cannot flip a live row to ended and unlock a duplicate checkout).
+- A processing failure rethrows, and a failed replay throws `DeferredWebhookReplayException` after the triggering event's own work is committed. Polar does not redeliver a 200-acknowledged event, so give the webhook job retries in your queue configuration (or rely on a redelivery / `subscriptions:reconcile`) to drain the backlog.
 
 One shared status policy governs listeners, `subscriptions:reconcile`, and subscription enforcement:
 
@@ -902,11 +911,11 @@ app(CancelSubscriptionAction::class)->execute($account, immediately: true);
 
 The package applies these entitlement rules:
 
-- Immediate quota upgrades add only the prorated difference for the remaining entitlement period.
+- Immediate quota upgrades add only the prorated difference for the remainder of the feature's reset period — the same calendar window `Quota::reset()` and the reset job use, so `reset_at` never moves onto the billing day. Non-resetting (lifetime) allowances receive the full target.
 - Scheduled changes do not alter current entitlements early.
 - When a scheduled change becomes effective, quota usage resets and the target allowance is applied.
 - Period-end cancellation keeps access through Polar's paid grace period; revocation removes the plan and quotas.
-- Webhook deliveries are durably deduplicated and ordered per subscription. `subscriptions:reconcile` repairs state after missed webhooks.
+- Webhook deliveries are durably deduplicated and ordered per subscription. Provider state observed *before* a pending change was recorded (a delayed webhook from the previous change) never cancels it, and applying a change and marking it applied commit together. `subscriptions:reconcile` repairs state after missed webhooks.
 
 For asset limits such as active projects, this package updates the numeric plan limit but does not delete or lock application records. Your application should enforce the new limit after the scheduled change is applied—for example, by asking the user which projects remain active and making excess projects read-only.
 
@@ -1017,7 +1026,7 @@ The `PlanRevoked` event contains:
 
 ### Reconciling Subscriptions
 
-If webhooks are missed, you can reconcile local subscription status with the billing provider. Every billable with subscription rows is checked against the provider's current state: expired subscriptions are revoked, active subscriptions have plan/price drift corrected, and a billable whose initial checkout webhook was lost gets its plan recovered. Billables with a plan but no subscription rows (lifetime purchases, manually granted plans) are never touched. Only the configured default-type subscription controls the plan — custom-typed subscriptions are deliberately ignored.
+If webhooks are missed, you can reconcile local subscription status with the billing provider. Every billable with subscription rows — soft-deleted ones included, so a restore cannot revive a plan the provider revoked while the row was trashed — is checked against the provider's current state: expired subscriptions are revoked, active subscriptions have plan/price drift corrected, and a billable whose initial checkout webhook was lost gets its plan recovered. On Polar the local subscription row (status, product, period end, `ends_at`) is converged to the remote subscription first, so `hasLiveSubscription()` / `subscriptionHasEnded()` stop reflecting a lost or late terminal webhook. Billables with a plan but no subscription rows (lifetime purchases, manually granted plans) are never touched. Only the configured default-type subscription controls the plan — custom-typed subscriptions are deliberately ignored.
 
 ```bash
 # Reconcile with configured provider

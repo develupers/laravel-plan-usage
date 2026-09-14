@@ -256,6 +256,7 @@ class PlanUsageServiceProvider extends PackageServiceProvider
         // dedupe via their Cashier webhook handlers and a cache lock instead.
         if ($provider === 'polar') {
             $migrations[] = 'create_billing_webhook_events_table';
+            $migrations[] = 'add_payload_to_billing_webhook_events_table';
         }
 
         $migrations[] = $billableMigration;
