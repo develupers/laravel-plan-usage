@@ -370,3 +370,45 @@ it('is idempotent once the billable is on the default plan and preserves quota u
     expect($billable->fresh()->plan_id)->toBe($defaultPlan->id)
         ->and($billable->quotas()->firstOrFail()->used)->toBe(37.0);
 });
+
+it('leaves an already planless billable untouched apart from sweeping leftover quotas', function () {
+    // Daily reconcile + enforce runs revisit churned billables; rewriting
+    // plan_changed_at on each pass would make the column meaningless.
+    Config::set('plan-usage.subscription.default_plan_id', null);
+
+    $quotaQuery = Mockery::mock();
+    $quotaQuery->shouldReceive('delete')->once()->andReturn(0);
+
+    $billable = Mockery::mock(Billable::class);
+    $billable->shouldReceive('getKey')->andReturn(1);
+    $billable->shouldReceive('quotas')->once()->andReturn($quotaQuery);
+    $billable->plan_id = null;
+    $billable->plan_price_id = null;
+    $billable->plan_changed_at = '2026-01-01 00:00:00';
+    $billable->shouldReceive('save')->never();
+
+    Log::shouldReceive('info')->never();
+
+    $this->action->execute($billable);
+
+    expect($billable->plan_changed_at)->toBe('2026-01-01 00:00:00');
+});
+
+it('still sweeps quota rows a failed cleanup left behind on a planless billable', function () {
+    Config::set('plan-usage.subscription.default_plan_id', null);
+
+    $quotaQuery = Mockery::mock();
+    $quotaQuery->shouldReceive('delete')->once()->andReturn(2);
+
+    $billable = Mockery::mock(Billable::class);
+    $billable->shouldReceive('getKey')->andReturn(1);
+    $billable->shouldReceive('quotas')->once()->andReturn($quotaQuery);
+    $billable->plan_id = null;
+    $billable->plan_price_id = null;
+    $billable->shouldReceive('save')->never();
+
+    Log::shouldReceive('info')->once()->withArgs(fn ($message, $context) => $message === 'Swept leftover quotas for an already planless billable'
+        && $context['quotas_deleted'] === 2);
+
+    $this->action->execute($billable);
+});

@@ -229,9 +229,14 @@ class QuotaEnforcer
     }
 
     /**
-     * Increment quota usage (atomic with row locking)
+     * Increment quota usage (atomic with row locking).
+     *
+     * @return bool Whether a quota row was actually incremented. False when the
+     *              billable has no plan or the plan does not grant the feature —
+     *              callers that record a charge elsewhere must not treat that
+     *              as billed.
      */
-    public function increment(Model $billable, string $featureSlug, float $amount = 1): void
+    public function increment(Model $billable, string $featureSlug, float $amount = 1): bool
     {
         $this->validateAmount($amount);
 
@@ -244,17 +249,17 @@ class QuotaEnforcer
                 'billable_id' => $billable->getKey(),
             ]);
 
-            return;
+            return false;
         }
 
         // Resolve feature before the transaction to avoid lazy-loading inside the row lock.
         $feature = $quota->feature ?? $this->featureModel::where('slug', $featureSlug)->first();
 
-        DB::transaction(function () use ($quota, $billable, $amount, $feature) {
+        $incremented = DB::transaction(function () use ($quota, $billable, $amount, $feature): bool {
             $lockedQuota = $this->quotaModel::lockForUpdate()->find($quota->id);
 
             if (! $lockedQuota) {
-                return;
+                return false;
             }
 
             // Check if quota needs reset under lock (single reset primitive,
@@ -268,10 +273,14 @@ class QuotaEnforcer
 
             // Check for warning threshold
             $this->checkWarningThreshold($billable, $feature, $lockedQuota->fresh());
+
+            return true;
         });
 
         // Clear cache
         $this->clearQuotaCache($billable);
+
+        return $incremented;
     }
 
     /**

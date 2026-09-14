@@ -182,47 +182,38 @@ class ApplyPlanChangeAction
     }
 
     /**
+     * The window the prorated grant covers and the reset it expires at.
+     *
+     * Resetting features use the SAME calendar window every other quota path
+     * uses (initializeQuotasForPlan, Quota::reset, the reset job): the
+     * feature's reset period anchored to the calendar, not to the billing
+     * period. Anchoring here to the provider's billing slice used to move
+     * reset_at onto the billing day, after which the next ordinary reset
+     * snapped it back to the calendar boundary — two short, over-generous
+     * windows around every plan change.
+     *
+     * Non-resetting (lifetime) allowances keep the billing period: it only
+     * feeds the audit trail, since their fraction is always 1.0 and their
+     * reset_at stays null.
+     *
      * @return array{start: CarbonImmutable, end: CarbonImmutable}
      */
     private function entitlementPeriod(
         Feature $feature,
         ProviderSubscriptionChange $providerChange
     ): array {
-        $anchor = $providerChange->periodStart;
-        $billingEnd = $providerChange->periodEnd;
         $period = $feature->reset_period;
 
-        if ($period === null) {
-            return ['start' => $anchor, 'end' => $billingEnd];
+        if (! $period instanceof Period) {
+            return ['start' => $providerChange->periodStart, 'end' => $providerChange->periodEnd];
         }
 
         $now = CarbonImmutable::now();
-        $index = 1;
-        $start = $anchor;
-        $end = $this->addPeriodFromAnchor($anchor, $period, $index);
 
-        while ($end->lessThanOrEqualTo($now) && $end->lessThan($billingEnd)) {
-            $start = $end;
-            $index++;
-            $end = $this->addPeriodFromAnchor($anchor, $period, $index);
-        }
-
-        if ($end->greaterThan($billingEnd)) {
-            $end = $billingEnd;
-        }
-
-        return ['start' => $start, 'end' => $end];
-    }
-
-    private function addPeriodFromAnchor(CarbonImmutable $anchor, Period $period, int $amount): CarbonImmutable
-    {
-        return match ($period) {
-            Period::HOUR => $anchor->addHours($amount),
-            Period::DAY => $anchor->addDays($amount),
-            Period::WEEK => $anchor->addWeeks($amount),
-            Period::MONTH => $anchor->addMonthsNoOverflow($amount),
-            Period::YEAR => $anchor->addYearsNoOverflow($amount),
-        };
+        return [
+            'start' => CarbonImmutable::instance($period->getPeriodStart($now)),
+            'end' => CarbonImmutable::instance($period->getNextResetDate($now)),
+        ];
     }
 
     private function remainingFraction(CarbonImmutable $start, CarbonImmutable $end): float

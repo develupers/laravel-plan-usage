@@ -42,6 +42,18 @@ class DeleteSubscriptionAction
             return;
         }
 
+        // Already planless (no default plan configured): a second lifecycle
+        // event or a daily reconcile/enforce run has nothing to revoke. Only
+        // sweep quota rows a previous run may have left behind — never bump
+        // plan_changed_at, which would otherwise be rewritten on every run and
+        // stop meaning "when the plan last changed".
+        if ($oldPlanId === null && $oldPlanPriceId === null) {
+            $this->sweepLeftoverQuotas($billable);
+            $this->assignDefaultPlan($billable);
+
+            return;
+        }
+
         // Step 1 — revoke FIRST, as its own committed write. The paid plan
         // must never survive a later cleanup failure: with plan_id cleared,
         // QuotaEnforcer's plan guard already denies usage even while stale
@@ -71,6 +83,28 @@ class DeleteSubscriptionAction
         // set. A failed sync leaves the billable planless; the retry assigns
         // the default plan.
         $this->assignDefaultPlan($billable);
+    }
+
+    /**
+     * Delete quota rows left behind by a revocation whose cleanup step failed.
+     */
+    protected function sweepLeftoverQuotas(Billable $billable): void
+    {
+        $deletedCount = $billable->quotas()->delete();
+
+        if ($deletedCount === 0) {
+            return;
+        }
+
+        if ($billable instanceof Model) {
+            app('plan-usage.quota')->clearQuotaCache($billable);
+        }
+
+        Log::info('Swept leftover quotas for an already planless billable', [
+            'billable_type' => get_class($billable),
+            'billable_id' => $billable->getKey(),
+            'quotas_deleted' => $deletedCount,
+        ]);
     }
 
     /**

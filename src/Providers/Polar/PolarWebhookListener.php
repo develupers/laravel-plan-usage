@@ -12,6 +12,7 @@ use Develupers\PlanUsage\Actions\Subscription\SyncPlanWithBillableAction;
 use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Enums\Interval;
 use Develupers\PlanUsage\Events\SubscriptionPlanChangeCancelled;
+use Develupers\PlanUsage\Exceptions\DeferredWebhookReplayException;
 use Develupers\PlanUsage\Models\BillingWebhookEvent;
 use Develupers\PlanUsage\Models\PlanPrice;
 use Develupers\PlanUsage\Models\SubscriptionPlanChange;
@@ -20,11 +21,27 @@ use Develupers\PlanUsage\Support\ProviderSubscriptionChange;
 use Develupers\PlanUsage\Support\SubscriptionStateLock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 
 class PolarWebhookListener
 {
+    /**
+     * Recorded on an event that arrived before laravel-polar created the
+     * local subscription row (Polar emits created/active/updated within
+     * milliseconds and queued deliveries can interleave). The event stays
+     * unprocessed — never ignored — and is replayed once a later delivery
+     * for the same subscription finds the row.
+     */
+    public const DEFERRED_ERROR = 'Deferred: the local subscription row has not been created yet.';
+
+    /**
+     * True while draining deferred deliveries, so a replayed event does not
+     * start a nested drain of the same backlog.
+     */
+    private bool $replaying = false;
+
     public function __construct(
         private PolarProvider $provider,
         private SyncPlanWithBillableAction $syncPlanWithBillable,
@@ -54,15 +71,24 @@ class PolarWebhookListener
 
         $providerEventId = $this->providerEventId($payload);
         $occurredAt = $this->occurredAt($payload);
-        $billingEvent = $this->billingEvent($providerEventId, $eventType, $data, $occurredAt);
+        $billingEvent = $this->billingEvent($providerEventId, $eventType, $data, $occurredAt, $payload);
 
-        if ($billingEvent->processed_at !== null || $billingEvent->ignored_at !== null) {
+        $alreadyHandled = $billingEvent->processed_at !== null || $billingEvent->ignored_at !== null;
+
+        // A redelivery (or queue retry) of a handled subscription event still
+        // drains the subscription's backlog: it is the retry path for a
+        // deferred sibling whose replay failed when nothing newer arrives.
+        if ($alreadyHandled && (str_starts_with($eventType, 'order.') || ! $this->hasDeferredEvents($data['id']))) {
             return;
         }
 
         $billable = $this->findBillable($data);
 
         if ($billable === null) {
+            if ($alreadyHandled) {
+                return;
+            }
+
             Log::warning('No billable found for Polar subscription webhook', [
                 'subscription_id' => $data['id'],
                 'customer_id' => $data['customer_id'] ?? null,
@@ -79,121 +105,349 @@ class PolarWebhookListener
         // uncommitted, or a webhook can apply a pending change while the
         // action that created it is mid-flight.
         try {
-            $this->stateLock->block($billable, function () use ($billingEvent, $billable, $eventType, $data, $occurredAt): void {
-                // The state lock serializes every delivery for this billable
-                // (a subscription/order lineage always resolves to a single
-                // billable), so a fresh re-read replaces the previous
-                // row-lock transaction. Nothing here may run inside an
-                // ambient DB transaction: DeleteSubscriptionAction's
-                // fail-closed ordering (the plan-clear commits before
-                // cleanup) would otherwise be rolled back by an outer
-                // rollback when cleanup fails — restoring the paid plan.
-                $billingEvent = $billingEvent->fresh();
-
-                if ($billingEvent === null
-                    || $billingEvent->processed_at !== null
-                    || $billingEvent->ignored_at !== null) {
-                    return;
-                }
-
-                // Pre-lock Eloquent state may predate a concurrent plan
-                // change or cancellation that held this lock first.
-                $billable->refresh();
-
-                if ($this->isOutOfOrder($data['id'], $occurredAt, $billingEvent->id, $eventType)) {
-                    $billingEvent->update(['ignored_at' => now()]);
+            $this->stateLock->block($billable, function () use ($billingEvent, $billable, $eventType, $data, $occurredAt, $alreadyHandled): void {
+                if ($alreadyHandled) {
+                    if ($this->localSubscriptionRowExists($billable, $data['id'])) {
+                        $this->replayDeferredEvents($billable, $data['id']);
+                    }
 
                     return;
                 }
 
-                if (str_starts_with($eventType, 'order.')) {
-                    $this->processOrderEvent($billable, $data, $eventType, $billingEvent);
-
-                    return;
-                }
-
-                // Only the configured default-type subscription controls the
-                // plan: an add-on subscription's lifecycle must not revoke or
-                // replace the main entitlement.
-                $subscriptionName = config('plan-usage.subscription.default_name', 'default');
-                $billable->unsetRelation('subscriptions');
-                $localSubscription = $billable->subscription($subscriptionName);
-
-                if ($localSubscription === null || $localSubscription->polar_id !== $data['id']) {
-                    Log::info('Ignoring Polar webhook for a non-default subscription', [
-                        'billable_id' => $billable->getKey(),
-                        'subscription_id' => $data['id'],
-                        'expected_subscription_id' => $localSubscription->polar_id ?? null,
-                    ]);
-                    $billingEvent->update(['ignored_at' => now()]);
-
-                    return;
-                }
-
-                // Lifetime entitlements are only revocable via order.refunded:
-                // a historical (cancelled) subscription row's delayed terminal
-                // event must not wipe a lifetime plan bought afterwards.
-                if ($billable->plan->is_lifetime ?? false) {
-                    Log::info('Ignoring Polar subscription webhook for a lifetime plan holder', [
-                        'billable_id' => $billable->getKey(),
-                        'subscription_id' => $data['id'],
-                        'event_type' => $eventType,
-                    ]);
-                    $billingEvent->update(['ignored_at' => now()]);
-
-                    return;
-                }
-
-                if ($eventType === 'subscription.revoked' || $eventType === 'subscription.paused') {
-                    $this->deleteSubscription->execute($billable);
-                    $this->cancelPendingChanges($data['id'], $billable);
-                    $billingEvent->update(['processed_at' => now()]);
-
-                    return;
-                }
-
-                // Shared policy on the subscription's status. Polar's
-                // 'canceled' is a grace period (KEEP) until the payload's
-                // effective end passes — terminal revocation also arrives as
-                // subscription.revoked. Non-holding statuses (incomplete,
-                // unpaid, past_due under the revoke policy, expired grace)
-                // REVOKE any stale plan instead of being silently ignored.
-                $decision = EntitlementStatusPolicy::decide(
-                    'polar',
-                    (string) ($data['status'] ?? ''),
-                    $data['ends_at'] ?? null,
-                );
-
-                if ($decision === EntitlementStatusPolicy::REVOKE) {
-                    $this->deleteSubscription->execute($billable);
-                    $this->cancelPendingChanges($data['id'], $billable);
-                    $billingEvent->update(['processed_at' => now()]);
-
-                    return;
-                }
-
-                // KEEP must not apply anything: syncPendingChange() can APPLY
-                // a matured pending change (e.g. an upgrade whose renewal
-                // payment failed into past_due) — granting an unpaid plan.
-                if ($decision === EntitlementStatusPolicy::KEEP) {
-                    $billingEvent->update(['processed_at' => now(), 'last_error' => null]);
-
-                    return;
-                }
-
-                $this->syncPendingChange($billable, $data);
-                $this->syncCurrentPlan($billable, $data, $eventType);
-                $billingEvent->update(['processed_at' => now(), 'last_error' => null]);
+                $this->process($billingEvent, $billable, $eventType, $data, $occurredAt);
             });
         } catch (LockTimeoutException $exception) {
             $billingEvent->update(['last_error' => 'Timed out waiting for the subscription state lock.']);
 
             throw $exception;
         } catch (\Throwable $exception) {
-            $billingEvent->update(['last_error' => $exception->getMessage()]);
+            // A failed drain of deferred siblings is not this event's failure:
+            // its own work is committed and it stays processed; the failed
+            // replays carry their own last_error.
+            if (! $exception instanceof DeferredWebhookReplayException) {
+                $billingEvent->update(['last_error' => $exception->getMessage()]);
+            }
 
             throw $exception;
         }
+    }
+
+    /**
+     * Process one durable event. Callers hold the billable's state lock —
+     * deferred-event replay re-enters here without re-acquiring it.
+     *
+     * @param  Model&Billable  $billable
+     * @param  array<string, mixed>  $data
+     */
+    private function process(
+        BillingWebhookEvent $billingEvent,
+        Model $billable,
+        string $eventType,
+        array $data,
+        CarbonImmutable $occurredAt,
+    ): void {
+        // The state lock serializes every delivery for this billable (a
+        // subscription/order lineage always resolves to a single billable),
+        // so a fresh re-read replaces the previous row-lock transaction.
+        // Nothing here may run inside an ambient DB transaction:
+        // DeleteSubscriptionAction's fail-closed ordering (the plan-clear
+        // commits before cleanup) would otherwise be rolled back by an outer
+        // rollback when cleanup fails — restoring the paid plan.
+        $billingEvent = $billingEvent->fresh();
+
+        if ($billingEvent === null
+            || $billingEvent->processed_at !== null
+            || $billingEvent->ignored_at !== null) {
+            return;
+        }
+
+        // Pre-lock Eloquent state may predate a concurrent plan change or
+        // cancellation that held this lock first.
+        $billable->refresh();
+
+        if ($this->isOutOfOrder($data['id'], $occurredAt, $billingEvent->id, $eventType)) {
+            // laravel-polar already overwrote the local subscription row from
+            // this stale payload (it syncs in delivery order, before this
+            // listener runs). Left alone, a late `revoked` would flip a live
+            // row to ended and unlock a duplicate checkout. Put the row back
+            // to the newest state this listener actually accepted BEFORE
+            // marking the event ignored: a failed repair must leave the event
+            // retryable, not acknowledged with the row still wrong.
+            if (! str_starts_with($eventType, 'order.')) {
+                $this->restoreLocalSubscription($billable, $data['id']);
+            }
+
+            $billingEvent->update(['ignored_at' => now(), 'last_error' => null]);
+
+            return;
+        }
+
+        if (str_starts_with($eventType, 'order.')) {
+            $this->processOrderEvent($billable, $data, $eventType, $billingEvent);
+
+            return;
+        }
+
+        $this->processSubscriptionEvent($billingEvent, $billable, $eventType, $data, $occurredAt);
+
+        // Deliveries for this subscription that are still waiting — they
+        // arrived before its row existed, or their processing failed — are
+        // drained now that the row is present. The stale check keeps the
+        // newest state authoritative: older ones end up ignored, newer ones
+        // apply.
+        if (! $this->replaying && $this->localSubscriptionRowExists($billable, $data['id'])) {
+            $this->replayDeferredEvents($billable, $data['id']);
+        }
+    }
+
+    /**
+     * @param  Model&Billable  $billable
+     * @param  array<string, mixed>  $data
+     */
+    private function processSubscriptionEvent(
+        BillingWebhookEvent $billingEvent,
+        Model $billable,
+        string $eventType,
+        array $data,
+        CarbonImmutable $occurredAt,
+    ): void {
+        // Only the configured default-type subscription controls the plan: an
+        // add-on subscription's lifecycle must not revoke or replace the main
+        // entitlement.
+        $subscriptionName = config('plan-usage.subscription.default_name', 'default');
+        $billable->unsetRelation('subscriptions');
+        $localSubscription = $billable->subscription($subscriptionName);
+
+        if ($localSubscription === null || $localSubscription->polar_id !== $data['id']) {
+            if (! $this->localSubscriptionRowExists($billable, $data['id'])) {
+                // No row for this subscription id at all: this delivery beat
+                // subscription.created. Ignoring it would let it dominate
+                // the ordering check and drop the grant; defer instead.
+                Log::info('Deferring Polar webhook until the local subscription row exists', [
+                    'billable_id' => $billable->getKey(),
+                    'subscription_id' => $data['id'],
+                    'event_type' => $eventType,
+                ]);
+                $billingEvent->update(['last_error' => self::DEFERRED_ERROR]);
+
+                return;
+            }
+
+            Log::info('Ignoring Polar webhook for a non-default subscription', [
+                'billable_id' => $billable->getKey(),
+                'subscription_id' => $data['id'],
+                'expected_subscription_id' => $localSubscription->polar_id ?? null,
+            ]);
+            $billingEvent->update(['ignored_at' => now()]);
+
+            return;
+        }
+
+        // This event is the newest accepted state for the row. A no-op for
+        // in-order deliveries (laravel-polar synced the same payload already);
+        // required for replayed deliveries, which laravel-polar skipped
+        // because the row did not exist when they arrived.
+        $this->syncLocalSubscription($localSubscription, $data);
+
+        // Lifetime entitlements are only revocable via order.refunded: a
+        // historical (cancelled) subscription row's delayed terminal event
+        // must not wipe a lifetime plan bought afterwards.
+        if ($billable->plan->is_lifetime ?? false) {
+            Log::info('Ignoring Polar subscription webhook for a lifetime plan holder', [
+                'billable_id' => $billable->getKey(),
+                'subscription_id' => $data['id'],
+                'event_type' => $eventType,
+            ]);
+            $billingEvent->update(['ignored_at' => now()]);
+
+            return;
+        }
+
+        if ($eventType === 'subscription.revoked' || $eventType === 'subscription.paused') {
+            $this->deleteSubscription->execute($billable);
+            $this->cancelPendingChanges($data['id'], $billable);
+            $billingEvent->update(['processed_at' => now(), 'last_error' => null]);
+
+            return;
+        }
+
+        // Shared policy on the subscription's status. Polar's 'canceled' is a
+        // grace period (KEEP) until the payload's effective end passes —
+        // terminal revocation also arrives as subscription.revoked.
+        // Non-holding statuses (incomplete, unpaid, past_due under the revoke
+        // policy, expired grace) REVOKE any stale plan instead of being
+        // silently ignored.
+        $decision = EntitlementStatusPolicy::decide(
+            'polar',
+            (string) ($data['status'] ?? ''),
+            $data['ends_at'] ?? null,
+        );
+
+        if ($decision === EntitlementStatusPolicy::REVOKE) {
+            $this->deleteSubscription->execute($billable);
+            $this->cancelPendingChanges($data['id'], $billable);
+            $billingEvent->update(['processed_at' => now(), 'last_error' => null]);
+
+            return;
+        }
+
+        // KEEP must not apply anything: syncPendingChange() can APPLY a
+        // matured pending change (e.g. an upgrade whose renewal payment
+        // failed into past_due) — granting an unpaid plan.
+        if ($decision === EntitlementStatusPolicy::KEEP) {
+            $billingEvent->update(['processed_at' => now(), 'last_error' => null]);
+
+            return;
+        }
+
+        $this->syncPendingChange($billable, $data, $occurredAt);
+        $this->syncCurrentPlan($billable, $data, $eventType);
+        $billingEvent->update(['processed_at' => now(), 'last_error' => null]);
+    }
+
+    /**
+     * Replay every delivery for this subscription that is still unprocessed
+     * and carries a stored payload — deferred ones (row not yet present) and
+     * ones whose processing threw. Every later delivery for the subscription
+     * (including a redelivery of an already-handled one) drains the whole
+     * backlog. Each replay is isolated so one failure does not stop the
+     * others; if any failed, the drain throws afterwards so the job fails
+     * visibly and a queue retry / redelivery drains again. Daily
+     * reconciliation remains the final backstop.
+     *
+     * @param  Model&Billable  $billable
+     *
+     * @throws DeferredWebhookReplayException
+     */
+    private function replayDeferredEvents(Model $billable, string $subscriptionId): void
+    {
+        if (! $this->webhookEventModel()::supportsPayloadColumn()) {
+            return;
+        }
+
+        $deferred = $this->webhookEventModel()::query()
+            ->deferred()
+            ->where('provider', 'polar')
+            ->where('provider_subscription_id', $subscriptionId)
+            ->orderBy('occurred_at')
+            ->orderBy('id')
+            ->get();
+
+        if ($deferred->isEmpty()) {
+            return;
+        }
+
+        $failures = [];
+        $this->replaying = true;
+
+        try {
+            foreach ($deferred as $billingEvent) {
+                $payload = $billingEvent->payload;
+                $data = is_array($payload) ? ($payload['data'] ?? null) : null;
+
+                if (! is_array($data) || ! is_string($data['id'] ?? null)) {
+                    continue;
+                }
+
+                $occurredAt = $billingEvent->occurred_at !== null
+                    ? CarbonImmutable::instance($billingEvent->occurred_at)
+                    : $this->occurredAt($payload);
+
+                try {
+                    $this->process($billingEvent, $billable, $billingEvent->event_type, $data, $occurredAt);
+                } catch (\Throwable $exception) {
+                    $billingEvent->update(['last_error' => $exception->getMessage()]);
+                    $failures[] = "{$billingEvent->event_type}#{$billingEvent->id}: {$exception->getMessage()}";
+
+                    Log::warning('Replaying a deferred Polar webhook failed', [
+                        'billable_id' => $billable->getKey(),
+                        'subscription_id' => $subscriptionId,
+                        'event_type' => $billingEvent->event_type,
+                        'error' => $exception->getMessage(),
+                    ]);
+                }
+            }
+        } finally {
+            $this->replaying = false;
+        }
+
+        if ($failures !== []) {
+            throw new DeferredWebhookReplayException(
+                "Replaying deferred Polar webhooks for subscription {$subscriptionId} failed: ".implode('; ', $failures)
+            );
+        }
+    }
+
+    private function hasDeferredEvents(string $subscriptionId): bool
+    {
+        if (! $this->webhookEventModel()::supportsPayloadColumn()) {
+            return false;
+        }
+
+        return $this->webhookEventModel()::query()
+            ->deferred()
+            ->where('provider', 'polar')
+            ->where('provider_subscription_id', $subscriptionId)
+            ->exists();
+    }
+
+    /**
+     * Re-sync the local subscription row from the newest processed delivery
+     * for this subscription, undoing laravel-polar's write of a stale payload.
+     *
+     * @param  Model&Billable  $billable
+     */
+    private function restoreLocalSubscription(Model $billable, string $subscriptionId): void
+    {
+        if (! $this->webhookEventModel()::supportsPayloadColumn()) {
+            return;
+        }
+
+        $latest = $this->webhookEventModel()::query()
+            ->processed()
+            ->where('provider', 'polar')
+            ->where('provider_subscription_id', $subscriptionId)
+            ->where('event_type', 'like', 'subscription.%')
+            ->whereNotNull('payload')
+            ->orderByDesc('occurred_at')
+            ->orderByDesc('id')
+            ->first();
+
+        $data = is_array($latest?->payload) ? ($latest->payload['data'] ?? null) : null;
+
+        if (! is_array($data)) {
+            return;
+        }
+
+        $localSubscription = $billable->subscriptions()->where('polar_id', $subscriptionId)->first();
+
+        if ($localSubscription === null) {
+            return;
+        }
+
+        $this->syncLocalSubscription($localSubscription, $data);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function syncLocalSubscription(object $localSubscription, array $data): void
+    {
+        if (! method_exists($localSubscription, 'sync')
+            || ! is_string($data['status'] ?? null)
+            || ! is_string($data['product_id'] ?? null)) {
+            return;
+        }
+
+        $localSubscription->sync($data);
+    }
+
+    /**
+     * @param  Model&Billable  $billable
+     */
+    private function localSubscriptionRowExists(Model $billable, string $subscriptionId): bool
+    {
+        return $billable->subscriptions()->where('polar_id', $subscriptionId)->exists();
     }
 
     private function shouldHandle(string $eventType): bool
@@ -308,7 +562,14 @@ class PolarWebhookListener
             return null;
         }
 
-        $billable = $billableType::query()->find($billableId);
+        // A soft-deleted billable must stay reachable: its subscription keeps
+        // emitting events during a recovery window, and a restore must find
+        // the state those events left behind.
+        $query = in_array(SoftDeletes::class, class_uses_recursive($billableType), true)
+            ? $billableType::withTrashed()
+            : $billableType::query();
+
+        $billable = $query->find($billableId);
 
         return $billable instanceof Model && $billable instanceof Billable ? $billable : null;
     }
@@ -317,7 +578,7 @@ class PolarWebhookListener
      * @param  Model&Billable  $billable
      * @param  array<string, mixed>  $data
      */
-    private function syncPendingChange(Model $billable, array $data): void
+    private function syncPendingChange(Model $billable, array $data, CarbonImmutable $occurredAt): void
     {
         $pendingUpdate = $data['pending_update'] ?? null;
 
@@ -333,6 +594,7 @@ class PolarWebhookListener
             ] : null,
             providerChange: fn (PlanPrice $target) => $this->providerChangeFromWebhook($data, $target),
             lockForUpdate: true,
+            observedAt: $occurredAt,
         );
     }
 
@@ -469,23 +731,34 @@ class PolarWebhookListener
 
     /**
      * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $payload
      */
     private function billingEvent(
         string $providerEventId,
         string $eventType,
         array $data,
-        CarbonImmutable $occurredAt
+        CarbonImmutable $occurredAt,
+        array $payload,
     ): BillingWebhookEvent {
+        $attributes = [
+            'event_type' => $eventType,
+            'provider_subscription_id' => $data['id'] ?? null,
+            'occurred_at' => $occurredAt,
+        ];
+
+        // The payload is what deferred replay and stale-row repair read from.
+        // Guarded so a consumer that has not published the payload migration
+        // yet keeps processing webhooks (without those two repairs).
+        if ($this->webhookEventModel()::supportsPayloadColumn()) {
+            $attributes['payload'] = $payload;
+        }
+
         return $this->webhookEventModel()::query()->firstOrCreate(
             [
                 'provider' => 'polar',
                 'provider_event_id' => $providerEventId,
             ],
-            [
-                'event_type' => $eventType,
-                'provider_subscription_id' => $data['id'] ?? null,
-                'occurred_at' => $occurredAt,
-            ]
+            $attributes,
         );
     }
 
@@ -502,13 +775,16 @@ class PolarWebhookListener
         // grammar would otherwise truncate Carbon bindings to whole seconds.
         $occurred = $occurredAt->format('Y-m-d H:i:s.u');
 
+        // Only PROCESSED events represent state this listener accepted. An
+        // ignored event changed nothing (unresolved billable, add-on
+        // subscription, stale delivery) and must not make an older sibling
+        // look stale — that is how an `active` arriving before `created`
+        // used to drop the grant for both.
         $stale = $this->webhookEventModel()::query()
             ->where('provider', 'polar')
             ->where('provider_subscription_id', $subscriptionId)
             ->where('id', '!=', $currentEventId)
-            ->where(function ($query): void {
-                $query->whereNotNull('processed_at')->orWhereNotNull('ignored_at');
-            })
+            ->whereNotNull('processed_at')
             ->where('occurred_at', '>', $occurred)
             ->exists();
 

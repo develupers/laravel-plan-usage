@@ -1,0 +1,36 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        $tableName = config('plan-usage.tables.billing_webhook_events', 'billing_webhook_events');
+
+        // Guarded: the table is Polar-only and a re-publish must be safe.
+        if (! Schema::hasTable($tableName) || Schema::hasColumn($tableName, 'payload')) {
+            return;
+        }
+
+        Schema::table($tableName, function (Blueprint $table) {
+            // The raw webhook payload. Lets the listener replay deliveries
+            // that arrived before their subscription row existed and restore
+            // the local row after a stale delivery overwrote it.
+            $table->json('payload')->nullable()->after('last_error');
+        });
+    }
+
+    public function down(): void
+    {
+        $tableName = config('plan-usage.tables.billing_webhook_events', 'billing_webhook_events');
+
+        if (Schema::hasTable($tableName) && Schema::hasColumn($tableName, 'payload')) {
+            Schema::table($tableName, function (Blueprint $table) {
+                $table->dropColumn('payload');
+            });
+        }
+    }
+};
