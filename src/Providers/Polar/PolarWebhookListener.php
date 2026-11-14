@@ -284,8 +284,17 @@ class PolarWebhookListener
         );
 
         if ($decision === EntitlementStatusPolicy::REVOKE) {
-            $this->deleteSubscription->execute($billable);
-            $this->cancelPendingChanges($data['id'], $billable);
+            // An overdue payment the provider is still retrying only suspends:
+            // the plan goes but the quota rows (and any scheduled change)
+            // stay, so a successful retry restores the plan with its usage
+            // intact instead of a fresh allowance.
+            if (EntitlementStatusPolicy::isRecoverableSuspension('polar', $data['status'] ?? null)) {
+                $this->deleteSubscription->suspend($billable);
+            } else {
+                $this->deleteSubscription->execute($billable);
+                $this->cancelPendingChanges($data['id'], $billable);
+            }
+
             $billingEvent->update(['processed_at' => now(), 'last_error' => null]);
 
             return;

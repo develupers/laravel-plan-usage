@@ -816,3 +816,110 @@ it('short-circuits a redelivery when nothing is waiting', function () {
     expect(BillingWebhookEvent::query()->count())->toBe(1)
         ->and($this->billable->fresh()->plan_id)->toBe($this->starter->id);
 });
+
+// --- overdue payment under the revoke policy: suspend, do not wipe ----------
+
+it('suspends an overdue subscription without deleting its quota rows', function () {
+    // The provider is still retrying the payment. Deleting the quota rows
+    // here would hand back a fresh allowance when the retry succeeds.
+    config()->set('plan-usage.polar.past_due_keeps_entitlements', false);
+    $this->billable->quotas()->where('feature_id', $this->credits->id)->update(['used' => 3200]);
+
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.past_due',
+        'prod_webhook_growth',
+        status: 'past_due',
+    )));
+
+    $billable = $this->billable->fresh();
+    $quota = $billable->quotas()->where('feature_id', $this->credits->id)->first();
+
+    expect($billable->plan_id)->toBeNull()
+        ->and($billable->plan_price_id)->toBeNull()
+        ->and($quota)->not->toBeNull()
+        ->and((float) $quota->used)->toBe(3200.0);
+});
+
+it('restores the plan with its usage intact when the overdue payment is recovered', function () {
+    config()->set('plan-usage.polar.past_due_keeps_entitlements', false);
+    $this->billable->quotas()->where('feature_id', $this->credits->id)->update(['used' => 3200]);
+
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.past_due',
+        'prod_webhook_growth',
+        '2026-07-09T12:00:00Z',
+        status: 'past_due',
+    )));
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.active',
+        'prod_webhook_growth',
+        '2026-07-11T12:00:00Z',
+    )));
+
+    $billable = $this->billable->fresh();
+    $quota = $billable->quotas()->where('feature_id', $this->credits->id)->first();
+
+    expect($billable->plan_id)->toBe($this->growth->id)
+        ->and((float) $quota->limit)->toBe(5000.0)
+        ->and((float) $quota->used)->toBe(3200.0);
+});
+
+it('deletes the kept quota rows once the overdue subscription is finally revoked', function () {
+    config()->set('plan-usage.polar.past_due_keeps_entitlements', false);
+
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.past_due',
+        'prod_webhook_growth',
+        '2026-07-09T12:00:00Z',
+        status: 'past_due',
+    )));
+    expect($this->billable->fresh()->quotas()->count())->toBe(1);
+
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.revoked',
+        'prod_webhook_growth',
+        '2026-07-30T12:00:00Z',
+        status: 'canceled',
+    )));
+
+    expect($this->billable->fresh()->plan_id)->toBeNull()
+        ->and($this->billable->fresh()->quotas()->count())->toBe(0);
+});
+
+it('leaves the kept quota rows alone when the overdue event repeats', function () {
+    config()->set('plan-usage.polar.past_due_keeps_entitlements', false);
+    $this->billable->quotas()->where('feature_id', $this->credits->id)->update(['used' => 3200]);
+
+    foreach (['2026-07-09T12:00:00Z', '2026-07-11T12:00:00Z'] as $modifiedAt) {
+        $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+            $this->billable,
+            'subscription.updated',
+            'prod_webhook_growth',
+            $modifiedAt,
+            status: 'past_due',
+        )));
+    }
+
+    expect((float) $this->billable->fresh()->quotas()->where('feature_id', $this->credits->id)->value('used'))->toBe(3200.0);
+});
+
+it('still deletes quota rows for a status the provider will not recover from', function () {
+    // Only overdue-and-retrying suspends. An unpaid subscription has run out
+    // of retries, so its allowance goes with the plan.
+    config()->set('plan-usage.polar.past_due_keeps_entitlements', false);
+
+    $this->listener->handle(new WebhookHandled(polarPlanUsagePayload(
+        $this->billable,
+        'subscription.updated',
+        'prod_webhook_growth',
+        status: 'unpaid',
+    )));
+
+    expect($this->billable->fresh()->plan_id)->toBeNull()
+        ->and($this->billable->fresh()->quotas()->count())->toBe(0);
+});

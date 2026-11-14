@@ -86,6 +86,57 @@ class DeleteSubscriptionAction
     }
 
     /**
+     * Take the plan away but KEEP the quota rows: the subscription is only
+     * suspended (payment overdue, provider still retrying) and may return to
+     * active within the same period.
+     *
+     * execute() deletes the quota rows, so a plan that comes back after a
+     * successful retry would get fresh rows with usage at zero — a second
+     * allowance for one payment. Here the rows stay; the billable is planless,
+     * which QuotaEnforcer's plan guard already denies, and when the plan is
+     * re-synced initializeQuotasForPlan() finds the rows and keeps their
+     * usage. If the retries fail instead, the terminal event runs execute(),
+     * which sweeps the rows of an already planless billable.
+     *
+     * With a default (free) plan configured there is no planless state to
+     * hold — the billable drops to the default plan — so this falls back to
+     * execute().
+     *
+     * @param  Billable  $billable  The billable entity
+     */
+    public function suspend(Billable $billable): void
+    {
+        if ((int) (config('plan-usage.subscription.default_plan_id') ?? 0) > 0) {
+            $this->execute($billable);
+
+            return;
+        }
+
+        $oldPlanId = $this->getBillablePlanId($billable);
+        $oldPlanPriceId = $this->getBillablePlanPriceId($billable);
+
+        // Already suspended (or never on a plan): repeated overdue events and
+        // daily reconciliation must not touch the kept quota rows or bump
+        // plan_changed_at.
+        if ($oldPlanId === null && $oldPlanPriceId === null) {
+            return;
+        }
+
+        $this->clearBillablePlan($billable);
+
+        if ($billable instanceof Model) {
+            app('plan-usage.quota')->clearQuotaCache($billable);
+        }
+
+        Log::info('Suspended plan for billable, quota rows kept', [
+            'billable_type' => get_class($billable),
+            'billable_id' => $billable->getKey(),
+            'old_plan_id' => $oldPlanId,
+            'old_plan_price_id' => $oldPlanPriceId,
+        ]);
+    }
+
+    /**
      * Delete quota rows left behind by a revocation whose cleanup step failed.
      */
     protected function sweepLeftoverQuotas(Billable $billable): void

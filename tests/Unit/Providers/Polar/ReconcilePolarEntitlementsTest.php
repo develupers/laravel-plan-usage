@@ -5,6 +5,9 @@ declare(strict_types=1);
 use Danestves\LaravelPolar\Billable as PolarBillable;
 use Develupers\PlanUsage\Contracts\Billable;
 use Develupers\PlanUsage\Contracts\BillingProvider;
+use Develupers\PlanUsage\Enums\Period;
+use Develupers\PlanUsage\Jobs\EnforcePlanSubscriptionsJob;
+use Develupers\PlanUsage\Models\Feature;
 use Develupers\PlanUsage\Models\Plan;
 use Develupers\PlanUsage\Providers\Polar\PolarProvider;
 use Develupers\PlanUsage\Traits\HasPlanFeatures;
@@ -244,4 +247,111 @@ it('records the actual end, not a stale scheduled one, when the remote subscript
     expect($billable->fresh()->plan_id)->toBeNull()
         ->and($billable->subscriptions()->firstOrFail()->ends_at->isPast())->toBeTrue()
         ->and($billable->fresh()->hasLiveSubscription())->toBeFalse();
+});
+
+// --- overdue payment under the revoke policy: suspend, do not wipe ----------
+
+/**
+ * A billable on the plan with 3,200 of its credits used and a local default
+ * subscription row in the given status.
+ */
+function overduePolarBillable(Plan $plan, $planPrice, string $localStatus): ReconcilePolarTestBillable
+{
+    $credits = Feature::factory()->quota()->create([
+        'slug' => 'reconcile-credits-'.uniqid(),
+        'reset_period' => Period::MONTH,
+    ]);
+    $plan->features()->attach($credits->id, ['value' => '5000']);
+
+    $billable = ReconcilePolarTestBillable::query()->create([
+        'plan_id' => $plan->id,
+        'plan_price_id' => $planPrice->id,
+    ]);
+    $billable->load('plan.features');
+    $billable->syncQuotasWithPlan();
+    $billable->quotas()->update(['used' => 3200]);
+    $billable->subscriptions()->create([
+        'type' => 'default',
+        'polar_id' => 'sub_reconcile_polar',
+        'status' => $localStatus,
+        'product_id' => 'prod_reconcile_polar',
+        'current_period_end' => '2026-08-01 00:00:00',
+    ]);
+
+    return $billable;
+}
+
+it('suspends an overdue subscription during reconciliation without deleting its quota rows', function () {
+    // The webhook was missed, so reconciliation is what notices the overdue
+    // payment. It must reach the same outcome as the listener: plan gone,
+    // usage kept for when the retry succeeds.
+    config()->set('plan-usage.polar.past_due_keeps_entitlements', false);
+    $billable = overduePolarBillable($this->plan, $this->planPrice, 'active');
+    bindPolarProviderReturning(remotePolarSubscription(['status' => SubscriptionStatus::PastDue]));
+
+    $this->artisan('subscriptions:reconcile', ['--force' => true])->assertSuccessful();
+
+    expect($billable->fresh()->plan_id)->toBeNull()
+        ->and($billable->fresh()->quotas()->count())->toBe(1)
+        ->and((float) $billable->fresh()->quotas()->value('used'))->toBe(3200.0);
+});
+
+it('restores a suspended plan with its usage intact when reconciliation finds it active again', function () {
+    config()->set('plan-usage.polar.past_due_keeps_entitlements', false);
+    $billable = overduePolarBillable($this->plan, $this->planPrice, 'active');
+
+    bindPolarProviderReturning(remotePolarSubscription(['status' => SubscriptionStatus::PastDue]));
+    $this->artisan('subscriptions:reconcile', ['--force' => true])->assertSuccessful();
+    expect($billable->fresh()->plan_id)->toBeNull();
+
+    bindPolarProviderReturning(remotePolarSubscription(['status' => SubscriptionStatus::Active]));
+    $this->artisan('subscriptions:reconcile', ['--force' => true])->assertSuccessful();
+
+    expect($billable->fresh()->plan_id)->toBe($this->plan->id)
+        ->and((float) $billable->fresh()->quotas()->value('used'))->toBe(3200.0);
+});
+
+it('deletes the kept quota rows when reconciliation finds the overdue subscription has ended', function () {
+    // The terminal webhook was missed too: reconciliation is the backstop
+    // that clears the rows kept during the suspension.
+    config()->set('plan-usage.polar.past_due_keeps_entitlements', false);
+    $billable = overduePolarBillable($this->plan, $this->planPrice, 'active');
+
+    bindPolarProviderReturning(remotePolarSubscription(['status' => SubscriptionStatus::PastDue]));
+    $this->artisan('subscriptions:reconcile', ['--force' => true])->assertSuccessful();
+    expect($billable->fresh()->quotas()->count())->toBe(1);
+
+    bindPolarProviderReturning(remotePolarSubscription([
+        'status' => SubscriptionStatus::Canceled,
+        'endsAt' => new DateTime('2026-06-01 00:00:00'),
+        'endedAt' => new DateTime('2026-06-01 00:00:00'),
+    ]));
+    $this->artisan('subscriptions:reconcile', ['--force' => true])->assertSuccessful();
+
+    expect($billable->fresh()->plan_id)->toBeNull()
+        ->and($billable->fresh()->quotas()->count())->toBe(0);
+});
+
+it('suspends through the enforcement job when the local row is overdue and still holds a plan', function () {
+    // No webhook and no reconciliation yet: the enforcement job finds a plan
+    // whose subscription no longer holds it. Overdue must suspend here too.
+    config()->set('plan-usage.polar.past_due_keeps_entitlements', false);
+    $billable = overduePolarBillable($this->plan, $this->planPrice, 'past_due');
+
+    (new EnforcePlanSubscriptionsJob)->handle();
+
+    expect($billable->fresh()->plan_id)->toBeNull()
+        ->and($billable->fresh()->quotas()->count())->toBe(1)
+        ->and((float) $billable->fresh()->quotas()->value('used'))->toBe(3200.0);
+});
+
+it('still deletes quota rows through the enforcement job when the subscription has ended', function () {
+    config()->set('plan-usage.polar.past_due_keeps_entitlements', false);
+    $billable = overduePolarBillable($this->plan, $this->planPrice, 'canceled');
+    $billable->subscriptions()->update(['ends_at' => '2026-06-01 00:00:00']);
+
+    (new EnforcePlanSubscriptionsJob)->handle();
+
+    expect($billable->fresh()->plan_id)->toBeNull()
+        ->and($billable->fresh()->quotas()->count())->toBe(0);
 });
