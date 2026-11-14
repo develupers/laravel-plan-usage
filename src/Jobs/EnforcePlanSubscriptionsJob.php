@@ -95,7 +95,19 @@ class EnforcePlanSubscriptionsJob implements ShouldQueue
                         return false;
                     }
 
-                    app(DeleteSubscriptionAction::class)->execute($billable);
+                    // An overdue subscription the provider is still retrying
+                    // only suspends (quota rows kept) — the same outcome the
+                    // webhook listener applies when the event is not missed.
+                    $subscription = method_exists($billable, 'subscription')
+                        ? $billable->subscription($subscriptionName)
+                        : null;
+                    $status = $subscription->status ?? $subscription->stripe_status ?? null;
+
+                    if (EntitlementStatusPolicy::isRecoverableSuspension($provider, $status)) {
+                        app(DeleteSubscriptionAction::class)->suspend($billable);
+                    } else {
+                        app(DeleteSubscriptionAction::class)->execute($billable);
+                    }
 
                     return true;
                 });

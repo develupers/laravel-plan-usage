@@ -405,8 +405,14 @@ class ReconcileSubscriptionsCommand extends Command
 
                 if ($decision === EntitlementStatusPolicy::REVOKE) {
                     if (! $dryRun) {
-                        app(DeleteSubscriptionAction::class)->execute($billable);
-                        $this->cancelPolarPendingChanges($billable, $subscriptionId);
+                        // Overdue-but-retrying only suspends: keep the quota
+                        // rows so a successful retry does not reset usage.
+                        if (EntitlementStatusPolicy::isRecoverableSuspension('polar', $status)) {
+                            app(DeleteSubscriptionAction::class)->suspend($billable);
+                        } else {
+                            app(DeleteSubscriptionAction::class)->execute($billable);
+                            $this->cancelPolarPendingChanges($billable, $subscriptionId);
+                        }
                     }
 
                     $this->warn($dryRun

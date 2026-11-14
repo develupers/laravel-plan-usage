@@ -61,6 +61,27 @@ class EntitlementStatusPolicy
     }
 
     /**
+     * Whether a REVOKE for this status is a suspension the provider may still
+     * undo, rather than the end of the subscription.
+     *
+     * past_due under the revoke policy is the one such case: the provider is
+     * retrying the payment, and a successful retry returns the subscription
+     * to active within the same billing period. Callers must then take the
+     * plan away WITHOUT deleting the quota rows — otherwise the retry
+     * re-creates them with usage back at zero, handing the customer a second
+     * allowance for one payment.
+     */
+    public static function isRecoverableSuspension(string $provider, mixed $status): bool
+    {
+        if ($status instanceof \BackedEnum) {
+            $status = $status->value;
+        }
+
+        return $status === 'past_due'
+            && ! config("plan-usage.{$provider}.past_due_keeps_entitlements", true);
+    }
+
+    /**
      * Whether a locally stored subscription status still holds entitlements —
      * used by enforcement paths that only have the local row (no remote
      * refetch). GRANT and KEEP both hold; only REVOKE does not.
